@@ -2828,6 +2828,7 @@ dependencies = [
 name = "runemd"
 version = "0.0.1"
 dependencies = [
+ "block2 0.6.2",
  "notify",
  "objc2 0.6.5",
  "objc2-app-kit 0.3.2",

@@ -11,12 +11,14 @@
 
 mod doc;
 mod fx;
+mod open;
 mod probe;
 
 use std::borrow::Cow;
+use std::path::PathBuf;
 use std::time::Duration;
 
-use rune::{App, AppSpec, Cx, El, GrowthSpec, ScrollSpec, Tx, col, el, oklcha};
+use rune::{App, AppSpec, Cx, El, GrowthSpec, ScrollSpec, Tx, Waker, col, el, oklcha};
 use rune_kit::MarkdownStyle;
 
 const COLUMN: f32 = 760.0;
@@ -27,11 +29,34 @@ pub struct Doc {
     scroll: Option<probe::ScrollRun>,
 }
 
+impl Doc {
+    /// Apre i percorsi ricevuti (Finder, riga di comando). Per ora un solo documento: vale
+    /// l'ultimo percorso e sostituisce quello corrente. Il task 19 sposta questo metodo su
+    /// `App` e apre una scheda per percorso.
+    fn open_paths(&mut self, paths: Vec<PathBuf>) {
+        if !paths.is_empty() && std::env::var_os("RUNEMD_LOG_OPEN").is_some() {
+            eprintln!("runemd: open_paths {paths:?}");
+        }
+        let Some(path) = paths.last() else { return };
+        match std::fs::read_to_string(path) {
+            Ok(source) => self.blocks = doc::blocks::split(&source),
+            Err(e) => eprintln!("runemd: {}: {e}", path.display()),
+        }
+    }
+}
+
 fn init() -> Doc {
-    let path = rune::extra_args().first().cloned().or_else(|| std::env::var("MDSPIKE_FILE").ok())
-        .expect("uso: runemd FILE.md");
-    let source = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{path}: {e}"));
-    Doc { blocks: doc::blocks::split(&source), style: MarkdownStyle::neutral(true), scroll: probe::ScrollRun::from_env() }
+    let mut paths = open::cli_paths(rune::extra_args());
+    if paths.is_empty() {
+        paths.extend(std::env::var("MDSPIKE_FILE").ok().map(PathBuf::from));
+    }
+    let mut doc = Doc { blocks: Vec::new(), style: MarkdownStyle::neutral(true), scroll: probe::ScrollRun::from_env() };
+    doc.open_paths(paths);
+    doc
+}
+
+fn setup(_: &mut Doc, waker: Waker) {
+    open::queue::set_waker(waker);
 }
 
 fn block_row(s: &Doc, i: usize) -> El {
@@ -52,7 +77,13 @@ fn view(s: &Doc, _: &mut Cx<Doc>) -> El {
 }
 
 fn poll(s: &mut Doc, clock: f64, tx: &mut Tx) -> bool {
-    let Some(run) = s.scroll.as_mut() else { return false };
+    let queued = open::queue::drain();
+    let opened = !queued.is_empty();
+    if opened {
+        s.open_paths(queued);
+        tx.scroll_to_instant("doc", 0.0, 0.0);
+    }
+    let Some(run) = s.scroll.as_mut() else { return opened };
     if let Some(y) = run.step(clock) {
         tx.scroll_to_instant("doc", 0.0, y);
         tx.wake_after(Duration::from_millis(1));
@@ -67,9 +98,10 @@ fn poll(s: &mut Doc, clock: f64, tx: &mut Tx) -> bool {
 }
 
 fn main() {
+    open::install();
     rune::prewarm_gpu();
     probe::mark_start();
     // Lo slot mono di default è Inter: il codice va in SF Mono.
-    let spec = AppSpec { poll: Some(poll), families: ("Inter", "ui-monospace, Menlo"), ..AppSpec::new("runemd", (900.0, 1000.0), init, view) };
+    let spec = AppSpec { setup: Some(setup), poll: Some(poll), families: ("Inter", "ui-monospace, Menlo"), ..AppSpec::new("runemd", (900.0, 1000.0), init, view) };
     App::new(spec).compositor(fx::FxCompositor::default()).on_frame_encoded(probe::on_frame).run();
 }

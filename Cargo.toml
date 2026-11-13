@@ -12,6 +12,7 @@ wgpu = { version = "30", default-features = false }
 pulldown-cmark = { version = "0.13", default-features = false }
 notify = "8.2"
 similar = "2"
+block2 = "0.6"
 objc2 = "0.6"
 objc2-foundation = "0.3"
 objc2-app-kit = "0.3"
