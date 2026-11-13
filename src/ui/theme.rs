@@ -9,6 +9,10 @@ pub const COLUMN: f32 = 680.0;
 pub const ROW: f32 = 28.0;
 pub const TREE_ROW: f32 = 26.0;
 pub const TREE_INDENT: f32 = 16.0;
+/// Testo UI (DESIGN.md, `typography.ui`): 13 pt, peso 400.
+pub const UI_TEXT: f32 = 13.0;
+/// L'etichetta del fuoco sta a questa distanza dal fondo del pannello.
+pub const FIRE_LABEL_BOTTOM: f32 = 10.0;
 
 pub const R_KBD: f32 = 4.0;
 pub const R_ROW: f32 = 6.0;

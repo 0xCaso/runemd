@@ -41,6 +41,14 @@ pub struct Doc {
     ring_since: Option<f64>,
     /// Il risveglio armato per spegnere l'anello: uno per finestra, non uno a frame.
     ring_wake: Option<RingWake>,
+    /// Il fuoco: i blocchi nuovi o cambiati sotto la vista.
+    below: live::below::Below,
+    /// L'id dell'ultimo blocco visibile, dall'ultimo `on_visible_rows`; 0 prima del primo.
+    visible_last: u64,
+    /// L'orologio di Rune a cui si è acceso il fuoco; `None` quando è spento.
+    fire_since: Option<f64>,
+    /// La finestra è attiva (`on_window_focus`): senza, il fuoco resta fermo.
+    window_active: bool,
 }
 
 /// Un risveglio per la fine della finestra "sta scrivendo".
@@ -56,6 +64,41 @@ impl Doc {
     /// L'anello "sta scrivendo" è acceso: il compositor scorre le istanze solo allora.
     pub fn ring_lit(&self) -> bool {
         self.ring_since.is_some()
+    }
+
+    /// Un effetto per slot è acceso (anello o fuoco): il compositor scorre le istanze solo allora.
+    pub fn effects_lit(&self) -> bool {
+        self.ring_lit() || self.fire_since.is_some()
+    }
+
+    /// Accende o spegne il fuoco secondo il conto di `below`; vero se è cambiato. Un fuoco già
+    /// acceso resta con il suo `since`: una seconda ricarica non lo fa risalire.
+    fn update_fire(&mut self, clock: f64) -> bool {
+        let lit = self.below.count() > 0;
+        if lit == self.fire_since.is_some() {
+            return false;
+        }
+        self.fire_since = lit.then_some(clock);
+        true
+    }
+
+    /// Le righe visibili sono cambiate (scroll, ricarica, ridimensionamento): l'ultima esce dal
+    /// conto del fuoco e diventa l'ancora delle ricariche seguenti. Vero se la vista cambia
+    /// (etichetta o fuoco). Lo scroll toglie blocchi dal conto e non ne aggiunge: qui il fuoco
+    /// può solo spegnersi, si accende in `poll`.
+    fn visible_rows(&mut self, rows: std::ops::Range<usize>) -> bool {
+        let Some(doc) = self.document.as_ref() else { return false };
+        // Rune riporta gli indici dell'ultimo layout: con una ricarica in mezzo possono andare
+        // oltre i blocchi di adesso, e allora si aspetta il prossimo rapporto.
+        let Some(last) = rows.end.checked_sub(1).filter(|&i| i < doc.blocks.len() && !rows.is_empty()) else { return false };
+        self.visible_last = doc.blocks[last].id;
+        let before = self.below.count();
+        let order: Vec<u64> = doc.blocks.iter().map(|b| b.id).collect();
+        self.below.on_scroll(last, &order);
+        if self.below.count() == 0 {
+            self.fire_since = None;
+        }
+        self.below.count() != before
     }
 
     /// Accende o spegne l'anello secondo `Live` a `now`; vero se è cambiato. Ritorna anche il
@@ -104,6 +147,10 @@ impl Doc {
                 self.live.watch(path);
                 self.document = Some(document);
                 self.generation += 1;
+                // Un altro file: niente fuoco e nessuna ancora finché la vista non riporta righe.
+                self.below = live::below::Below::default();
+                self.visible_last = 0;
+                self.fire_since = None;
             }
             Err(e) => eprintln!("runemd: {}: {e}", path.display()),
         }
@@ -120,7 +167,7 @@ fn init() -> Doc {
     if paths.is_empty() {
         paths.extend(std::env::var("MDSPIKE_FILE").ok().map(PathBuf::from));
     }
-    let mut doc = Doc { document: None, style: ui::markdown_style::style(&ui::theme::Theme::for_mode(dark_mode()), 15.5), scroll: probe::ScrollRun::from_env(), generation: 0, live: live::Live::default(), ring_since: None, ring_wake: None };
+    let mut doc = Doc { document: None, style: ui::markdown_style::style(&ui::theme::Theme::for_mode(dark_mode()), 15.5), scroll: probe::ScrollRun::from_env(), generation: 0, live: live::Live::default(), ring_since: None, ring_wake: None, below: live::below::Below::default(), visible_last: 0, fire_since: None, window_active: true };
     doc.open_paths(paths);
     doc
 }
@@ -136,10 +183,23 @@ fn open_document(s: &Doc) -> &Document {
 }
 
 fn view(s: &Doc, cx: &mut Cx<Doc>) -> El {
-    let body = if s.document.is_some() { ui::doc_view::view(s, open_document, s.generation, &s.style) } else { el() };
-    let theme = ui::theme::Theme::for_mode(dark_mode());
+    let body = if s.document.is_some() { ui::doc_view::view(s, open_document, s.generation, &s.style, Doc::visible_rows) } else { el() };
+    let dark = dark_mode();
+    let theme = ui::theme::Theme::for_mode(dark);
     // Vetro di sistema attorno, pannello pieno a `FRAME` dai bordi con il documento.
-    let panel = el().w_full().h_full().fill(theme.panel).radius(ui::theme::R_PANEL).clip_rounded(ui::theme::R_PANEL).child(body);
+    let mut panel = el().w_full().h_full().fill(theme.panel).radius(ui::theme::R_PANEL).clip_rounded(ui::theme::R_PANEL).child(body);
+    // Il fuoco: una fascia sul fondo del pannello, sopra il documento, con l'etichetta. Fuori
+    // dal flusso, così il documento e il suo scroll non si muovono quando compare.
+    // L'etichetta è una fascia sorella dopo lo slot, così Rune la dipinge sopra le fiamme. Sta
+    // sulla base calda del fuoco: nel tema scuro la base è quasi bianca e il testo prende il
+    // colore del pannello; nel chiaro (Multiply) la base è arancio e il testo resta `fg`.
+    if let Some(since) = s.fire_since {
+        let band = |key: &str| rune::col().key(key).pin(Some(0.0), None, Some(0.0), Some(0.0)).h(fx::fire::FIRE_H);
+        panel = panel.child(fx::fire::slot(band("fire"), since, dark, cx.is_reduced_motion(), s.window_active));
+        let ink = if dark { theme.panel } else { theme.fg };
+        let label = rune::text(ui::doc_view::fire_label(s.below.count())).font(rune::TextStyle::new(ui::theme::UI_TEXT, 400.0)).color(ink);
+        panel = panel.child(band("fire-label").items_center().justify_end().pb(ui::theme::FIRE_LABEL_BOTTOM).child(label));
+    }
     // L'anello "sta scrivendo" sta in uno slot attorno al pannello, sempre presente perché la
     // struttura (e lo scroll del documento) non cambi quando si accende.
     // TODO(task 16/19): ospite temporaneo. L'anello va sulla scheda del file (task 19), sulla sua
@@ -151,6 +211,7 @@ fn view(s: &Doc, cx: &mut Cx<Doc>) -> El {
         None => host,
     };
     el().w_full().h_full().system_material(rune::SystemMaterial::Glass).fill(theme.glass).padding(ui::theme::FRAME).child(host)
+        .on_window_focus(|s: &mut Doc, focused, _| s.window_active = focused)
 }
 
 /// Ogni tasto non preso da un controllo, prima della selezione di Rune: il Cmd+A va segnato.
@@ -175,13 +236,21 @@ fn poll(s: &mut Doc, clock: f64, tx: &mut Tx) -> bool {
     }
     if let Some(r) = &reloaded {
         probe::reloaded(r);
+        if let Some(doc) = &s.document {
+            let order: Vec<u64> = doc.blocks.iter().map(|b| b.id).collect();
+            s.below.on_change(&r.change, s.visible_last, &order);
+        }
     }
+    // Il fuoco si accende con una ricarica che porta testo sotto la vista e si spegne quando
+    // l'ultimo di quei blocchi entra nella vista (`visible_rows`). Non serve un risveglio: lo
+    // spegne un evento di scroll o di layout, e il conto non scade col tempo.
+    let fire = s.update_fire(clock);
     // L'anello si spegne con un solo risveglio a fine finestra, non con frame continui.
     let (ring, wake) = s.update_ring(clock, Instant::now());
     if let Some(d) = wake {
         tx.wake_after(d);
     }
-    let changed = opened || reloaded.is_some() || ring;
+    let changed = opened || reloaded.is_some() || ring || fire;
     let Some(run) = s.scroll.as_mut() else { return changed };
     if let Some(y) = run.step(clock) {
         tx.scroll_to_instant("doc", 0.0, y);
@@ -210,7 +279,7 @@ mod tests {
     use super::*;
 
     fn empty_doc() -> Doc {
-        Doc { document: None, style: ui::markdown_style::style(&ui::theme::Theme::for_mode(true), 15.5), scroll: None, generation: 0, live: live::Live::default(), ring_since: None, ring_wake: None }
+        Doc { document: None, style: ui::markdown_style::style(&ui::theme::Theme::for_mode(true), 15.5), scroll: None, generation: 0, live: live::Live::default(), ring_since: None, ring_wake: None, below: live::below::Below::default(), visible_last: 0, fire_since: None, window_active: true }
     }
 
     /// Con "riduci movimento" non passa nessun frame: `poll` gira solo ai risvegli. Rune misura
@@ -259,7 +328,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let f = dir.join("a.md");
         std::fs::write(&f, "# a\n\nb\n").unwrap();
-        let mut doc = Doc { document: None, style: ui::markdown_style::style(&ui::theme::Theme::for_mode(true), 15.5), scroll: None, generation: 0, live: live::Live::default(), ring_since: None, ring_wake: None };
+        let mut doc = Doc { document: None, style: ui::markdown_style::style(&ui::theme::Theme::for_mode(true), 15.5), scroll: None, generation: 0, live: live::Live::default(), ring_since: None, ring_wake: None, below: live::below::Below::default(), visible_last: 0, fire_since: None, window_active: true };
         doc.open_paths(vec![f.clone()]);
         // Rune rilegge le chiavi solo se la versione cambia: anche lo stesso file invariato,
         // riaperto, deve cambiare versione e chiavi.

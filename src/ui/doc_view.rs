@@ -7,6 +7,7 @@
 
 use std::borrow::Cow;
 use std::collections::HashSet;
+use std::ops::Range;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -37,7 +38,11 @@ pub fn rows_version(generation: u64, doc: &Document) -> (u64, u64, u64) {
 /// `virtual_rows` non possono tenere prestiti: a layout ricevono lo stato della finestra e
 /// ritrovano il documento con lo stesso `doc_of`, così numero di righe, versione, chiavi e
 /// contenuto vengono tutti dallo stesso documento.
-pub fn view<S: 'static>(s: &S, doc_of: fn(&S) -> &Document, generation: u64, style: &MarkdownStyle) -> El {
+///
+/// `on_rows` riceve gli indici delle righe visibili (`on_visible_rows` di Rune: `start..end`,
+/// righe anche solo in parte nella vista) dopo il primo layout e a ogni loro cambio; ritorna
+/// vero se ha cambiato stato che la vista legge.
+pub fn view<S: 'static>(s: &S, doc_of: fn(&S) -> &Document, generation: u64, style: &MarkdownStyle, on_rows: fn(&mut S, Range<usize>) -> bool) -> El {
     let doc = doc_of(s);
     let style = style.clone();
     let blocks: Arc<[(u64, Arc<str>)]> = doc.blocks.iter().map(|b| (b.id, b.source.clone())).collect();
@@ -55,9 +60,15 @@ pub fn view<S: 'static>(s: &S, doc_of: fn(&S) -> &Document, generation: u64, sty
             move |s: &S, i| Cow::Owned(row_key(generation, i, doc_of(s))),
             move |s: &S, i| block_row(&doc_of(s).blocks[i].source, &style),
         )
-        .virtual_rows_version(rows_version(generation, doc));
+        .virtual_rows_version(rows_version(generation, doc))
+        .on_visible_rows(on_rows);
     let page = col().w_full().child(el().h(24.0)).child(rows).child(el().h(48.0));
     col().key("doc").w_full().h_full().scroll(ScrollSpec { stick_bottom: false }).child(page)
+}
+
+/// L'etichetta del fuoco: quanti blocchi nuovi ci sono sotto la vista (testo approvato, spec).
+pub fn fire_label(n: usize) -> String {
+    if n == 1 { "1 paragrafo nuovo più in basso".to_owned() } else { format!("{n} paragrafi nuovi più in basso") }
 }
 
 /// I tetti della selezione ricostruita fuori vista (rune `MAX_VIRTUAL_COPY_BYTES` e
@@ -212,7 +223,7 @@ mod tests {
     }
 
     fn open_doc(document: Document) -> Runtime<Doc> {
-        let state = Doc { document: Some(document), style: MarkdownStyle::neutral(true), scroll: None, generation: 1, live: crate::live::Live::default(), ring_since: None, ring_wake: None };
+        let state = Doc { document: Some(document), style: MarkdownStyle::neutral(true), scroll: None, generation: 1, live: crate::live::Live::default(), ring_since: None, ring_wake: None, below: crate::live::below::Below::default(), visible_last: 0, fire_since: None, window_active: true };
         let mut rt = Runtime::new(state, crate::view, VIEWPORT, Env::new(true, 2.0));
         rt.on_key = Some(crate::on_key);
         rt.frame(0.0);
@@ -353,6 +364,37 @@ mod tests {
         let blocks: Vec<String> = (0..5).map(|n| format!("Nuovo {n}: {}", paragraph(n))).chain([big.trim_end().to_owned()]).collect();
         edit(&mut rt, &blocks);
         assert_still("500 KB, inserisci in testa", before, anchor(&rt));
+    }
+
+    /// Il fuoco sul runtime: 3 blocchi aggiunti in fondo mentre si legge in cima lo accendono
+    /// (l'ultimo visibile viene da `on_visible_rows`), lo scroll in fondo lo spegne.
+    #[test]
+    fn appended_blocks_light_the_fire_until_scrolled_into_view() {
+        let mut rt = open(&join(&sample()));
+        assert!(rt.state.visible_last != 0, "la vista ha riportato l'ultima riga visibile");
+        let mut blocks = sample();
+        blocks.extend((0..3).map(|n| format!("Nuovo in fondo {n}: {}", paragraph(n))));
+        let src = join(&blocks);
+        rt.update(|s, _| {
+            let change = s.document.as_mut().unwrap().update(&src);
+            let order: Vec<u64> = s.document.as_ref().unwrap().blocks.iter().map(|b| b.id).collect();
+            s.below.on_change(&change, s.visible_last, &order);
+            assert!(s.update_fire(1.0));
+        });
+        settle(&mut rt);
+        assert_eq!(rt.state.below.count(), 3);
+        assert_eq!(rt.state.fire_since, Some(1.0));
+        assert!(rt.elements().iter().any(|e| e.key.as_deref() == Some("fire")), "slot del fuoco");
+        scroll_to(&mut rt, 1.0e9);
+        assert_eq!(rt.state.below.count(), 0);
+        assert_eq!(rt.state.fire_since, None);
+        assert!(!rt.elements().iter().any(|e| e.key.as_deref() == Some("fire") && !e.exiting), "fuoco spento");
+    }
+
+    #[test]
+    fn fire_label() {
+        assert_eq!(super::fire_label(1), "1 paragrafo nuovo più in basso");
+        assert_eq!(super::fire_label(4), "4 paragrafi nuovi più in basso");
     }
 
     // --- selezione e copia (task 7) ---
