@@ -44,12 +44,21 @@ pub fn layer_rounded(rect: Rect, radius: f32, t: f32, reduced: bool) -> FxLayer 
 /// (`poll` lo riceve, il compositor legge `Runtime::clock`). Il compositor lo dipinge con
 /// [`layer_rounded`] sul rect e il raggio di `el`.
 pub fn slot(el: El, mark: Mark, since: f64, reduced: bool) -> El {
-    el.effect(mark.id()).effect_bleed(RING_W).effect_data([since as f32, if reduced { 1.0 } else { 0.0 }, 0.0, 0.0])
+    el.effect(mark.id()).effect_bleed(RING_W).effect_data(slot_data(since, reduced))
+}
+
+/// `effect_data` di uno [`slot`]: `since` in due f32 (parte alta e resto), così dopo giorni di
+/// orologio la differenza resta precisa al µs; poi "riduci movimento".
+pub fn slot_data(since: f64, reduced: bool) -> [f32; 4] {
+    let hi = since as f32;
+    [hi, if reduced { 1.0 } else { 0.0 }, (since - f64::from(hi)) as f32, 0.0]
 }
 
 /// Da `effect_data` di uno [`slot`]: secondi da quando l'anello è acceso e "riduci movimento".
+/// La sottrazione è in f64; si passa a f32 solo dopo.
 pub fn slot_time(data: [f32; 4], clock: f64) -> (f32, bool) {
-    ((clock as f32 - data[0]).max(0.0), data[1] > 0.5)
+    let since = f64::from(data[0]) + f64::from(data[2]);
+    ((clock - since).max(0.0) as f32, data[1] > 0.5)
 }
 
 /// Ease-out cubica da 0 a 1 in `ENTER`.
@@ -111,8 +120,22 @@ mod tests {
 
     #[test]
     fn slot_data_round_trips() {
-        assert_eq!(slot_time([12.5, 1.0, 0.0, 0.0], 13.0), (0.5, true));
-        assert_eq!(slot_time([12.5, 0.0, 0.0, 0.0], 12.0), (0.0, false), "mai negativo");
+        assert_eq!(slot_time(slot_data(12.5, true), 13.0), (0.5, true));
+        assert_eq!(slot_time(slot_data(12.5, false), 12.0), (0.0, false), "mai negativo");
+    }
+
+    /// Dopo 30 giorni di orologio (2,6 milioni di s, oltre la precisione di un f32) l'entrata
+    /// di 220 ms sale ancora a gradini di frame, non a salti di 0,25 s.
+    #[test]
+    fn fade_still_ramps_after_30_days() {
+        let since = 30.0 * 86_400.0 + 0.123_456;
+        let data = slot_data(since, false);
+        let opacity = |dt: f64| layer(row(), slot_time(data, since + dt).0, false).opacity;
+        let ramp: Vec<f32> = [0.0, 0.033, 0.066, 0.1, 0.15, 0.22].iter().map(|dt| opacity(*dt)).collect();
+        assert!(ramp[0] < 0.01, "{ramp:?}");
+        assert!(ramp.windows(2).all(|w| w[1] > w[0]), "sale a ogni frame: {ramp:?}");
+        assert!(ramp[5] > 0.999, "{ramp:?}");
+        assert!((slot_time(data, since + 1.5).0 - 1.5).abs() < 1e-3);
     }
 
     #[test]

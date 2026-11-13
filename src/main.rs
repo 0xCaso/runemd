@@ -39,8 +39,17 @@ pub struct Doc {
     /// L'orologio di Rune (`poll`) a cui si è acceso l'anello "sta scrivendo" del file aperto;
     /// `None` quando è spento.
     ring_since: Option<f64>,
-    /// La fine della finestra per cui c'è già un risveglio: uno solo per finestra, non uno a frame.
-    ring_wake: Option<Instant>,
+    /// Il risveglio armato per spegnere l'anello: uno per finestra, non uno a frame.
+    ring_wake: Option<RingWake>,
+}
+
+/// Un risveglio per la fine della finestra "sta scrivendo".
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct RingWake {
+    /// La fine della finestra (orologio del muro, come `Activity`).
+    end: Instant,
+    /// Quando Rune lo fa scattare, nel suo orologio (`poll` lo riceve come `clock`).
+    at: f64,
 }
 
 impl Doc {
@@ -50,13 +59,30 @@ impl Doc {
     }
 
     /// Accende o spegne l'anello secondo `Live` a `now`; vero se è cambiato. Ritorna anche il
-    /// risveglio da chiedere, una volta per finestra: a fine finestra `poll` lo spegne anche
-    /// se nessun frame è passato in mezzo (con "riduci movimento" non ne passano).
+    /// risveglio da chiedere: a fine finestra `poll` lo spegne anche se nessun frame è passato
+    /// in mezzo (con "riduci movimento" non ne passano).
     fn update_ring(&mut self, clock: f64, now: Instant) -> (bool, Option<Duration>) {
-        let left = self.live.writing_left(now);
+        self.ring_step(self.live.writing_left(now), clock, now)
+    }
+
+    /// `update_ring` con `left` (fra quanto finisce la finestra, a `now`) già calcolato.
+    ///
+    /// Si arma un risveglio quando la fine della finestra cambia (una scrittura nuova) e quando
+    /// quello armato è scaduto (nell'orologio di Rune) con l'anello ancora acceso: Rune misura
+    /// `wake_after` da `clock`, l'inizio del frame, e la fine da `now`, più tardi; il risveglio
+    /// può arrivare un po' prima della fine sul muro. Un poll a metà finestra non arma niente.
+    fn ring_step(&mut self, left: Option<Duration>, clock: f64, now: Instant) -> (bool, Option<Duration>) {
         let end = left.map(|d| now + d);
-        let wake = if end != self.ring_wake { left.map(|d| d + Duration::from_millis(1)) } else { None };
-        self.ring_wake = end;
+        let due = self.ring_wake.is_some_and(|w| clock >= w.at);
+        let wake = match left {
+            Some(d) if due || end != self.ring_wake.map(|w| w.end) => Some(d + Duration::from_millis(1)),
+            _ => None,
+        };
+        self.ring_wake = match (end, wake) {
+            (Some(end), Some(d)) => Some(RingWake { end, at: clock + d.as_secs_f64() }),
+            (Some(_), None) => self.ring_wake,
+            (None, _) => None,
+        };
         let lit = left.is_some();
         if lit == self.ring_lit() {
             return (false, wake);
@@ -182,6 +208,50 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn empty_doc() -> Doc {
+        Doc { document: None, style: ui::markdown_style::style(&ui::theme::Theme::for_mode(true), 15.5), scroll: None, generation: 0, live: live::Live::default(), ring_since: None, ring_wake: None }
+    }
+
+    /// Con "riduci movimento" non passa nessun frame: `poll` gira solo ai risvegli. Rune misura
+    /// `wake_after` dall'orologio di inizio frame, più vecchio di `Instant::now()`: il risveglio
+    /// può arrivare prima della fine della finestra. Quel risveglio ne arma un altro, e
+    /// l'anello si spegne alla fine.
+    #[test]
+    fn an_early_wake_rearms_and_the_ring_goes_off() {
+        let t0 = Instant::now();
+        let ms = |n| Duration::from_millis(n);
+        let window = live::activity::WRITING_WINDOW;
+        let mut doc = empty_doc();
+        // Ricarica applicata a t0, al clock 100 s; il frame finisce 5 ms dopo l'inizio.
+        let (changed, wake) = doc.ring_step(Some(window), 100.0, t0);
+        assert!(changed && doc.ring_lit());
+        let wake = wake.expect("un risveglio alla fine");
+        // Nessun frame in mezzo: solo il risveglio, che arriva 5 ms prima della fine sul muro.
+        let clock = 100.0 + wake.as_secs_f64();
+        let now = t0 + window - ms(5);
+        let (changed, again) = doc.ring_step(Some(ms(5)), clock, now);
+        assert!(!changed && doc.ring_lit());
+        let again = again.expect("il risveglio in anticipo ne arma un altro");
+        assert!(again >= ms(5));
+        // Al secondo risveglio la finestra è finita.
+        let (changed, last) = doc.ring_step(None, clock + again.as_secs_f64(), now + again);
+        assert!(changed && !doc.ring_lit(), "spento a fine finestra");
+        assert_eq!(last, None, "nessun altro risveglio");
+    }
+
+    /// Un poll qualsiasi a anello acceso (un frame) non arma un risveglio nuovo.
+    #[test]
+    fn one_wake_per_window() {
+        let t0 = Instant::now();
+        let window = live::activity::WRITING_WINDOW;
+        let mut doc = empty_doc();
+        assert!(doc.ring_step(Some(window), 0.0, t0).1.is_some());
+        let dt = Duration::from_millis(16);
+        assert_eq!(doc.ring_step(Some(window - dt), 0.016, t0 + dt).1, None);
+        // Una nuova scrittura allunga la finestra: un risveglio per la fine nuova.
+        assert!(doc.ring_step(Some(window), 0.032, t0 + 2 * dt).1.is_some());
+    }
 
     #[test]
     fn row_keys_change_after_open_paths() {

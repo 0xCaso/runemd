@@ -30,7 +30,7 @@ const TICK: Duration = Duration::from_millis(25);
 pub enum FsEvent {
     Changed(PathBuf),
     Removed(PathBuf),
-    /// `.git/HEAD` è cambiato: la radice del repo.
+    /// `.git/HEAD`, `ORIG_HEAD` o `FETCH_HEAD` è cambiato: la radice del repo.
     GitHead(PathBuf),
 }
 
@@ -40,13 +40,15 @@ enum Key {
     Head(PathBuf),
 }
 
-/// La radice del repo se `path` è `<repo>/.git/HEAD`.
+/// La radice del repo se `path` è `<repo>/.git/HEAD`, `ORIG_HEAD` o `FETCH_HEAD`: checkout
+/// scrive `HEAD`; pull e `reset --hard` spostano solo i ref, ma scrivono `ORIG_HEAD` e
+/// `FETCH_HEAD`. Per l'app sono tutti "il repo ha cambiato HEAD" (`FsEvent::GitHead`).
 ///
 /// Limite noto: riconosce solo un genitore chiamato `.git`. Nei worktree `.git` è un file
 /// (`gitdir: ...`) e nei submodule HEAD sta in `.git/modules/<m>/HEAD`: in entrambi i casi non
 /// esce `GitHead`. Il task che mostra il ramo aggiungerà il supporto.
 fn git_head_root(path: &Path) -> Option<PathBuf> {
-    if path.file_name()? != "HEAD" {
+    if !["HEAD", "ORIG_HEAD", "FETCH_HEAD"].iter().any(|n| path.file_name() == Some(n.as_ref())) {
         return None;
     }
     let git = path.parent()?;
@@ -629,5 +631,21 @@ mod tests {
         core.observe(PathBuf::from("/r/.git/config"), t0);
         assert_eq!(core.drain(t0 + Duration::from_millis(60)), vec![FsEvent::GitHead(PathBuf::from("/r"))]);
         assert!(!filter::wanted(Path::new("/r/.git/HEAD")));
+    }
+
+    /// Pull e `reset --hard` non toccano `.git/HEAD` ma `ORIG_HEAD` e `FETCH_HEAD`: anche
+    /// quelli sono un cambio di HEAD del repo. Gli altri file di `.git` no.
+    #[test]
+    fn orig_head_and_fetch_head_are_head_events() {
+        for name in ["HEAD", "ORIG_HEAD", "FETCH_HEAD"] {
+            assert_eq!(git_head_root(Path::new(&format!("/r/.git/{name}"))), Some(PathBuf::from("/r")), "{name}");
+        }
+        for path in ["/r/.git/refs/heads/HEAD", "/r/.git/index", "/r/ORIG_HEAD", "/r/.git/refs/heads/main"] {
+            assert_eq!(git_head_root(Path::new(path)), None, "{path}");
+        }
+        let t0 = Instant::now();
+        let mut core = Core::new();
+        core.observe(PathBuf::from("/r/.git/ORIG_HEAD"), t0);
+        assert_eq!(core.drain(t0 + Duration::from_millis(60)), vec![FsEvent::GitHead(PathBuf::from("/r"))]);
     }
 }
