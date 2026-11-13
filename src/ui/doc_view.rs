@@ -67,19 +67,26 @@ const SELECT_ALL: u64 = 2;
 
 /// Da chiamare con ogni tasto che l'app riceve (`AppSpec::on_key`, prima della selezione di
 /// Rune): un Cmd+A segna che la selezione che ne segue è "tutto il file".
-pub fn note_key(doc: &Document, key: &KeyEvent) {
-    if matches!(key.key, Key::Command('a')) && (key.mods.cmd || key.mods.logo) {
+///
+/// Vale solo il tasto che Rune prende per sé: Cmd+A semplice (come `selection_key`: niente Shift,
+/// Option, né Control con Logo) e non ripetuto.
+pub fn note_key(doc: &Document, key: &KeyEvent, repeat: bool) {
+    let m = key.mods;
+    let plain = m.cmd && !m.shift && !m.alt && !(m.ctrl && m.logo);
+    if matches!(key.key, Key::Command('a')) && plain && !repeat {
         let _ = doc.select_all.compare_exchange(NO_SELECT_ALL, SELECT_ALL_PENDING, Ordering::Relaxed, Ordering::Relaxed);
     }
 }
 
-/// Ogni cambio di selezione. Dopo un Cmd+A la prima selezione vale "tutto"; Rune poi la completa
+/// Ogni cambio di selezione. Un Cmd+A in attesa scade al primo cambio che non è di Rune: una
+/// selezione fatta col puntatore (`dragging`) o svuotata. Dopo un Cmd+A la prima selezione vale
+/// "tutto"; Rune poi la completa
 /// con le righe che ricostruisce, senza `started` e senza accorciarla: resta "tutto". Un clic, uno
 /// svuotamento, una selezione nuova o più corta la tolgono.
 fn selection_changed(flag: &AtomicU64, change: &rune::SelectionChange) {
     let len = change.selection().map_or(0, |t| t.text().len() as u64);
     let state = flag.load(Ordering::Relaxed);
-    let next = if change.cleared() || len == 0 {
+    let next = if change.cleared() || change.dragging() || len == 0 {
         NO_SELECT_ALL
     } else if state == SELECT_ALL_PENDING || (state >= SELECT_ALL && !change.started() && len + SELECT_ALL >= state) {
         SELECT_ALL + len
@@ -462,5 +469,15 @@ mod tests {
         let blocks = source(&rt);
         cmd(&mut rt, 'a');
         assert_eq!(drag_copy(&mut rt, 2, 4), blocks[2..=4].join("\n\n"));
+    }
+
+    #[test]
+    fn a_drag_after_a_cmd_a_that_selected_nothing_copies_the_dragged_blocks() {
+        let mut rt = open(&join(&sample()));
+        let blocks = source(&rt);
+        // Cmd+Shift+A è un tasto dell'app: Rune non seleziona, la vista non deve restare in attesa.
+        rt.key(KeyEvent { key: Key::Command('a'), mods: Mods { cmd: true, logo: true, shift: true, ..Mods::default() } });
+        rt.frame(1.0 / 60.0);
+        assert_eq!(drag_copy(&mut rt, 2, 3), blocks[2..=3].join("\n\n"));
     }
 }

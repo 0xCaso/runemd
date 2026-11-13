@@ -76,9 +76,9 @@ fn view(s: &Doc, _: &mut Cx<Doc>) -> El {
 }
 
 /// Ogni tasto non preso da un controllo, prima della selezione di Rune: il Cmd+A va segnato.
-fn on_key(s: &mut Doc, key: &rune::KeyEvent, _: &mut Tx) -> bool {
+fn on_key(s: &mut Doc, key: &rune::KeyEvent, tx: &mut Tx) -> bool {
     if let Some(doc) = &s.document {
-        ui::doc_view::note_key(doc, key);
+        ui::doc_view::note_key(doc, key, tx.key_repeat());
     }
     false
 }
