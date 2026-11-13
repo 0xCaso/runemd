@@ -8,6 +8,7 @@ publish = false
 rune = { git = "https://github.com/anomalyco/rune", rev = "384c2991e582418ba529835279c5876ac3915e02", features = ["tooling"] }
 rune-kit = { git = "https://github.com/anomalyco/rune", rev = "384c2991e582418ba529835279c5876ac3915e02", features = ["markdown", "mermaid"] }
 rune-fx = { git = "https://github.com/anomalyco/rune", rev = "384c2991e582418ba529835279c5876ac3915e02" }
+wgpu = { version = "30", default-features = false }
 pulldown-cmark = { version = "0.13", default-features = false }
 notify = "8.2"
 similar = "2"

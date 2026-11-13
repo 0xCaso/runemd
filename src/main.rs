@@ -10,6 +10,7 @@
 //!   velocità costante e scrive gli intervalli tra frame presentati in `MDSPIKE_LOG`, poi esce.
 
 mod doc;
+mod fx;
 mod probe;
 
 use std::borrow::Cow;
@@ -20,7 +21,7 @@ use rune_kit::MarkdownStyle;
 
 const COLUMN: f32 = 760.0;
 
-struct Doc {
+pub struct Doc {
     blocks: Vec<String>,
     style: MarkdownStyle,
     scroll: Option<probe::ScrollRun>,
@@ -55,6 +56,8 @@ fn poll(s: &mut Doc, clock: f64, tx: &mut Tx) -> bool {
     if let Some(y) = run.step(clock) {
         tx.scroll_to_instant("doc", 0.0, y);
         tx.wake_after(Duration::from_millis(1));
+        // Senza una barra glass che anima, nulla chiede un frame: lo scroll di misura lo chiede qui.
+        return true;
     } else if run.finished() {
         probe::finish_scroll();
     } else {
@@ -68,5 +71,5 @@ fn main() {
     probe::mark_start();
     // Lo slot mono di default è Inter: il codice va in SF Mono.
     let spec = AppSpec { poll: Some(poll), families: ("Inter", "ui-monospace, Menlo"), ..AppSpec::new("runemd", (900.0, 1000.0), init, view) };
-    App::new(spec).on_frame_encoded(probe::on_frame).run();
+    App::new(spec).compositor(fx::FxCompositor::default()).on_frame_encoded(probe::on_frame).run();
 }
