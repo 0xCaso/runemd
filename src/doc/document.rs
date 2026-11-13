@@ -3,6 +3,7 @@
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::AtomicU64;
 
 use super::{blocks, ids};
 
@@ -27,6 +28,9 @@ pub struct Document {
     pub revision: u64,
     pub blocks: Vec<Block>,
     pub file_hash: u64,
+    /// Se la selezione corrente è un Cmd+A, e quanto è lunga (`ui::doc_view`); condiviso con le
+    /// closure della vista.
+    pub select_all: Arc<AtomicU64>,
     next_id: u64,
 }
 
@@ -43,6 +47,7 @@ impl Document {
             revision: 0,
             blocks: Vec::new(),
             file_hash: ids::hash_str(source),
+            select_all: Arc::default(),
             next_id: 1,
         };
         let (blocks, _) = ids::assign(&[], ids::hash_sources(blocks::split(source)), &mut doc.next_id);

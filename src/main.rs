@@ -75,6 +75,14 @@ fn view(s: &Doc, _: &mut Cx<Doc>) -> El {
     el().w_full().h_full().fill(oklcha(0.17, 0.01, 265.0, 1.0)).child(body)
 }
 
+/// Ogni tasto non preso da un controllo, prima della selezione di Rune: il Cmd+A va segnato.
+fn on_key(s: &mut Doc, key: &rune::KeyEvent, _: &mut Tx) -> bool {
+    if let Some(doc) = &s.document {
+        ui::doc_view::note_key(doc, key);
+    }
+    false
+}
+
 fn poll(s: &mut Doc, clock: f64, tx: &mut Tx) -> bool {
     let queued = open::queue::drain();
     let opened = !queued.is_empty();
@@ -101,7 +109,7 @@ fn main() {
     rune::prewarm_gpu();
     probe::mark_start();
     // Lo slot mono di default è Inter: il codice va in SF Mono.
-    let spec = AppSpec { setup: Some(setup), poll: Some(poll), families: ("Inter", "ui-monospace, Menlo"), ..AppSpec::new("runemd", (900.0, 1000.0), init, view) };
+    let spec = AppSpec { setup: Some(setup), poll: Some(poll), on_key: Some(on_key), families: ("Inter", "ui-monospace, Menlo"), ..AppSpec::new("runemd", (900.0, 1000.0), init, view) };
     App::new(spec).compositor(fx::FxCompositor::default()).on_frame_encoded(probe::on_frame).run();
 }
 

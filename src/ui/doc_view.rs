@@ -9,8 +9,9 @@ use std::borrow::Cow;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
-use rune::{El, GrowthSpec, ScrollSpec, TextSelection, col, el};
+use rune::{El, GrowthSpec, Key, KeyEvent, ScrollSpec, TextSelection, col, el};
 use rune_kit::MarkdownStyle;
 
 use crate::doc::document::Document;
@@ -41,9 +42,12 @@ pub fn view<S: 'static>(s: &S, doc_of: fn(&S) -> &Document, generation: u64, sty
     let style = style.clone();
     let blocks: Arc<[(u64, Arc<str>)]> = doc.blocks.iter().map(|b| (b.id, b.source.clone())).collect();
     let file = File { path: doc.path.clone(), hash: doc.file_hash };
+    let select_all = doc.select_all.clone();
+    let flag = select_all.clone();
     let rows = col().key("rows").w_full().max_w(COLUMN).self_center().selection_group(true)
         .growth(GrowthSpec::default())
-        .selection_copy(move |sel| copy_source(sel, generation, &file, &blocks))
+        .selection_copy(move |sel| copy_source(sel, generation, &file, &select_all, &blocks))
+        .on_selection_change(move |_: &mut S, ch, _| selection_changed(&flag, ch))
         .virtual_rows(
             doc.blocks.len(),
             60.0,
@@ -55,35 +59,56 @@ pub fn view<S: 'static>(s: &S, doc_of: fn(&S) -> &Document, generation: u64, sty
     col().key("doc").w_full().h_full().scroll(ScrollSpec { stick_bottom: false }).child(page)
 }
 
+/// Stato di `Document::select_all`: `0` nessun Cmd+A; `1` Cmd+A premuto, la selezione che ne
+/// segue non è ancora arrivata; `2 + n` selezione fatta da un Cmd+A, lunga `n` byte di testo.
+const NO_SELECT_ALL: u64 = 0;
+const SELECT_ALL_PENDING: u64 = 1;
+const SELECT_ALL: u64 = 2;
+
+/// Da chiamare con ogni tasto che l'app riceve (`AppSpec::on_key`, prima della selezione di
+/// Rune): un Cmd+A segna che la selezione che ne segue è "tutto il file".
+pub fn note_key(doc: &Document, key: &KeyEvent) {
+    if matches!(key.key, Key::Command('a')) && (key.mods.cmd || key.mods.logo) {
+        let _ = doc.select_all.compare_exchange(NO_SELECT_ALL, SELECT_ALL_PENDING, Ordering::Relaxed, Ordering::Relaxed);
+    }
+}
+
+/// Ogni cambio di selezione. Dopo un Cmd+A la prima selezione vale "tutto"; Rune poi la completa
+/// con le righe che ricostruisce, senza `started` e senza accorciarla: resta "tutto". Un clic, uno
+/// svuotamento, una selezione nuova o più corta la tolgono.
+fn selection_changed(flag: &AtomicU64, change: &rune::SelectionChange) {
+    let len = change.selection().map_or(0, |t| t.text().len() as u64);
+    let state = flag.load(Ordering::Relaxed);
+    let next = if change.cleared() || len == 0 {
+        NO_SELECT_ALL
+    } else if state == SELECT_ALL_PENDING || (state >= SELECT_ALL && !change.started() && len + SELECT_ALL >= state) {
+        SELECT_ALL + len
+    } else {
+        NO_SELECT_ALL
+    };
+    flag.store(next, Ordering::Relaxed);
+}
+
 /// Ciò che copiano Cmd+C e il menu Copia: il Markdown sorgente dei blocchi toccati dalla
 /// selezione, uniti da una riga vuota, non il testo disegnato. Le righe fuori vista non hanno
-/// testo in layout, ma Rune le ricostruisce per la selezione e `sel.texts()` le contiene.
+/// testo in layout, ma Rune le ricostruisce per la selezione e `sel.texts()` le contiene (fino a
+/// 10 000 righe e 4 MiB per copia: oltre, la selezione arriva troncata e senza segno).
 ///
-/// Tutto selezionato (Cmd+A) copia il file letto dal disco: i blocchi non conservano le righe
-/// vuote in più tra uno e l'altro. Rune ricostruisce al più 10 000 righe e 4 MiB di testo per
-/// copia: se la selezione parte dal primo blocco e ha toccato uno dei due massimi, è arrivata
-/// troncata da un Cmd+A e vale come tutto selezionato.
-fn copy_source(sel: &TextSelection, generation: u64, file: &File, blocks: &[(u64, Arc<str>)]) -> Option<String> {
+/// Per questo "tutto il file" non si deduce dalla selezione: lo dice il Cmd+A (`select_all`). Allora
+/// si copia il file letto dal disco, che conserva le righe vuote in più tra i blocchi.
+fn copy_source(sel: &TextSelection, generation: u64, file: &File, select_all: &AtomicU64, blocks: &[(u64, Arc<str>)]) -> Option<String> {
+    if select_all.load(Ordering::Relaxed) >= SELECT_ALL && !blocks.is_empty() {
+        return file.read().or_else(|| Some(join(blocks.iter().map(|(_, s)| &**s))));
+    }
     let picked: HashSet<u64> = sel.texts().iter().filter(|t| !t.range().is_empty()).filter_map(|t| row_id(t.path(), generation)).collect();
     let index: Vec<usize> = blocks.iter().enumerate().filter(|(_, (id, _))| picked.contains(id)).map(|(i, _)| i).collect();
     let (&first, &last) = (index.first()?, index.last()?);
-    // Prova che Rune ha troncato: ha ricostruito il massimo di righe o di testo. Una selezione
-    // corta, anche da un file enorme, non li raggiunge.
-    let truncated = picked.len() >= COPY_ROWS || sel.text().len() >= COPY_LIMIT;
-    if first == 0
-        && (last + 1 == blocks.len() || truncated)
-        && let Some(text) = file.read()
-    {
-        return Some(text);
-    }
-    let end = if first == 0 && truncated { blocks.len() } else { last + 1 };
-    let sources: Vec<&str> = blocks[first..end].iter().map(|(_, s)| &**s).collect();
-    Some(sources.join("\n\n"))
+    Some(join(blocks[first..=last].iter().map(|(_, s)| &**s)))
 }
 
-/// I limiti di Rune per una copia sulle righe virtuali (`MAX_VIRTUAL_COPY_*`, non esportati).
-const COPY_LIMIT: usize = 4 * 1024 * 1024;
-const COPY_ROWS: usize = 10_000;
+fn join<'a>(sources: impl Iterator<Item = &'a str>) -> String {
+    sources.collect::<Vec<_>>().join("\n\n")
+}
 
 /// Il file aperto: si rilegge dal disco solo se è ancora quello da cui vengono i blocchi.
 #[derive(Clone)]
@@ -151,9 +176,13 @@ mod tests {
     }
 
     fn open(source: &str) -> Runtime<Doc> {
-        let document = Document::from_source(Path::new("t.md"), source);
+        open_doc(Document::from_source(Path::new("t.md"), source))
+    }
+
+    fn open_doc(document: Document) -> Runtime<Doc> {
         let state = Doc { document: Some(document), style: MarkdownStyle::neutral(true), scroll: None, generation: 1 };
         let mut rt = Runtime::new(state, crate::view, VIEWPORT, Env::new(true, 2.0));
+        rt.on_key = Some(crate::on_key);
         rt.frame(0.0);
         settle(&mut rt);
         rt
@@ -342,10 +371,7 @@ mod tests {
     fn copy_all_of_the_big_fixture_gives_the_file() {
         let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/big.md")).unwrap();
         let path = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/big.md"));
-        let state = Doc { document: Some(Document::load(path).unwrap()), style: MarkdownStyle::neutral(true), scroll: None, generation: 1 };
-        let mut rt = Runtime::new(state, crate::view, VIEWPORT, Env::new(true, 2.0));
-        rt.frame(0.0);
-        settle(&mut rt);
+        let mut rt = open_doc(Document::load(path).unwrap());
         let blocks = rt.state.document.as_ref().unwrap().blocks.len();
         let copied = copy_all(&mut rt);
         eprintln!("big.md: {blocks} blocchi, {} byte copiati su {}", copied.len(), src.len());
@@ -361,10 +387,7 @@ mod tests {
         assert!(src.len() > 4 * 1024 * 1024);
         std::fs::write(&path, &src).unwrap();
         let document = Document::load(&path).unwrap();
-        let state = Doc { document: Some(document), style: MarkdownStyle::neutral(true), scroll: None, generation: 1 };
-        let mut rt = Runtime::new(state, crate::view, VIEWPORT, Env::new(true, 2.0));
-        rt.frame(0.0);
-        settle(&mut rt);
+        let mut rt = open_doc(document);
         let copied = copy_all(&mut rt);
         std::fs::remove_dir_all(&dir).ok();
         eprintln!("huge: {} byte copiati su {}", copied.len(), src.len());
@@ -411,13 +434,33 @@ mod tests {
         let path = dir.join("huge.md");
         let one = join(&sample());
         std::fs::write(&path, one.repeat(5 * 1024 * 1024 / one.len() + 1)).unwrap();
-        let state = Doc { document: Some(Document::load(&path).unwrap()), style: MarkdownStyle::neutral(true), scroll: None, generation: 1 };
-        let mut rt = Runtime::new(state, crate::view, VIEWPORT, Env::new(true, 2.0));
-        rt.frame(0.0);
-        settle(&mut rt);
+        let mut rt = open_doc(Document::load(&path).unwrap());
         let blocks = source(&rt);
         let copied = drag_copy(&mut rt, 0, 1);
         std::fs::remove_dir_all(&dir).ok();
         assert_eq!(copied, blocks[0..=1].join("\n\n"));
+    }
+
+    #[test]
+    fn copy_all_of_a_cjk_file_over_4_mib_with_textless_blocks_gives_the_file() {
+        let dir = std::env::temp_dir().join(format!("runemd-cjk-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("cjk.md");
+        let unit: String = (0..40).map(|n| format!("段落{n}は日本語のテキストです。読み取りとスクロールの確認に使います。\n\n---\n\n")).collect();
+        let src = unit.repeat(5 * 1024 * 1024 / unit.len() + 1);
+        std::fs::write(&path, &src).unwrap();
+        let mut rt = open_doc(Document::load(&path).unwrap());
+        let copied = copy_all(&mut rt);
+        std::fs::remove_dir_all(&dir).ok();
+        eprintln!("cjk: {} byte copiati su {}", copied.len(), src.len());
+        assert_eq!(copied.trim_end(), src.trim_end());
+    }
+
+    #[test]
+    fn a_drag_after_cmd_a_copies_the_dragged_blocks_not_the_file() {
+        let mut rt = open(&join(&sample()));
+        let blocks = source(&rt);
+        cmd(&mut rt, 'a');
+        assert_eq!(drag_copy(&mut rt, 2, 4), blocks[2..=4].join("\n\n"));
     }
 }
