@@ -21,6 +21,7 @@ pub struct Change {
 
 #[derive(Debug)]
 pub struct Document {
+    #[allow(dead_code)] // letto dal ricaricamento (task 10)
     pub path: PathBuf,
     pub revision: u64,
     pub blocks: Vec<Block>,
@@ -48,6 +49,7 @@ impl Document {
         doc
     }
 
+    #[allow(dead_code)] // chiamato dal ricaricamento (task 10); oggi solo dai test
     pub fn update(&mut self, source: &str) -> Change {
         let new = ids::hash_sources(blocks::split(source));
         let (blocks, change) = ids::assign(&self.blocks, new, &mut self.next_id);
