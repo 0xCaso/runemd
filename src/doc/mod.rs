@@ -3,3 +3,4 @@
 pub mod blocks;
 pub mod document;
 pub mod ids;
+pub mod select_all;

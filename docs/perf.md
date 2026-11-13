@@ -26,3 +26,19 @@ Con lo schermo bloccato (`CGSSessionScreenIsLocked = true`) la finestra e' occlu
 - Anelli delle schede da 100 (non da 1): gli id 1 e 2 sono di fuoco e dither.
 - Nessun thread di warm-up: rune-fx non espone un warm per tipo; senza layer nessuna pipeline viene compilata.
   I task 11-13 decidono se scaldare al primo `set(Some)`.
+
+# Ricarica del file aperto (task 10)
+
+## Costo di una ricarica di `fixtures/big.md` (1 MB)
+
+`cargo test --profile perf reload_cost -- --ignored --nocapture` (`src/live/reload.rs`, 40 giri per caso, Mac con
+altri processi attivi: i p95 oscillano fra le corse; qui la corsa più quieta di tre).
+
+| caso | tutto sul thread UI p50 / p95 | thread UI dopo il fix (snapshot + commit) p50 / p95 | thread a parte (`read`) p50 / p95 |
+|---|---|---|---|
+| append di un paragrafo | 4,96 / 19,23 ms | 0,03 / 0,17 ms | 6,12 / 13,04 ms |
+| ogni blocco cambiato (Myers peggiore) | 13,42 / 26,15 ms | 0,03 / 0,24 ms | 13,96 / 25,82 ms |
+
+Soglia 8 ms di p95 superata in tutte le corse: lettura, UTF-8, hash, divisione in blocchi e diff (`ids::assign`)
+girano su un thread a parte (`live::reload::read`); sul thread della UI resta `Document::commit`, che sostituisce i
+blocchi se la revisione è ancora quella dello snapshot (altrimenti si rilegge). Il thread sveglia l'app con il `Waker`.

@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use super::{blocks, ids};
-use crate::ui::doc_view::SelectAllFlag;
+use super::select_all::SelectAllFlag;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Block {
@@ -54,11 +54,59 @@ impl Document {
     }
 
     pub fn update(&mut self, source: &str) -> Change {
-        let new = ids::hash_sources(blocks::split(source));
-        let (blocks, change) = ids::assign(&self.blocks, new, &mut self.next_id);
-        self.blocks = blocks;
-        self.file_hash = ids::hash_str(source);
-        self.revision += 1;
-        change
+        self.commit(self.snapshot().prepare(source)).expect("preparato dalla revisione corrente")
     }
+
+    /// Quanto serve per preparare un aggiornamento su un altro thread (`Snapshot::prepare`).
+    pub fn snapshot(&self) -> Snapshot {
+        Snapshot { revision: self.revision, file_hash: self.file_hash, blocks: self.blocks.clone(), next_id: self.next_id }
+    }
+
+    /// Applica un aggiornamento preparato. `None` se il documento è cambiato dopo lo snapshot:
+    /// il chiamante rilegge.
+    pub fn commit(&mut self, p: Prepared) -> Option<Change> {
+        if p.revision != self.revision {
+            return None;
+        }
+        self.blocks = p.blocks;
+        self.file_hash = p.file_hash;
+        self.next_id = p.next_id;
+        self.revision += 1;
+        Some(p.change)
+    }
+}
+
+/// I blocchi di un `Document` a una revisione; si sposta su un altro thread (`Block.source` è
+/// `Arc<str>`).
+#[derive(Debug, Clone)]
+pub struct Snapshot {
+    revision: u64,
+    pub file_hash: u64,
+    blocks: Vec<Block>,
+    next_id: u64,
+}
+
+impl Snapshot {
+    /// La lunghezza del sorgente dei blocchi (senza le righe vuote tra un blocco e l'altro).
+    pub fn source_len(&self) -> usize {
+        self.blocks.iter().map(|b| b.source.len()).sum()
+    }
+
+    /// Il lavoro di `Document::update` che non tocca il documento: divisione in blocchi, hash e
+    /// diff con id stabili.
+    pub fn prepare(&self, source: &str) -> Prepared {
+        let mut next_id = self.next_id;
+        let (blocks, change) = ids::assign(&self.blocks, ids::hash_sources(blocks::split(source)), &mut next_id);
+        Prepared { revision: self.revision, blocks, change, file_hash: ids::hash_str(source), next_id }
+    }
+}
+
+/// Un aggiornamento pronto per `Document::commit`.
+#[derive(Debug)]
+pub struct Prepared {
+    revision: u64,
+    blocks: Vec<Block>,
+    change: Change,
+    file_hash: u64,
+    next_id: u64,
 }

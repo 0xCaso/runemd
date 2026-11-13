@@ -89,12 +89,13 @@ impl Core {
         self.rescan_at.take()
     }
 
-    /// Notify ha perso eventi: ricontrolla ogni percorso noto e ogni file sotto le radici.
-    fn rescan(&mut self, roots: &[PathBuf], at: Instant) {
+    /// Notify ha perso eventi: ricontrolla ogni percorso noto e ogni file sotto le radici (solo
+    /// i figli diretti per una radice non ricorsiva).
+    fn rescan(&mut self, roots: &[Root], at: Instant) {
         let mut paths: Vec<PathBuf> = self.known.iter().cloned().collect();
         paths.extend(self.missing.keys().cloned());
         for root in roots {
-            walk(root, &mut paths);
+            walk(&root.path, root.recursive, &mut paths);
         }
         for path in paths {
             self.observe(path, at);
@@ -145,21 +146,28 @@ impl Core {
     }
 }
 
-/// I file `wanted` sotto `dir`, ricorsivo; errori di lettura ignorati. Non entra nelle cartelle
-/// saltate né nei link simbolici a cartelle (un ciclo non finirebbe mai).
-fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
+/// I file `wanted` in `dir`, e sotto se `recursive`; errori di lettura ignorati. Non entra nelle
+/// cartelle saltate né nei link simbolici a cartelle (un ciclo non finirebbe mai).
+fn walk(dir: &Path, recursive: bool, out: &mut Vec<PathBuf>) {
     let Ok(entries) = std::fs::read_dir(dir) else { return };
     for entry in entries.flatten() {
         let path = entry.path();
         let Ok(kind) = entry.file_type() else { continue };
         if kind.is_dir() {
-            if !path.file_name().is_some_and(|n| filter::SKIPPED_DIRS.iter().any(|s| n == *s)) {
-                walk(&path, out);
+            if recursive && !path.file_name().is_some_and(|n| filter::SKIPPED_DIRS.iter().any(|s| n == *s)) {
+                walk(&path, true, out);
             }
         } else if filter::wanted(&path) && (!kind.is_symlink() || path.is_file()) {
             out.push(path);
         }
     }
+}
+
+/// Una cartella guardata: con le sottocartelle (`recursive`) o solo i suoi figli diretti.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Root {
+    path: PathBuf,
+    recursive: bool,
 }
 
 enum Raw {
@@ -177,7 +185,7 @@ struct Shared {
 
 pub struct Watcher {
     notify: Option<RecommendedWatcher>,
-    roots: Vec<PathBuf>,
+    roots: Vec<Root>,
     core: Core,
     shared: Arc<Shared>,
     ticker: Option<JoinHandle<()>>,
@@ -241,20 +249,28 @@ impl Watcher {
         };
         let mut watcher = Watcher { notify, roots: Vec::new(), core: Core::new(), shared, ticker: Some(ticker) };
         for root in roots {
-            watcher.add_root(root);
+            watcher.add_root(root, true);
         }
         watcher
     }
 
-    /// Guarda `root` in modo ricorsivo. Le radici sono canoniche: FSEvents riporta percorsi reali.
-    pub fn add_root(&mut self, root: PathBuf) {
+    /// Guarda `root`, con le sottocartelle se `recursive`, altrimenti solo i suoi figli diretti
+    /// (notify scarta gli eventi più in basso). Una radice già guardata senza sottocartelle
+    /// diventa ricorsiva se lo si chiede. Le radici sono canoniche: FSEvents riporta percorsi reali.
+    pub fn add_root(&mut self, root: PathBuf, recursive: bool) {
         let root = root.canonicalize().unwrap_or(root);
-        if self.roots.contains(&root) {
+        let old = self.roots.iter().position(|r| r.path == root);
+        if old.is_some_and(|i| self.roots[i].recursive || !recursive) {
             return;
         }
         let Some(notify) = self.notify.as_mut() else { return };
-        match notify.watch(&root, RecursiveMode::Recursive) {
-            Ok(()) => self.roots.push(root),
+        if let Some(i) = old {
+            let _ = notify.unwatch(&root);
+            self.roots.remove(i);
+        }
+        let mode = if recursive { RecursiveMode::Recursive } else { RecursiveMode::NonRecursive };
+        match notify.watch(&root, mode) {
+            Ok(()) => self.roots.push(Root { path: root, recursive }),
             Err(e) => eprintln!("runemd: {}: non si può guardare: {e}", root.display()),
         }
     }
@@ -262,11 +278,11 @@ impl Watcher {
     fn drop_missing_roots(&mut self) {
         let Some(notify) = self.notify.as_mut() else { return };
         self.roots.retain(|root| {
-            if root.is_dir() {
+            if root.path.is_dir() {
                 return true;
             }
-            eprintln!("runemd: {}: radice sparita, non più guardata", root.display());
-            let _ = notify.unwatch(root);
+            eprintln!("runemd: {}: radice sparita, non più guardata", root.path.display());
+            let _ = notify.unwatch(&root.path);
             false
         });
     }
@@ -534,7 +550,7 @@ mod tests {
         // Eventi persi: `gone` sparisce, `fresh` nasce, nessun evento arriva.
         fs::remove_file(&gone).unwrap();
         fs::write(&fresh, "x").unwrap();
-        core.rescan(std::slice::from_ref(&root), at(100));
+        core.rescan(&[Root { path: root.clone(), recursive: true }], at(100));
         let mut first = core.drain(at(200));
         first.sort_by_key(|e| format!("{e:?}"));
         assert_eq!(first, vec![FsEvent::Changed(fresh), FsEvent::Changed(kept)]);
@@ -562,11 +578,47 @@ mod tests {
         fs::write(root.join("node_modules/p/y.md"), "x").unwrap();
         std::os::unix::fs::symlink("..", root.join("a/link")).unwrap();
         let mut found = Vec::new();
-        walk(&root, &mut found);
+        walk(&root, true, &mut found);
         assert_eq!(found, vec![root.join("a/x.md")]);
         let mut core = Core::new();
-        core.rescan(std::slice::from_ref(&root), Instant::now());
+        core.rescan(&[Root { path: root, recursive: true }], Instant::now());
         assert!(core.pending());
+    }
+
+    #[test]
+    fn rescan_of_a_non_recursive_root_reads_only_its_own_entries() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_path_buf();
+        fs::create_dir_all(root.join("sub/deep")).unwrap();
+        fs::write(root.join("top.md"), "x").unwrap();
+        fs::write(root.join("sub/a.md"), "x").unwrap();
+        fs::write(root.join("sub/deep/b.md"), "x").unwrap();
+        let mut found = Vec::new();
+        walk(&root, false, &mut found);
+        assert_eq!(found, vec![root.join("top.md")]);
+        let t0 = Instant::now();
+        let mut core = Core::new();
+        core.rescan(&[Root { path: root.clone(), recursive: false }], t0);
+        assert_eq!(core.drain(t0 + Duration::from_millis(60)), vec![FsEvent::Changed(root.join("top.md"))]);
+    }
+
+    #[test]
+    fn a_non_recursive_root_ignores_subfolders() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        fs::create_dir(root.join("sub")).unwrap();
+        let mut w = Watcher::start(Vec::new(), waker());
+        w.add_root(root.clone(), false);
+        let ready = root.join("ready.md");
+        fs::write(&ready, "ready").unwrap();
+        let seen = collect_raw(&mut w, Duration::from_secs(5), |s| s.contains(&FsEvent::Changed(ready.clone())));
+        assert!(seen.contains(&FsEvent::Changed(ready)), "watcher non pronto");
+        fs::write(root.join("sub/x.md"), "# sotto").unwrap();
+        fs::write(root.join("top.md"), "# sopra").unwrap();
+        let events = collect(&mut w, Duration::from_secs(5), |s| s.contains(&FsEvent::Changed(root.join("top.md"))));
+        assert!(events.contains(&FsEvent::Changed(root.join("top.md"))), "{events:?}");
+        let rest = collect(&mut w, Duration::from_millis(300), |_| false);
+        assert!(!events.iter().chain(&rest).any(|e| matches!(e, FsEvent::Changed(p) if p.starts_with(root.join("sub")))), "{events:?} {rest:?}");
     }
 
     #[test]

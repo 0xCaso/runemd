@@ -7,14 +7,14 @@
 
 use std::borrow::Cow;
 use std::collections::HashSet;
-use std::ops::Range;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::Arc;
 
 use rune::{El, GrowthSpec, Key, KeyEvent, ScrollSpec, SelectedText, TextSelection, col, el};
 use rune_kit::MarkdownStyle;
 
 use crate::doc::document::Document;
+use crate::doc::select_all::{End, Ends, SelectAll, SelectAllFlag};
 use crate::doc::ids;
 
 use super::theme::COLUMN;
@@ -60,46 +60,6 @@ pub fn view<S: 'static>(s: &S, doc_of: fn(&S) -> &Document, generation: u64, sty
     col().key("doc").w_full().h_full().scroll(ScrollSpec { stick_bottom: false }).child(page)
 }
 
-/// Se la selezione corrente viene da un Cmd+A (`Document::select_all`, condiviso con le closure
-/// della vista).
-#[derive(Debug, Default)]
-pub struct SelectAllFlag(Mutex<SelectAll>);
-
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
-enum SelectAll {
-    #[default]
-    No,
-    /// Cmd+A premuto, la selezione che ne segue non è ancora arrivata.
-    Pending,
-    /// La selezione fatta dal Cmd+A, con le righe ai suoi capi.
-    All(Ends),
-}
-
-/// I capi di una selezione: per la prima e l'ultima riga toccate, l'id del blocco e i byte
-/// selezionati del suo testo; e se la selezione è arrivata troncata al tetto di copia di Rune
-/// (allora l'ultima riga non è la fine).
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct Ends {
-    first: End,
-    last: End,
-    capped: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct End {
-    row: u64,
-    range: Range<usize>,
-    whole: bool,
-}
-
-impl End {
-    /// Lo stesso capo di `was`: stessa riga, e il testo intero o selezionato come allora (un
-    /// ricaricamento può allungare il blocco sotto una selezione che non è cambiata).
-    fn holds(&self, was: &End) -> bool {
-        self.row == was.row && (self.whole || self.range == was.range)
-    }
-}
-
 /// I tetti della selezione ricostruita fuori vista (rune `MAX_VIRTUAL_COPY_BYTES` e
 /// `MAX_VIRTUAL_COPY_ROWS`, `pub(crate)` in Rune): oltre, `TextSelection` si ferma prima della
 /// fine. Il tetto delle righe conta anche le righe senza testo (`---`).
@@ -107,16 +67,6 @@ const COPY_CAP_BYTES: usize = 4 * 1024 * 1024;
 const COPY_CAP_ROWS: usize = 10_000;
 /// Il testo troncato può fermarsi poco prima del tetto (righe vuote e prefisso tra due pezzi).
 const COPY_CAP_SLACK: usize = 1024;
-
-impl SelectAllFlag {
-    fn get(&self) -> SelectAll {
-        self.0.lock().unwrap_or_else(PoisonError::into_inner).clone()
-    }
-
-    fn set(&self, next: SelectAll) {
-        *self.0.lock().unwrap_or_else(PoisonError::into_inner) = next;
-    }
-}
 
 /// Da chiamare con ogni tasto che l'app riceve (`AppSpec::on_key`, prima della selezione di
 /// Rune): un Cmd+A segna che la selezione che ne segue è "tutto il file".
@@ -152,6 +102,10 @@ fn ends(sel: &TextSelection, generation: u64, blocks: &[(u64, Arc<str>)]) -> Opt
 /// capi tengono ([`End::holds`]). Se la selezione è troncata l'ultima riga vista non è la fine e
 /// non si confronta. Un clic, uno svuotamento, una selezione nuova o con un capo spostato
 /// (Shift+clic) la tolgono.
+///
+/// Caso residuo: su una selezione troncata (oltre 4 MiB o 10 000 righe) un Shift+clic che
+/// accorcia la fine senza scendere sotto il tetto non si vede, e Cmd+C copia ancora tutto il
+/// file. Lo fissa `a_shift_trim_after_cmd_a_over_the_copy_cap_still_copies_the_file`.
 fn selection_changed(flag: &SelectAllFlag, change: &rune::SelectionChange, generation: u64, blocks: &[(u64, Arc<str>)]) {
     let now = change.selection().filter(|t| !t.text().is_empty()).and_then(|t| ends(t, generation, blocks));
     let next = match (flag.get(), now) {
@@ -563,16 +517,10 @@ mod tests {
         assert_eq!(copied.trim_end(), after.trim_end(), "il file nuovo, non il vecchio né la selezione");
     }
 
-    /// Cmd+A, poi Shift+clic nel penultimo blocco (pressione e rilascio nello stesso frame,
-    /// come un clic veloce: la selezione non arriva mai `dragging`): toglie meno dello 0,1 % del
-    /// file, ma non è più "tutto": Cmd+C copia i blocchi fino al penultimo.
-    #[test]
-    fn a_shift_trim_after_cmd_a_copies_the_trimmed_blocks_not_the_file() {
-        let path = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/big.md"));
-        let src = std::fs::read_to_string(path).unwrap();
-        let mut rt = open_doc(Document::load(path).unwrap());
-        let blocks = source(&rt);
-        let n = blocks.len();
+    /// Cmd+A, scroll in fondo, Shift+clic nel penultimo blocco (pressione e rilascio nello
+    /// stesso frame, come un clic veloce: la selezione non arriva mai `dragging`), Cmd+C.
+    fn cmd_a_then_shift_click_second_to_last(rt: &mut Runtime<Doc>) -> String {
+        let n = rt.state.document.as_ref().unwrap().blocks.len();
         let clipboard = rune::clipboard::memory();
         rt.use_clipboard(&clipboard);
         let doc = rt.elements().into_iter().find(|e| e.key.as_deref() == Some("doc")).unwrap();
@@ -581,23 +529,48 @@ mod tests {
         rt.pointer_down(x, y);
         rt.pointer_up(x, y);
         rt.frame(1.0 / 60.0);
-        cmd(&mut rt, 'a');
-        scroll_to(&mut rt, 1.0e9);
+        cmd(rt, 'a');
+        scroll_to(rt, 1.0e9);
         let key = row_key(rt.state.generation, n - 2, rt.state.document.as_ref().unwrap());
         let r = rt.elements().into_iter().find(|e| e.key.as_deref() == Some(key.as_str())).expect("penultimo blocco in vista").rect;
         let (x, y) = (r[0] + 80.0, r[1] + r[3] / 2.0);
-        let trimmed = blocks[n - 2].len() + blocks[n - 1].len();
-        assert!(trimmed * 1000 < src.len(), "il taglio sta nella vecchia tolleranza: {trimmed} su {}", src.len());
         rt.physical_input(rune::PhysicalInput::Modifiers(Mods { shift: true, ..Mods::default() }));
         rt.pointer_move(x, y);
         rt.pointer_down(x, y);
         rt.pointer_up(x, y);
         rt.frame(1.0 / 60.0);
         rt.physical_input(rune::PhysicalInput::Modifiers(Mods::default()));
-        cmd(&mut rt, 'c');
-        let copied = clipboard.text().map(|t| t.to_string()).unwrap_or_default();
+        cmd(rt, 'c');
+        clipboard.text().map(|t| t.to_string()).unwrap_or_default()
+    }
+
+    /// Il taglio toglie meno dello 0,1 % del file, ma non è più "tutto": Cmd+C copia i blocchi
+    /// fino al penultimo.
+    #[test]
+    fn a_shift_trim_after_cmd_a_copies_the_trimmed_blocks_not_the_file() {
+        let path = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/big.md"));
+        let src = std::fs::read_to_string(path).unwrap();
+        let mut rt = open_doc(Document::load(path).unwrap());
+        let blocks = source(&rt);
+        let n = blocks.len();
+        let trimmed = blocks[n - 2].len() + blocks[n - 1].len();
+        assert!(trimmed * 1000 < src.len(), "il taglio sta nella vecchia tolleranza: {trimmed} su {}", src.len());
+        let copied = cmd_a_then_shift_click_second_to_last(&mut rt);
         assert_ne!(copied.trim_end(), src.trim_end(), "copiato tutto il file dopo il taglio");
         assert_eq!(copied, blocks[..=n - 2].join("\n\n"));
+    }
+
+    /// Caso residuo, fissato com'è: oltre il tetto di copia di Rune l'ultimo capo non si
+    /// confronta, quindi un taglio in fondo dopo Cmd+A resta "tutto" e copia il file intero.
+    #[test]
+    fn a_shift_trim_after_cmd_a_over_the_copy_cap_still_copies_the_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("huge.md");
+        let src = join(&sample()).repeat(5 * 1024 * 1024 / join(&sample()).len() + 1);
+        std::fs::write(&path, &src).unwrap();
+        let mut rt = open_doc(Document::load(&path).unwrap());
+        let copied = cmd_a_then_shift_click_second_to_last(&mut rt);
+        assert_eq!(copied.trim_end(), src.trim_end(), "comportamento noto: tutto il file");
     }
 
     #[test]
