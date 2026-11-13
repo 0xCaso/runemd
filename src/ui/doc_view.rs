@@ -10,7 +10,6 @@ use std::borrow::Cow;
 use rune::{El, GrowthSpec, ScrollSpec, col, el};
 use rune_kit::MarkdownStyle;
 
-use crate::Doc;
 use crate::doc::document::Document;
 
 const COLUMN: f32 = 760.0;
@@ -22,23 +21,31 @@ pub fn row_key(generation: u64, i: usize, doc: &Document) -> String {
     format!("{generation:x}-{:x}", doc.blocks[i].id)
 }
 
-/// La vista scorrevole di `doc`, che deve essere il documento dello stato della finestra
-/// (`Doc::document`): le righe si costruiscono a layout da quello stato, non da `doc`, perché
-/// le closure di `virtual_rows` non possono tenere prestiti.
-pub fn view(doc: &Document, style: &MarkdownStyle) -> El {
+/// Ciò che dice a Rune se le chiavi delle righe sono cambiate: un altro file aperto
+/// (`generation`, anche se è lo stesso file invariato), un update (`revision`), un altro
+/// contenuto a parità di revisione (`file_hash`).
+pub fn rows_version(generation: u64, doc: &Document) -> (u64, u64, u64) {
+    (generation, doc.revision, doc.file_hash)
+}
+
+/// La vista scorrevole del documento `doc_of(s)`, con le chiavi di `generation`. Le closure di
+/// `virtual_rows` non possono tenere prestiti: a layout ricevono lo stato della finestra e
+/// ritrovano il documento con lo stesso `doc_of`, così numero di righe, versione, chiavi e
+/// contenuto vengono tutti dallo stesso documento.
+pub fn view<S: 'static>(s: &S, doc_of: fn(&S) -> &Document, generation: u64, style: &MarkdownStyle) -> El {
+    let doc = doc_of(s);
     let style = style.clone();
     let rows = col().key("rows").w_full().max_w(COLUMN).self_center().selection_group(true)
         .growth(GrowthSpec::default())
-        .virtual_rows(doc.blocks.len(), 60.0, |s: &Doc, i| Cow::Owned(row_key(s.generation, i, current(s))), move |s: &Doc, i| block_row(&current(s).blocks[i].source, &style))
-        // Le chiavi cambiano solo con un update (revision) o con un altro file: a parità di
-        // revisione il file_hash li distingue.
-        .virtual_rows_version((doc.revision, doc.file_hash));
+        .virtual_rows(
+            doc.blocks.len(),
+            60.0,
+            move |s: &S, i| Cow::Owned(row_key(generation, i, doc_of(s))),
+            move |s: &S, i| block_row(&doc_of(s).blocks[i].source, &style),
+        )
+        .virtual_rows_version(rows_version(generation, doc));
     let page = col().w_full().child(el().h(24.0)).child(rows).child(el().h(48.0));
     col().key("doc").w_full().h_full().scroll(ScrollSpec { stick_bottom: false }).child(page)
-}
-
-fn current(s: &Doc) -> &Document {
-    s.document.as_ref().expect("righe virtuali senza documento")
 }
 
 fn block_row(source: &str, style: &MarkdownStyle) -> El {

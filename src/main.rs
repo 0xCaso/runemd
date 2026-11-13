@@ -65,8 +65,13 @@ fn setup(_: &mut Doc, waker: Waker) {
     open::queue::set_waker(waker);
 }
 
+/// Il documento aperto; `view` chiama la vista del documento solo quando c'è.
+fn open_document(s: &Doc) -> &Document {
+    s.document.as_ref().expect("vista del documento senza documento")
+}
+
 fn view(s: &Doc, _: &mut Cx<Doc>) -> El {
-    let body = s.document.as_ref().map_or_else(el, |d| ui::doc_view::view(d, &s.style));
+    let body = if s.document.is_some() { ui::doc_view::view(s, open_document, s.generation, &s.style) } else { el() };
     el().w_full().h_full().fill(oklcha(0.17, 0.01, 265.0, 1.0)).child(body)
 }
 
@@ -112,9 +117,16 @@ mod tests {
         std::fs::write(&f, "# a\n\nb\n").unwrap();
         let mut doc = Doc { document: None, style: MarkdownStyle::neutral(true), scroll: None, generation: 0 };
         doc.open_paths(vec![f.clone()]);
-        let key = |d: &Doc| ui::doc_view::row_key(d.generation, 0, d.document.as_ref().unwrap());
-        let before = key(&doc);
+        // Rune rilegge le chiavi solo se la versione cambia: anche lo stesso file invariato,
+        // riaperto, deve cambiare versione e chiavi.
+        let rows = |d: &Doc| {
+            let doc = open_document(d);
+            (ui::doc_view::rows_version(d.generation, doc), ui::doc_view::row_key(d.generation, 0, doc))
+        };
+        let before = rows(&doc);
         doc.open_paths(vec![f]);
-        assert_ne!(before, key(&doc));
+        let after = rows(&doc);
+        assert_ne!(before.0, after.0, "versione");
+        assert_ne!(before.1, after.1, "chiavi");
     }
 }
