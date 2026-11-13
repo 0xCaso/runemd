@@ -8,7 +8,7 @@
 use std::borrow::Cow;
 use std::collections::HashSet;
 use std::path::PathBuf;
-use std::rc::Rc;
+use std::sync::Arc;
 
 use rune::{El, GrowthSpec, ScrollSpec, TextSelection, col, el};
 use rune_kit::MarkdownStyle;
@@ -39,7 +39,7 @@ pub fn rows_version(generation: u64, doc: &Document) -> (u64, u64, u64) {
 pub fn view<S: 'static>(s: &S, doc_of: fn(&S) -> &Document, generation: u64, style: &MarkdownStyle) -> El {
     let doc = doc_of(s);
     let style = style.clone();
-    let blocks: Rc<[(u64, Rc<str>)]> = doc.blocks.iter().map(|b| (b.id, b.source.clone())).collect();
+    let blocks: Arc<[(u64, Arc<str>)]> = doc.blocks.iter().map(|b| (b.id, b.source.clone())).collect();
     let file = File { path: doc.path.clone(), hash: doc.file_hash };
     let rows = col().key("rows").w_full().max_w(COLUMN).self_center().selection_group(true)
         .growth(GrowthSpec::default())
@@ -61,21 +61,22 @@ pub fn view<S: 'static>(s: &S, doc_of: fn(&S) -> &Document, generation: u64, sty
 ///
 /// Tutto selezionato (Cmd+A) copia il file letto dal disco: i blocchi non conservano le righe
 /// vuote in più tra uno e l'altro. Rune ricostruisce al più 10 000 righe e 4 MiB di testo per
-/// copia: oltre, la selezione arriva troncata, e un file che parte dal primo blocco vale come
-/// tutto selezionato.
-fn copy_source(sel: &TextSelection, generation: u64, file: &File, blocks: &[(u64, Rc<str>)]) -> Option<String> {
+/// copia: se la selezione parte dal primo blocco e ha toccato uno dei due massimi, è arrivata
+/// troncata da un Cmd+A e vale come tutto selezionato.
+fn copy_source(sel: &TextSelection, generation: u64, file: &File, blocks: &[(u64, Arc<str>)]) -> Option<String> {
     let picked: HashSet<u64> = sel.texts().iter().filter(|t| !t.range().is_empty()).filter_map(|t| row_id(t.path(), generation)).collect();
     let index: Vec<usize> = blocks.iter().enumerate().filter(|(_, (id, _))| picked.contains(id)).map(|(i, _)| i).collect();
     let (&first, &last) = (index.first()?, index.last()?);
-    let bytes: usize = blocks.iter().map(|(_, s)| s.len()).sum();
-    let over_limit = bytes > COPY_LIMIT || blocks.len() > COPY_ROWS;
+    // Prova che Rune ha troncato: ha ricostruito il massimo di righe o di testo. Una selezione
+    // corta, anche da un file enorme, non li raggiunge.
+    let truncated = picked.len() >= COPY_ROWS || sel.text().len() >= COPY_LIMIT;
     if first == 0
-        && (last + 1 == blocks.len() || over_limit)
+        && (last + 1 == blocks.len() || truncated)
         && let Some(text) = file.read()
     {
         return Some(text);
     }
-    let end = if first == 0 && over_limit { blocks.len() } else { last + 1 };
+    let end = if first == 0 && truncated { blocks.len() } else { last + 1 };
     let sources: Vec<&str> = blocks[first..end].iter().map(|(_, s)| &**s).collect();
     Some(sources.join("\n\n"))
 }
@@ -370,10 +371,8 @@ mod tests {
         assert_eq!(copied.trim_end(), src.trim_end());
     }
 
-    #[test]
-    fn copy_of_a_drag_over_three_blocks_gives_those_three() {
-        let mut rt = open(&join(&sample()));
-        let blocks = source(&rt);
+    /// Trascina dal centro della riga `from` al centro della riga `to` e copia con Cmd+C.
+    fn drag_copy(rt: &mut Runtime<Doc>, from: usize, to: usize) -> String {
         let clipboard = rune::clipboard::memory();
         rt.use_clipboard(&clipboard);
         let doc = rt.state.document.as_ref().unwrap();
@@ -381,7 +380,7 @@ mod tests {
             let key = row_key(rt.state.generation, i, doc);
             rt.elements().into_iter().find(|e| e.key.as_deref() == Some(key.as_str())).unwrap().rect
         };
-        let (a, c) = (rect(2), rect(4));
+        let (a, c) = (rect(from), rect(to));
         let start = (a[0] + 60.0, a[1] + a[3] / 2.0);
         let end = (c[0] + 120.0, c[1] + c[3] / 2.0);
         rt.pointer_move(start.0, start.1);
@@ -394,8 +393,31 @@ mod tests {
         }
         rt.pointer_up(end.0, end.1);
         rt.frame(1.0 / 60.0);
-        cmd(&mut rt, 'c');
-        let copied = clipboard.text().map(|t| t.to_string()).unwrap_or_default();
-        assert_eq!(copied, blocks[2..=4].join("\n\n"));
+        cmd(rt, 'c');
+        clipboard.text().map(|t| t.to_string()).unwrap_or_default()
+    }
+
+    #[test]
+    fn copy_of_a_drag_over_three_blocks_gives_those_three() {
+        let mut rt = open(&join(&sample()));
+        let blocks = source(&rt);
+        assert_eq!(drag_copy(&mut rt, 2, 4), blocks[2..=4].join("\n\n"));
+    }
+
+    #[test]
+    fn copy_of_a_drag_from_block_0_on_a_file_over_4_mib_gives_two_blocks() {
+        let dir = std::env::temp_dir().join(format!("runemd-drag-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("huge.md");
+        let one = join(&sample());
+        std::fs::write(&path, one.repeat(5 * 1024 * 1024 / one.len() + 1)).unwrap();
+        let state = Doc { document: Some(Document::load(&path).unwrap()), style: MarkdownStyle::neutral(true), scroll: None, generation: 1 };
+        let mut rt = Runtime::new(state, crate::view, VIEWPORT, Env::new(true, 2.0));
+        rt.frame(0.0);
+        settle(&mut rt);
+        let blocks = source(&rt);
+        let copied = drag_copy(&mut rt, 0, 1);
+        std::fs::remove_dir_all(&dir).ok();
+        assert_eq!(copied, blocks[0..=1].join("\n\n"));
     }
 }
