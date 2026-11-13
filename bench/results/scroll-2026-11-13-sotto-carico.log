@@ -1,0 +1,12 @@
+normal scroll frames=387 span_ms=3981 refresh_hz=100 dt_p50=10.04 dt_p95=13.57 dt_p99=16.50 dt_max=20.01 missed_refreshes=10 skipped=0
+big scroll frames=376 span_ms=3982 refresh_hz=100 dt_p50=10.05 dt_p95=15.54 dt_p99=19.02 dt_max=20.36 missed_refreshes=24 skipped=0
+normal scroll frames=393 span_ms=3984 refresh_hz=100 dt_p50=10.03 dt_p95=12.89 dt_p99=15.88 dt_max=19.52 missed_refreshes=5 skipped=0
+big scroll frames=371 span_ms=3981 refresh_hz=100 dt_p50=10.07 dt_p95=16.05 dt_p99=19.92 dt_max=21.20 missed_refreshes=26 skipped=0
+normal scroll frames=384 span_ms=3988 refresh_hz=100 dt_p50=10.05 dt_p95=13.91 dt_p99=18.13 dt_max=19.79 missed_refreshes=15 skipped=0
+big scroll frames=382 span_ms=3993 refresh_hz=100 dt_p50=10.05 dt_p95=14.17 dt_p99=18.86 dt_max=22.05 missed_refreshes=16 skipped=0
+normal scroll frames=385 span_ms=3990 refresh_hz=100 dt_p50=10.09 dt_p95=13.74 dt_p99=17.95 dt_max=20.74 missed_refreshes=15 skipped=0
+big scroll frames=381 span_ms=3984 refresh_hz=100 dt_p50=10.03 dt_p95=15.03 dt_p99=19.33 dt_max=20.63 missed_refreshes=21 skipped=0
+normal scroll frames=390 span_ms=3979 refresh_hz=100 dt_p50=10.03 dt_p95=13.52 dt_p99=16.04 dt_max=19.52 missed_refreshes=9 skipped=0
+big scroll frames=376 span_ms=3984 refresh_hz=100 dt_p50=10.04 dt_p95=15.24 dt_p99=19.03 dt_max=19.67 missed_refreshes=22 skipped=0
+normal scroll frames=381 span_ms=3994 refresh_hz=100 dt_p50=10.04 dt_p95=14.64 dt_p99=18.15 dt_max=20.19 missed_refreshes=17 skipped=0
+big scroll frames=383 span_ms=3984 refresh_hz=100 dt_p50=10.05 dt_p95=14.35 dt_p99=18.16 dt_max=21.76 missed_refreshes=17 skipped=0
