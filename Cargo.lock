@@ -2838,6 +2838,7 @@ dependencies = [
  "rune-fx",
  "rune-kit",
  "similar",
+ "tempfile",
  "wgpu",
 ]
 

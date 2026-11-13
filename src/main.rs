@@ -14,6 +14,7 @@ mod fx;
 mod open;
 mod probe;
 mod ui;
+mod watch;
 
 use std::path::PathBuf;
 use std::time::Duration;

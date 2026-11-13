@@ -33,3 +33,6 @@ opt-level = 3
 lto = false
 debug = false
 incremental = false
+
+[dev-dependencies]
+tempfile = "3"
