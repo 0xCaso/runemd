@@ -168,7 +168,7 @@ disegna ogni frame con `FxRenderer`, più `El::effect(mark)` sugli elementi.
   arrivo). `animating()` è falso senza agenti attivi: a riposo nessun effetto costa.
 - L'anello è `LiquidMetal` come bordo: `.border(w)` dipinge dentro la forma (`rune-fx/README.md:108`), quindi il
   mark è più grande della riga di 1,5 px per lato, o si usa `effect_bleed`.
-- Fuoco nel tema chiaro: `FxBlend::Multiply` con la copia del backdrop (README:173-181).
+- Fuoco nel tema chiaro: stessa copertura del tema scuro, il testo resta sotto le fiamme (decisione `docs/decisions/2026-11-14-fuoco-tema-chiaro.md`).
 - Pipeline compilate in anticipo all'avvio fuori dal primo frame (20–150 ms l'una a cache fredda, README:170).
 - **Task 1 del piano**: lo spike con il compositor attaccato e nessun effetto attivo deve restare nelle soglie di
   avvio e scroll. Se no, si ferma e si decide prima di costruire il resto.
