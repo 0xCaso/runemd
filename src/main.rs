@@ -18,7 +18,7 @@ mod ui;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use rune::{App, AppSpec, Cx, El, Tx, Waker, el, oklcha};
+use rune::{App, AppSpec, Cx, El, Tx, Waker, el};
 use rune_kit::MarkdownStyle;
 
 use doc::document::Document;
@@ -51,12 +51,17 @@ impl Doc {
     }
 }
 
+/// Tema scuro, salvo `RUNEMD_THEME=light` (finché il tema di sistema non è collegato: serve agli snap).
+fn dark_mode() -> bool {
+    std::env::var("RUNEMD_THEME").map_or(true, |v| v != "light")
+}
+
 fn init() -> Doc {
     let mut paths = open::cli_paths(rune::extra_args());
     if paths.is_empty() {
         paths.extend(std::env::var("MDSPIKE_FILE").ok().map(PathBuf::from));
     }
-    let mut doc = Doc { document: None, style: MarkdownStyle::neutral(true), scroll: probe::ScrollRun::from_env(), generation: 0 };
+    let mut doc = Doc { document: None, style: ui::markdown_style::style(&ui::theme::Theme::for_mode(dark_mode()), "Inter", 15.5), scroll: probe::ScrollRun::from_env(), generation: 0 };
     doc.open_paths(paths);
     doc
 }
@@ -72,7 +77,10 @@ fn open_document(s: &Doc) -> &Document {
 
 fn view(s: &Doc, _: &mut Cx<Doc>) -> El {
     let body = if s.document.is_some() { ui::doc_view::view(s, open_document, s.generation, &s.style) } else { el() };
-    el().w_full().h_full().fill(oklcha(0.17, 0.01, 265.0, 1.0)).child(body)
+    let theme = ui::theme::Theme::for_mode(dark_mode());
+    // Vetro di sistema attorno, pannello pieno a `FRAME` dai bordi con il documento.
+    let panel = el().w_full().h_full().fill(theme.panel).radius(ui::theme::R_PANEL).clip_rounded(ui::theme::R_PANEL).child(body);
+    el().w_full().h_full().system_material(rune::SystemMaterial::Glass).fill(theme.glass).padding(ui::theme::FRAME).child(panel)
 }
 
 /// Ogni tasto non preso da un controllo, prima della selezione di Rune: il Cmd+A va segnato.
@@ -123,7 +131,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let f = dir.join("a.md");
         std::fs::write(&f, "# a\n\nb\n").unwrap();
-        let mut doc = Doc { document: None, style: MarkdownStyle::neutral(true), scroll: None, generation: 0 };
+        let mut doc = Doc { document: None, style: ui::markdown_style::style(&ui::theme::Theme::for_mode(true), "Inter", 15.5), scroll: None, generation: 0 };
         doc.open_paths(vec![f.clone()]);
         // Rune rilegge le chiavi solo se la versione cambia: anche lo stesso file invariato,
         // riaperto, deve cambiare versione e chiavi.
