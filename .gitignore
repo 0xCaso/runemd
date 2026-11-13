@@ -1,4 +1,5 @@
 target/
 build/
 .superpowers/
-bench/results/
+bench/results/*
+!bench/results/writes-*.log

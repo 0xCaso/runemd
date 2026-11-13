@@ -1,0 +1,4 @@
+# t_ms	kind	path	inode	size	mtime_ns
+0.4	create	docs/spec.md	382888249	22054	1794600788862401473
+18782.8	rename-atomic	docs/spec.md	382888461	22331	1794600826094014517
+22293.7	rename-atomic	docs/spec.md	382888480	22768	1794600829603520343
