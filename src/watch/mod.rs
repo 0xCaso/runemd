@@ -66,11 +66,13 @@ struct Core {
     missing: HashMap<PathBuf, Instant>,
     /// File visti esistere (uscito `Changed`): da ricontrollare dopo un rescan.
     known: HashSet<PathBuf>,
+    /// Rescan chiesti e non ancora eseguiti: tanti si accorpano in uno.
+    rescan_at: Option<Instant>,
 }
 
 impl Core {
     fn new() -> Self {
-        Core { debounce: Debounce::new(DEBOUNCE_MS), missing: HashMap::new(), known: HashSet::new() }
+        Core { debounce: Debounce::new(DEBOUNCE_MS), missing: HashMap::new(), known: HashSet::new(), rescan_at: None }
     }
 
     fn observe(&mut self, path: PathBuf, at: Instant) {
@@ -80,6 +82,14 @@ impl Core {
         } else if filter::wanted(&path) {
             self.debounce.push(Key::File(path), at);
         }
+    }
+
+    fn request_rescan(&mut self, at: Instant) {
+        self.rescan_at = Some(self.rescan_at.map_or(at, |old| old.max(at)));
+    }
+
+    fn take_rescan(&mut self) -> Option<Instant> {
+        self.rescan_at.take()
     }
 
     /// Notify ha perso eventi: ricontrolla ogni percorso noto e ogni file sotto le radici.
@@ -138,16 +148,18 @@ impl Core {
     }
 }
 
-/// I file `wanted` sotto `dir`, ricorsivo; errori di lettura ignorati.
+/// I file `wanted` sotto `dir`, ricorsivo; errori di lettura ignorati. Non entra nelle cartelle
+/// saltate né nei link simbolici a cartelle (un ciclo non finirebbe mai).
 fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
     let Ok(entries) = std::fs::read_dir(dir) else { return };
     for entry in entries.flatten() {
         let path = entry.path();
-        if path.is_dir() {
+        let Ok(kind) = entry.file_type() else { continue };
+        if kind.is_dir() {
             if !path.file_name().is_some_and(|n| filter::SKIPPED_DIRS.iter().any(|s| n == *s)) {
                 walk(&path, out);
             }
-        } else if filter::wanted(&path) {
+        } else if filter::wanted(&path) && (!kind.is_symlink() || path.is_file()) {
             out.push(path);
         }
     }
@@ -214,7 +226,7 @@ impl Watcher {
                 }
                 {
                     let mut queue = shared.queue.lock().unwrap_or_else(PoisonError::into_inner);
-                    if event.need_rescan() || (event.paths.is_empty() && event.flag() == Some(notify::event::Flag::Rescan)) {
+                    if event.need_rescan() {
                         queue.push(Raw::Rescan(now));
                     }
                     queue.extend(event.paths.into_iter().map(|p| Raw::Path(p, now)));
@@ -274,8 +286,12 @@ impl Watcher {
         for raw in queued {
             match raw {
                 Raw::Path(path, at) => self.core.observe(path, at),
-                Raw::Rescan(at) => self.core.rescan(&self.roots, at),
+                Raw::Rescan(at) => self.core.request_rescan(at),
             }
+        }
+        // Una sola passata su disco per drain, quanti che siano i rescan in coda.
+        if let Some(at) = self.core.take_rescan() {
+            self.core.rescan(&self.roots, at);
         }
         self.drop_missing_roots();
         let out = self.core.drain(now);
@@ -526,6 +542,34 @@ mod tests {
         first.sort_by_key(|e| format!("{e:?}"));
         assert_eq!(first, vec![FsEvent::Changed(fresh), FsEvent::Changed(kept)]);
         assert_eq!(core.drain(at(2300)), vec![FsEvent::Removed(gone)]);
+    }
+
+    #[test]
+    fn core_coalesces_rescans_into_one() {
+        let t0 = Instant::now();
+        let mut core = Core::new();
+        for ms in [0, 5, 10] {
+            core.request_rescan(t0 + Duration::from_millis(ms));
+        }
+        assert_eq!(core.take_rescan(), Some(t0 + Duration::from_millis(10)));
+        assert_eq!(core.take_rescan(), None, "una sola passata");
+    }
+
+    #[test]
+    fn rescan_survives_symlink_loop_and_skips_skipped_dirs() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_path_buf();
+        fs::create_dir_all(root.join("a")).unwrap();
+        fs::create_dir_all(root.join("node_modules/p")).unwrap();
+        fs::write(root.join("a/x.md"), "x").unwrap();
+        fs::write(root.join("node_modules/p/y.md"), "x").unwrap();
+        std::os::unix::fs::symlink("..", root.join("a/link")).unwrap();
+        let mut found = Vec::new();
+        walk(&root, &mut found);
+        assert_eq!(found, vec![root.join("a/x.md")]);
+        let mut core = Core::new();
+        core.rescan(std::slice::from_ref(&root), Instant::now());
+        assert!(core.pending());
     }
 
     #[test]
