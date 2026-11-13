@@ -7,8 +7,10 @@
 //! sostituisce i blocchi. Il thread sveglia l'app con il `Waker` quando ha finito.
 //!
 //! Fino al task 14 si guarda solo la cartella del file aperto, senza sottocartelle: un file in
-//! `~` non deve far guardare tutta la home.
+//! `~` non deve far guardare tutta la home. Si guarda anche il `.git` del suo repo, per i cambi
+//! di `.git/HEAD` che spengono "sta scrivendo" (`activity`).
 
+pub mod activity;
 pub mod reload;
 
 use std::io;
@@ -21,6 +23,7 @@ use rune::Waker;
 use crate::doc::document::{Change, Document};
 use crate::watch::{FsEvent, Watcher};
 
+use activity::Activity;
 use reload::{Commit, OwnWrites, Read};
 
 /// Dopo una lettura sospetta si rilegge dopo questo tempo; se il contenuto è lo stesso, il file
@@ -42,6 +45,8 @@ pub struct Reloaded {
 pub struct Live {
     watcher: Option<Watcher>,
     pub own: OwnWrites,
+    /// "Sta scrivendo": solo le ricariche esterne applicate lo accendono.
+    activity: Activity,
     /// Il file aperto come lo riporta FSEvents (canonico).
     watched: Option<PathBuf>,
     /// L'hash di una lettura sospetta saltata: se la rilettura dà lo stesso, si applica.
@@ -62,6 +67,22 @@ struct Job {
     timed: bool,
 }
 
+/// La radice del repo di `path`: la cartella più vicina, sopra il file, che contiene `.git/`.
+/// Worktree e submodule (`.git` file) non si riconoscono: stesso limite del watcher.
+fn repo_of(path: &Path) -> Option<PathBuf> {
+    path.ancestors().skip(1).find(|d| d.join(".git").is_dir()).map(Path::to_path_buf)
+}
+
+/// Guarda la cartella di `path` e il `.git` del suo repo (per `.git/HEAD`), senza sottocartelle.
+fn watch_roots(watcher: &mut Watcher, path: &Path) {
+    if let Some(root) = root_of(path) {
+        watcher.add_root(root, false);
+    }
+    if let Some(repo) = repo_of(path) {
+        watcher.add_root(repo.join(".git"), false);
+    }
+}
+
 /// La cartella da guardare per `path` (non ricorsiva).
 fn root_of(path: &Path) -> Option<PathBuf> {
     path.parent().map(|p| if p.as_os_str().is_empty() { PathBuf::from(".") } else { p.to_owned() })
@@ -71,8 +92,8 @@ impl Live {
     /// Avvia il watcher (da `AppSpec::setup`, che ha il waker) e guarda il file già aperto.
     pub fn start(&mut self, waker: Waker) {
         let mut watcher = Watcher::start(Vec::new(), waker.clone());
-        if let Some(root) = self.watched.as_deref().and_then(root_of) {
-            watcher.add_root(root, false);
+        if let Some(path) = self.watched.as_deref() {
+            watch_roots(&mut watcher, path);
         }
         self.watcher = Some(watcher);
         self.waker = Some(waker);
@@ -82,8 +103,8 @@ impl Live {
     /// file di prima, lettura in corso compresa (era per l'altro documento).
     pub fn watch(&mut self, path: &Path) {
         let canonical = path.canonicalize().unwrap_or_else(|_| path.to_owned());
-        if let (Some(w), Some(root)) = (self.watcher.as_mut(), root_of(&canonical)) {
-            w.add_root(root, false);
+        if let Some(w) = self.watcher.as_mut() {
+            watch_roots(w, &canonical);
         }
         self.watched = Some(canonical);
         self.held = None;
@@ -98,7 +119,22 @@ impl Live {
     pub fn poll(&mut self, doc: Option<&mut Document>, now: Instant) -> (Option<Reloaded>, Option<Duration>) {
         let events = self.watcher.as_mut().map(|w| w.drain(now)).unwrap_or_default();
         let changed = events.iter().any(|e| matches!(e, FsEvent::Changed(p) if self.watched.as_ref() == Some(p)));
+        self.note(&events, now);
         self.step(doc, changed, now)
+    }
+
+    /// Fra quanto il file aperto smette di essere "sta scrivendo"; `None` se non lo è.
+    pub fn writing_left(&self, now: Instant) -> Option<Duration> {
+        self.activity.left(self.watched.as_deref()?, now)
+    }
+
+    /// Gli eventi che non sono ricariche: un cambio di `.git/HEAD`.
+    fn note(&mut self, events: &[FsEvent], now: Instant) {
+        for e in events {
+            if let FsEvent::GitHead(repo) = e {
+                self.activity.git_head(repo, now);
+            }
+        }
     }
 
     /// `poll` senza il watcher: `changed` dice se è arrivato un `Changed` del file aperto.
@@ -173,7 +209,14 @@ impl Live {
         self.recheck_at = None;
         let written = read.written;
         match reload::commit(doc, read, &self.own) {
-            Commit::Applied(change) => Some(Reloaded { at: now, written, change }),
+            Commit::Applied(change) => {
+                // L'unico punto che accende "sta scrivendo": mai per le scritture dell'app, le
+                // letture saltate o quelle sospette trattenute (ritornate sopra).
+                if let Some(path) = &self.watched {
+                    self.activity.touch(path, now);
+                }
+                Some(Reloaded { at: now, written, change })
+            }
             Commit::Skipped => None,
             Commit::Stale => {
                 self.want = Some(self.want.unwrap_or(false));
@@ -317,6 +360,79 @@ mod tests {
         assert!(live.step(Some(&mut doc), true, at(199)).0.is_none());
         assert!(live.step(Some(&mut doc), false, at(200)).0.is_some(), "alla rilettura a tempo");
         assert!(doc.blocks.is_empty());
+    }
+
+    fn sync_live(path: &Path) -> (Live, Document) {
+        let doc = Document::load(path).unwrap();
+        let mut live = Live { sync: true, ..Live::default() };
+        live.watch(path);
+        (live, doc)
+    }
+
+    /// Solo una ricarica esterna applicata accende "sta scrivendo": la rilettura di una
+    /// scrittura dell'app no.
+    #[test]
+    fn own_writes_do_not_touch() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("a.md");
+        fs::write(&path, "# a\n").unwrap();
+        let (mut live, mut doc) = sync_live(&path);
+        let t0 = Instant::now();
+        // Stesso contenuto (un `touch` senza modifiche): lettura saltata, niente anello.
+        fs::write(&path, "# a\n").unwrap();
+        assert!(live.step(Some(&mut doc), true, t0).0.is_none());
+        assert_eq!(live.writing_left(t0), None, "lettura saltata");
+        let mine = "# a\n\nscritto dall'app\n";
+        live.own.remember(&doc.path, crate::doc::ids::hash_str(mine));
+        fs::write(&path, mine).unwrap();
+        assert!(live.step(Some(&mut doc), true, t0).0.is_none());
+        assert_eq!(live.writing_left(t0), None, "scrittura dell'app");
+        fs::write(&path, "# a\n\ndell'agente\n").unwrap();
+        assert!(live.step(Some(&mut doc), true, t0).0.is_some());
+        assert_eq!(live.writing_left(t0), Some(activity::WRITING_WINDOW), "scrittura dell'agente");
+    }
+
+    /// Una lettura sospetta trattenuta non accende l'anello; lo accende quando si applica.
+    #[test]
+    fn a_held_suspect_read_does_not_touch() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("a.md");
+        let long: String = (0..200).map(|n| format!("Paragrafo {n} di prova.\n\n")).collect();
+        fs::write(&path, &long).unwrap();
+        let (mut live, mut doc) = sync_live(&path);
+        let t0 = Instant::now();
+        let at = |ms| t0 + Duration::from_millis(ms);
+        fs::write(&path, "").unwrap();
+        assert!(live.step(Some(&mut doc), true, at(0)).0.is_none());
+        assert_eq!(live.writing_left(at(0)), None, "trattenuta");
+        assert!(live.step(Some(&mut doc), false, at(200)).0.is_some());
+        assert!(live.writing_left(at(200)).is_some(), "applicata alla rilettura");
+    }
+
+    /// Un cambio di `.git/HEAD` del repo del file spegne le ricariche dei 2 s attorno.
+    #[test]
+    fn a_git_checkout_reload_does_not_touch() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("a.md");
+        fs::write(&path, "# a\n").unwrap();
+        let (mut live, mut doc) = sync_live(&path);
+        let repo = dir.path().canonicalize().unwrap();
+        let t0 = Instant::now();
+        live.note(&[FsEvent::GitHead(repo)], t0);
+        fs::write(&path, "# a\n\ndal checkout\n").unwrap();
+        let at = t0 + Duration::from_millis(500);
+        assert!(live.step(Some(&mut doc), true, at).0.is_some(), "il documento si aggiorna");
+        assert_eq!(live.writing_left(at), None, "ma l'anello resta spento");
+    }
+
+    #[test]
+    fn repo_root_is_the_nearest_folder_with_git() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir_all(dir.path().join(".git")).unwrap();
+        fs::create_dir_all(dir.path().join("docs/sub")).unwrap();
+        assert_eq!(repo_of(&dir.path().join("docs/sub/a.md")).as_deref(), Some(dir.path()));
+        let other = tempfile::tempdir().unwrap();
+        assert_eq!(repo_of(&other.path().join("a.md")), None);
     }
 
     #[test]

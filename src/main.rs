@@ -36,9 +36,35 @@ pub struct Doc {
     generation: u64,
     /// Watcher e rilettura del file aperto.
     live: live::Live,
+    /// L'orologio di Rune (`poll`) a cui si è acceso l'anello "sta scrivendo" del file aperto;
+    /// `None` quando è spento.
+    ring_since: Option<f64>,
+    /// La fine della finestra per cui c'è già un risveglio: uno solo per finestra, non uno a frame.
+    ring_wake: Option<Instant>,
 }
 
 impl Doc {
+    /// L'anello "sta scrivendo" è acceso: il compositor scorre le istanze solo allora.
+    pub fn ring_lit(&self) -> bool {
+        self.ring_since.is_some()
+    }
+
+    /// Accende o spegne l'anello secondo `Live` a `now`; vero se è cambiato. Ritorna anche il
+    /// risveglio da chiedere, una volta per finestra: a fine finestra `poll` lo spegne anche
+    /// se nessun frame è passato in mezzo (con "riduci movimento" non ne passano).
+    fn update_ring(&mut self, clock: f64, now: Instant) -> (bool, Option<Duration>) {
+        let left = self.live.writing_left(now);
+        let end = left.map(|d| now + d);
+        let wake = if end != self.ring_wake { left.map(|d| d + Duration::from_millis(1)) } else { None };
+        self.ring_wake = end;
+        let lit = left.is_some();
+        if lit == self.ring_lit() {
+            return (false, wake);
+        }
+        self.ring_since = lit.then_some(clock);
+        (true, wake)
+    }
+
     /// Apre i percorsi ricevuti (Finder, riga di comando). Per ora un solo documento: vale
     /// l'ultimo percorso e sostituisce quello corrente. Il task 19 sposta questo metodo su
     /// `App` e apre una scheda per percorso.
@@ -68,7 +94,7 @@ fn init() -> Doc {
     if paths.is_empty() {
         paths.extend(std::env::var("MDSPIKE_FILE").ok().map(PathBuf::from));
     }
-    let mut doc = Doc { document: None, style: ui::markdown_style::style(&ui::theme::Theme::for_mode(dark_mode()), 15.5), scroll: probe::ScrollRun::from_env(), generation: 0, live: live::Live::default() };
+    let mut doc = Doc { document: None, style: ui::markdown_style::style(&ui::theme::Theme::for_mode(dark_mode()), 15.5), scroll: probe::ScrollRun::from_env(), generation: 0, live: live::Live::default(), ring_since: None, ring_wake: None };
     doc.open_paths(paths);
     doc
 }
@@ -83,12 +109,22 @@ fn open_document(s: &Doc) -> &Document {
     s.document.as_ref().expect("vista del documento senza documento")
 }
 
-fn view(s: &Doc, _: &mut Cx<Doc>) -> El {
+fn view(s: &Doc, cx: &mut Cx<Doc>) -> El {
     let body = if s.document.is_some() { ui::doc_view::view(s, open_document, s.generation, &s.style) } else { el() };
     let theme = ui::theme::Theme::for_mode(dark_mode());
     // Vetro di sistema attorno, pannello pieno a `FRAME` dai bordi con il documento.
     let panel = el().w_full().h_full().fill(theme.panel).radius(ui::theme::R_PANEL).clip_rounded(ui::theme::R_PANEL).child(body);
-    el().w_full().h_full().system_material(rune::SystemMaterial::Glass).fill(theme.glass).padding(ui::theme::FRAME).child(panel)
+    // L'anello "sta scrivendo" sta in uno slot attorno al pannello, sempre presente perché la
+    // struttura (e lo scroll del documento) non cambi quando si accende.
+    // TODO(task 16/19): ospite temporaneo. L'anello va sulla scheda del file (task 19), sulla sua
+    // riga in Recenti e nell'albero (task 16), con `fx::ring::slot` e `Mark::TabRing`,
+    // `RecentRing`, `TreeRing`; il pannello del lettore poi non ne ha più.
+    let host = el().w_full().h_full().radius(ui::theme::R_PANEL).child(panel);
+    let host = match s.ring_since {
+        Some(since) => fx::ring::slot(host, fx::Mark::TabRing(0), since, cx.is_reduced_motion()),
+        None => host,
+    };
+    el().w_full().h_full().system_material(rune::SystemMaterial::Glass).fill(theme.glass).padding(ui::theme::FRAME).child(host)
 }
 
 /// Ogni tasto non preso da un controllo, prima della selezione di Rune: il Cmd+A va segnato.
@@ -114,7 +150,12 @@ fn poll(s: &mut Doc, clock: f64, tx: &mut Tx) -> bool {
     if let Some(r) = &reloaded {
         probe::reloaded(r);
     }
-    let changed = opened || reloaded.is_some();
+    // L'anello si spegne con un solo risveglio a fine finestra, non con frame continui.
+    let (ring, wake) = s.update_ring(clock, Instant::now());
+    if let Some(d) = wake {
+        tx.wake_after(d);
+    }
+    let changed = opened || reloaded.is_some() || ring;
     let Some(run) = s.scroll.as_mut() else { return changed };
     if let Some(y) = run.step(clock) {
         tx.scroll_to_instant("doc", 0.0, y);
@@ -148,7 +189,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let f = dir.join("a.md");
         std::fs::write(&f, "# a\n\nb\n").unwrap();
-        let mut doc = Doc { document: None, style: ui::markdown_style::style(&ui::theme::Theme::for_mode(true), 15.5), scroll: None, generation: 0, live: live::Live::default() };
+        let mut doc = Doc { document: None, style: ui::markdown_style::style(&ui::theme::Theme::for_mode(true), 15.5), scroll: None, generation: 0, live: live::Live::default(), ring_since: None, ring_wake: None };
         doc.open_paths(vec![f.clone()]);
         // Rune rilegge le chiavi solo se la versione cambia: anche lo stesso file invariato,
         // riaperto, deve cambiare versione e chiavi.

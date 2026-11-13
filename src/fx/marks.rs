@@ -29,6 +29,11 @@ impl Mark {
             Mark::Dither => DITHER,
         }
     }
+
+    /// Se l'id di uno slot è un anello (scheda, riga in Recenti, riga nell'albero).
+    pub fn is_ring(id: u32) -> bool {
+        id >= TAB.0
+    }
 }
 
 #[cfg(test)]
@@ -47,5 +52,15 @@ mod tests {
             assert!(![1, 2].contains(&Mark::TabRing(n).id()));
             assert!(Mark::TabRing(n).id() <= 9_999);
         }
+    }
+
+    #[test]
+    fn rings_are_told_apart_from_fire_and_dither() {
+        for m in [Mark::TabRing(0), Mark::RecentRing(4), Mark::TreeRing(70_000)] {
+            assert!(Mark::is_ring(m.id()), "{m:?}");
+        }
+        assert!(!Mark::is_ring(Mark::Fire.id()));
+        assert!(!Mark::is_ring(Mark::Dither.id()));
+        assert!(!Mark::is_ring(0), "slot senza mark");
     }
 }

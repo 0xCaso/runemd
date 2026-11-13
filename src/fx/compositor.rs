@@ -1,18 +1,35 @@
 use std::collections::HashMap;
 
 use rune::compose::{Compositor, Frame};
-use rune::render::{EffectSite, KIND_EFFECT};
-use rune_fx::{FxFrame, FxLayer, FxOptions, FxRenderer, FxSlot};
+use rune::render::{EffectSite, Instance, KIND_EFFECT};
+use rune_fx::{FxFrame, FxLayer, FxOptions, FxRenderer, FxSlot, Rect};
 
 use super::marks::Mark;
+use super::ring;
 use crate::Doc;
 
-/// Un solo compositor per la finestra. A riposo (nessun layer) il frame è quello di default di
-/// Rune e `animating()` è falso: niente frame, niente costo.
+/// Un solo compositor per la finestra. A riposo (nessun layer, nessun anello acceso) il frame è
+/// quello di default di Rune e `animating()` è falso: niente frame, niente costo.
+///
+/// Gli anelli non passano da `set`: la vista mette uno slot `ring::slot` solo mentre il file è
+/// "sta scrivendo", e qui ogni slot di anello diventa `ring::layer` del suo rect.
 #[derive(Default)]
 pub struct FxCompositor {
     layers: HashMap<u32, FxLayer>,
     fx: Option<FxRenderer>,
+    /// L'ultimo frame aveva un layer che si muove da solo: la finestra tiene il display link.
+    moving: bool,
+    /// L'ultimo frame ha disegnato almeno un layer.
+    drew: bool,
+}
+
+/// Il layer dell'anello per uno slot `ring::slot`, al tempo `clock` di Rune.
+fn ring_layer(i: &Instance, clock: f64) -> FxLayer {
+    let k = i.params[3].max(f32::EPSILON);
+    let [x, y, w, h] = i.rect.map(|v| v / k);
+    let radius = i.radii.iter().fold(0.0f32, |a, v| a.max(v.abs())) / k;
+    let (t, reduced) = ring::slot_time(i.uv, clock);
+    ring::layer_rounded(Rect::new(x, y, w, h), radius, t, reduced)
 }
 
 impl FxCompositor {
@@ -28,21 +45,24 @@ impl FxCompositor {
 
 impl Compositor<Doc> for FxCompositor {
     fn animating(&self) -> bool {
-        !self.layers.is_empty()
+        self.moving
     }
 
     fn draws_own(&self) -> bool {
-        !self.layers.is_empty()
+        self.drew
     }
 
     fn render(&mut self, f: &mut Frame<'_, Doc>) {
         let (device, queue, size) = (f.device, f.queue, f.size);
         // Il renderer nasce al primo frame; le pipeline si compilano solo quando un layer le usa.
         let fx = self.fx.get_or_insert_with(|| FxRenderer::new(device, f.format, FxOptions { dither: true }));
-        if self.layers.is_empty() {
+        // A riposo il frame resta quello di Rune, senza nemmeno scorrere le istanze.
+        if self.layers.is_empty() && !f.rt.state.ring_lit() {
+            (self.moving, self.drew) = (false, false);
             f.draw_ui();
             return;
         }
+        let clock = f.rt.clock;
         let mut at: Vec<u32> = Vec::new();
         let mut layers: Vec<FxLayer> = Vec::new();
         let mut slots: Vec<FxSlot> = Vec::new();
@@ -51,11 +71,15 @@ impl Compositor<Doc> for FxCompositor {
                 continue;
             }
             let mark = f.rt.marks.get(n).copied().unwrap_or(0);
-            let Some(layer) = self.layers.get(&mark) else { continue };
+            let layer = if Mark::is_ring(mark) { ring_layer(i, clock) } else if let Some(l) = self.layers.get(&mark) { *l } else { continue };
             at.push(n as u32);
-            layers.push(*layer);
+            layers.push(layer);
             slots.push(FxSlot::default().scale(i.params[3]).clip(i.clip, i.fade));
         }
+        // Fermo appena nessun layer si muove: un anello con "riduci movimento" non tiene il
+        // display link, e uno spento non c'è più fra le istanze.
+        self.moving = layers.iter().any(FxLayer::is_animating);
+        self.drew = !layers.is_empty();
         fx.set_srgb_blend(f.srgb_blend());
         fx.add_format(device, wgpu::TextureFormat::Rgba16Float);
         fx.prepare_with_slots(device, queue, &FxFrame { viewport: [size.0, size.1], scale: 1.0, layers: &layers, backdrop: None, sources: &[] }, &slots);
