@@ -11,14 +11,28 @@ use std::ops::Range;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use rune::{El, GrowthSpec, Key, KeyEvent, ScrollSpec, SelectedText, TextSelection, col, el};
+use rune::{Color, El, GrowthSpec, Key, KeyEvent, ScrollSpec, SelectedText, TextSelection, col, el};
 use rune_kit::MarkdownStyle;
 
 use crate::doc::document::Document;
 use crate::doc::select_all::{End, Ends, SelectAll, SelectAllFlag};
 use crate::doc::ids;
 
-use super::theme::COLUMN;
+use super::theme::{CHANGED_MARK_W, CHANGED_MARK_X, COLUMN, ROW_PAD_X, ROW_PAD_Y};
+
+/// Altezza dello spazio sotto l'ultima riga: ci sta il dither "sta arrivando".
+const BOTTOM: f32 = 48.0;
+
+/// I segnali live dentro la colonna, che non spostano il testo.
+pub struct Signals<S> {
+    /// Se il blocco `id` ha il segno "cosa è cambiato" (a sinistra della riga, fuori dal flusso).
+    pub marked: fn(&S, u64) -> bool,
+    /// Colore del segno (`theme.line`).
+    pub mark: Color,
+    /// La barra del dither "sta arrivando", se accesa: va nello spazio sotto l'ultima riga, che
+    /// ha sempre la stessa altezza, quindi niente sopra si sposta.
+    pub tail: Option<El>,
+}
 
 /// Chiave della riga `i`: generazione del file aperto + id del blocco. Gli id ripartono da 1 a
 /// ogni `Document`, la generazione no: senza, un file nuovo erediterebbe le altezze misurate
@@ -42,7 +56,7 @@ pub fn rows_version(generation: u64, doc: &Document) -> (u64, u64, u64) {
 /// `on_rows` riceve gli indici delle righe visibili (`on_visible_rows` di Rune: `start..end`,
 /// righe anche solo in parte nella vista) dopo il primo layout e a ogni loro cambio; ritorna
 /// vero se ha cambiato stato che la vista legge.
-pub fn view<S: 'static>(s: &S, doc_of: fn(&S) -> &Document, generation: u64, style: &MarkdownStyle, on_rows: fn(&mut S, Range<usize>) -> bool) -> El {
+pub fn view<S: 'static>(s: &S, doc_of: fn(&S) -> &Document, generation: u64, style: &MarkdownStyle, on_rows: fn(&mut S, Range<usize>) -> bool, signals: Signals<S>) -> El {
     let doc = doc_of(s);
     let style = style.clone();
     let blocks: Arc<[(u64, Arc<str>)]> = doc.blocks.iter().map(|b| (b.id, b.source.clone())).collect();
@@ -58,11 +72,18 @@ pub fn view<S: 'static>(s: &S, doc_of: fn(&S) -> &Document, generation: u64, sty
             doc.blocks.len(),
             60.0,
             move |s: &S, i| Cow::Owned(row_key(generation, i, doc_of(s))),
-            move |s: &S, i| block_row(&doc_of(s).blocks[i].source, &style),
+            move |s: &S, i| {
+                let b = &doc_of(s).blocks[i];
+                block_row(&b.source, &style, (signals.marked)(s, b.id).then_some(signals.mark))
+            },
         )
         .virtual_rows_version(rows_version(generation, doc))
         .on_visible_rows(on_rows);
-    let page = col().w_full().child(el().h(24.0)).child(rows).child(el().h(48.0));
+    let mut bottom = col().w_full().h(BOTTOM);
+    if let Some(bar) = signals.tail {
+        bottom = bottom.child(col().key("arriving").w_full().max_w(COLUMN).self_center().px(ROW_PAD_X).child(bar));
+    }
+    let page = col().w_full().child(el().h(24.0)).child(rows).child(bottom);
     col().key("doc").w_full().h_full().scroll(ScrollSpec { stick_bottom: false }).child(page)
 }
 
@@ -173,12 +194,18 @@ fn row_id(path: &str, generation: u64) -> Option<u64> {
     path.split('/').find_map(|seg| u64::from_str_radix(seg.strip_prefix(&prefix)?, 16).ok())
 }
 
-fn block_row(source: &str, style: &MarkdownStyle) -> El {
+/// Una riga del documento; con `mark` ha il segno "cosa è cambiato" nel margine sinistro, fuori
+/// dal flusso (il testo non si sposta), alto quanto il testo del blocco.
+fn block_row(source: &str, style: &MarkdownStyle, mark: Option<Color>) -> El {
     // `selectable` fa di ogni blocco un selection_group a sé, che fermerebbe un trascinamento
     // al bordo del blocco: si toglie il flag e vale il gruppo unico sulle righe.
     let body = rune_kit::Markdown::new(source).selectable(true).render(style).selection_group(false);
     // Le righe virtuali vogliono padding interno, non gap tra righe.
-    col().w_full().px(28.0).py(7.0).child(body)
+    let row = col().w_full().px(ROW_PAD_X).py(ROW_PAD_Y).child(body);
+    match mark {
+        Some(c) => row.child(el().key("changed").pin(Some(CHANGED_MARK_X), Some(ROW_PAD_Y), None, Some(ROW_PAD_Y)).w(CHANGED_MARK_W).fill(c)),
+        None => row,
+    }
 }
 
 #[cfg(test)]
@@ -223,7 +250,7 @@ mod tests {
     }
 
     fn open_doc(document: Document) -> Runtime<Doc> {
-        let state = Doc { document: Some(document), style: MarkdownStyle::neutral(true), scroll: None, generation: 1, live: crate::live::Live::default(), ring_since: None, ring_wake: None, below: crate::live::below::Below::default(), visible_last: 0, fire_since: None, fire_armed: None, window_active: true };
+        let state = Doc { document: Some(document), style: MarkdownStyle::neutral(true), scroll: None, generation: 1, live: crate::live::Live::default(), ring_since: None, ring_wake: None, below: crate::live::below::Below::default(), visible_last: 0, fire_since: None, fire_armed: None, window_active: true, changed: crate::live::arriving::Changed::default(), mark_wake: None, dither_since: None };
         let mut rt = Runtime::new(state, crate::view, VIEWPORT, Env::new(true, 2.0));
         rt.on_key = Some(crate::on_key);
         rt.frame(0.0);
@@ -433,6 +460,48 @@ mod tests {
         assert_eq!(rt.state.below.count(), 1);
         assert_eq!(rt.state.fire_since, Some(1.0));
         assert!(fire_drawn(&rt));
+    }
+
+    /// I rect delle righe del documento (chiave → rect), in ordine.
+    fn row_rects(rt: &Runtime<Doc>) -> Vec<(String, [f32; 4])> {
+        let doc = rt.state.document.as_ref().unwrap();
+        let keys: Vec<String> = (0..doc.blocks.len()).map(|i| row_key(rt.state.generation, i, doc)).collect();
+        rt.elements().iter().filter(|e| !e.exiting).filter_map(|e| { let k = e.key.as_deref()?; keys.iter().any(|x| x == k).then(|| (k.to_owned(), e.rect)) }).collect()
+    }
+
+    fn keyed(rt: &Runtime<Doc>, key: &str) -> Vec<[f32; 4]> {
+        rt.elements().iter().filter(|e| !e.exiting && e.key.as_deref() == Some(key)).map(|e| e.rect).collect()
+    }
+
+    /// Dither e segno accesi su un file che finisce con una fence aperta: le righe restano dove
+    /// erano, la barra sta sotto l'ultima riga, alta una riga e larga come il testo, e il segno
+    /// sta nel margine sinistro della riga segnata.
+    #[test]
+    fn dither_and_changed_mark_do_not_move_the_text() {
+        let src = "# Titolo\n\nUn paragrafo.\n\n```rs\nfn main() {\n    let x = 1;";
+        let mut rt = open(src);
+        let before = row_rects(&rt);
+        assert_eq!(before.len(), 3);
+        assert!(keyed(&rt, "arriving").is_empty() && keyed(&rt, "changed").is_empty());
+        let marked = rt.state.document.as_ref().unwrap().blocks[1].id;
+        rt.update(|s, _| {
+            s.dither_since = Some(0.0);
+            s.changed.mark(&[marked], std::time::Instant::now());
+        });
+        settle(&mut rt);
+        assert_eq!(row_rects(&rt), before, "niente sopra si sposta");
+        let bar = keyed(&rt, "arriving");
+        assert_eq!(bar.len(), 1, "la barra del dither");
+        let last = before[2].1;
+        assert!(bar[0][1] >= last[1] + last[3] - 0.5, "sotto l'ultima riga: {bar:?} {last:?}");
+        let text_w = last[2] - 2.0 * crate::ui::theme::ROW_PAD_X;
+        assert!((bar[0][2] - 2.0 * crate::ui::theme::ROW_PAD_X - text_w).abs() < 0.5, "larga come il testo");
+        let mark = keyed(&rt, "changed");
+        assert_eq!(mark.len(), 1, "un solo blocco segnato");
+        let row = before[1].1;
+        assert_eq!(mark[0][2], crate::ui::theme::CHANGED_MARK_W);
+        assert!(mark[0][0] > row[0] && mark[0][0] + mark[0][2] < row[0] + crate::ui::theme::ROW_PAD_X, "nel margine sinistro");
+        assert!(mark[0][1] > row[1] && mark[0][1] + mark[0][3] < row[1] + row[3], "dentro la riga");
     }
 
     #[test]

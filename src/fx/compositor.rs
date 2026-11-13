@@ -5,15 +5,16 @@ use rune::render::{EffectSite, Instance, KIND_EFFECT};
 use rune_fx::{FxFrame, FxLayer, FxOptions, FxRenderer, FxSlot, Rect};
 
 use super::marks::Mark;
-use super::{fire, ring};
+use super::{dither, fire, ring};
 use crate::Doc;
 
 /// Un solo compositor per la finestra. A riposo (nessun layer, nessun anello acceso) il frame è
 /// quello di default di Rune e `animating()` è falso: niente frame, niente costo.
 ///
-/// Anelli e fuoco non passano da `set`: la vista mette uno slot `ring::slot` solo mentre il file
-/// è "sta scrivendo" e uno `fire::slot` solo mentre c'è testo nuovo sotto la vista; qui ogni slot
-/// diventa il layer del suo rect.
+/// Anelli, fuoco e dither non passano da `set`: la vista mette uno slot `ring::slot` solo mentre
+/// il file è "sta scrivendo", uno `fire::slot` solo mentre c'è testo nuovo sotto la vista e uno
+/// `dither::slot` solo mentre l'ultimo blocco sta arrivando; qui ogni slot diventa il layer del
+/// suo rect.
 #[derive(Default)]
 pub struct FxCompositor {
     layers: HashMap<u32, FxLayer>,
@@ -43,6 +44,13 @@ fn ring_layer(i: &Instance, clock: f64) -> FxLayer {
 fn fire_layer(i: &Instance, clock: f64) -> FxLayer {
     let s = fire::slot_state(i.uv, clock);
     fire::layer(rect_pt(i), s.t, s.dark, s.reduced, s.active_window)
+}
+
+/// Il layer del dither per uno slot `dither::slot` e se pulsa (rune-fx non lo conta come
+/// animato: il tono è fermo dentro un passo).
+fn dither_layer(i: &Instance, clock: f64) -> (FxLayer, bool) {
+    let s = dither::slot_state(i.uv, clock);
+    (dither::layer(rect_pt(i), s.t, s.dark, s.reduced), s.moving())
 }
 
 impl FxCompositor {
@@ -79,6 +87,7 @@ impl Compositor<Doc> for FxCompositor {
         let mut at: Vec<u32> = Vec::new();
         let mut layers: Vec<FxLayer> = Vec::new();
         let mut slots: Vec<FxSlot> = Vec::new();
+        let mut pulsing = false;
         for (n, i) in f.rt.instances.iter().enumerate() {
             if i.params[1] != KIND_EFFECT {
                 continue;
@@ -88,6 +97,10 @@ impl Compositor<Doc> for FxCompositor {
                 ring_layer(i, clock)
             } else if mark == Mark::Fire.id() {
                 fire_layer(i, clock)
+            } else if mark == Mark::Dither.id() {
+                let (layer, moving) = dither_layer(i, clock);
+                pulsing |= moving;
+                layer
             } else if let Some(l) = self.layers.get(&mark) {
                 *l
             } else {
@@ -98,8 +111,8 @@ impl Compositor<Doc> for FxCompositor {
             slots.push(FxSlot::default().scale(i.params[3]).clip(i.clip, i.fade));
         }
         // Fermo appena nessun layer si muove: un anello con "riduci movimento" non tiene il
-        // display link, e uno spento non c'è più fra le istanze.
-        self.moving = layers.iter().any(FxLayer::is_animating);
+        // display link, e uno spento non c'è più fra le istanze. Il dither che pulsa sì.
+        self.moving = pulsing || layers.iter().any(FxLayer::is_animating);
         self.drew = !layers.is_empty();
         fx.set_srgb_blend(f.srgb_blend());
         fx.add_format(device, wgpu::TextureFormat::Rgba16Float);

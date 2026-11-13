@@ -1,6 +1,7 @@
 //! Effetti GPU di RuneMD: un solo compositor rune-fx per tutta la finestra.
 
 mod compositor;
+pub mod dither;
 pub mod fire;
 mod marks;
 pub mod ring;

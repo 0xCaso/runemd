@@ -40,7 +40,7 @@ pub struct Doc {
     /// `None` quando è spento.
     ring_since: Option<f64>,
     /// Il risveglio armato per spegnere l'anello: uno per finestra, non uno a frame.
-    ring_wake: Option<RingWake>,
+    ring_wake: Option<Wake>,
     /// Il fuoco: i blocchi nuovi o cambiati sotto la vista.
     below: live::below::Below,
     /// L'id dell'ultimo blocco visibile, dall'ultimo `on_visible_rows`; 0 prima del primo.
@@ -52,15 +52,42 @@ pub struct Doc {
     fire_armed: Option<f64>,
     /// La finestra è attiva (`on_window_focus`): senza, il fuoco resta fermo.
     window_active: bool,
+    /// I blocchi con il segno "cosa è cambiato".
+    changed: live::arriving::Changed,
+    /// Il risveglio armato per togliere il prossimo segno che scade.
+    mark_wake: Option<Wake>,
+    /// L'orologio di Rune a cui si è acceso il dither "sta arrivando"; `None` quando è spento.
+    dither_since: Option<f64>,
 }
 
-/// Un risveglio per la fine della finestra "sta scrivendo".
+/// Un risveglio per la fine di uno stato a tempo ("sta scrivendo", un segno che scade).
 #[derive(Clone, Copy, Debug, PartialEq)]
-struct RingWake {
-    /// La fine della finestra (orologio del muro, come `Activity`).
+struct Wake {
+    /// La fine (orologio del muro, come `Activity` e `Changed`).
     end: Instant,
     /// Quando Rune lo fa scattare, nel suo orologio (`poll` lo riceve come `clock`).
     at: f64,
+}
+
+/// Il risveglio da chiedere per uno stato che finisce fra `left` (da `now`); `None` se non serve.
+///
+/// Se ne arma uno quando la fine cambia e quando quello armato è scaduto (nell'orologio di Rune)
+/// con lo stato ancora acceso: Rune misura `wake_after` da `clock`, l'inizio del frame, e la fine
+/// da `now`, più tardi; il risveglio può arrivare un po' prima della fine sul muro. Un poll a metà
+/// non arma niente.
+fn rearm(wake: &mut Option<Wake>, left: Option<Duration>, clock: f64, now: Instant) -> Option<Duration> {
+    let end = left.map(|d| now + d);
+    let due = wake.is_some_and(|w| clock >= w.at);
+    let next = match left {
+        Some(d) if due || end != wake.map(|w| w.end) => Some(d + Duration::from_millis(1)),
+        _ => None,
+    };
+    *wake = match (end, next) {
+        (Some(end), Some(d)) => Some(Wake { end, at: clock + d.as_secs_f64() }),
+        (Some(_), None) => *wake,
+        (None, _) => None,
+    };
+    next
 }
 
 impl Doc {
@@ -69,9 +96,40 @@ impl Doc {
         self.ring_since.is_some()
     }
 
-    /// Un effetto per slot è acceso (anello o fuoco): il compositor scorre le istanze solo allora.
+    /// Un effetto per slot è acceso (anello, fuoco o dither): il compositor scorre le istanze
+    /// solo allora.
     pub fn effects_lit(&self) -> bool {
-        self.ring_lit() || self.fire_since.is_some()
+        self.ring_lit() || self.fire_since.is_some() || self.dither_since.is_some()
+    }
+
+    /// Se il blocco `id` ha il segno "cosa è cambiato" adesso (per la vista).
+    fn is_marked(&self, id: u64) -> bool {
+        self.changed.is_marked(id, Instant::now())
+    }
+
+    /// I blocchi nuovi o cambiati da una ricarica prendono il segno; i segni scaduti a `now` si
+    /// tolgono. Vero se la vista cambia. Ritorna anche il risveglio per il prossimo che scade:
+    /// senza, con "riduci movimento" o a finestra ferma nessun frame lo toglierebbe.
+    fn update_marks(&mut self, change: Option<&doc::document::Change>, clock: f64, now: Instant) -> (bool, Option<Duration>) {
+        let mut changed = self.changed.prune(now);
+        if let Some(c) = change {
+            let ids: Vec<u64> = c.added.iter().chain(&c.changed).copied().collect();
+            self.changed.mark(&ids, now);
+            changed |= !ids.is_empty();
+        }
+        (changed, rearm(&mut self.mark_wake, self.changed.left(now), clock, now))
+    }
+
+    /// Accende o spegne il dither: solo se l'ultimo blocco è aperto e il file "sta scrivendo".
+    /// Si spegne a fine finestra con il risveglio dell'anello (stessa finestra, `update_ring`) o
+    /// alla ricarica che chiude il blocco. Vero se è cambiato.
+    fn dither_step(&mut self, writing: bool, clock: f64) -> bool {
+        let lit = writing && self.document.as_ref().is_some_and(|d| d.last_open && !d.blocks.is_empty());
+        if lit == self.dither_since.is_some() {
+            return false;
+        }
+        self.dither_since = lit.then_some(clock);
+        true
     }
 
     /// Una ricarica applicata: i blocchi nuovi o cambiati dopo l'ultimo visibile entrano nel
@@ -127,24 +185,10 @@ impl Doc {
         self.ring_step(self.live.writing_left(now), clock, now)
     }
 
-    /// `update_ring` con `left` (fra quanto finisce la finestra, a `now`) già calcolato.
-    ///
-    /// Si arma un risveglio quando la fine della finestra cambia (una scrittura nuova) e quando
-    /// quello armato è scaduto (nell'orologio di Rune) con l'anello ancora acceso: Rune misura
-    /// `wake_after` da `clock`, l'inizio del frame, e la fine da `now`, più tardi; il risveglio
-    /// può arrivare un po' prima della fine sul muro. Un poll a metà finestra non arma niente.
+    /// `update_ring` con `left` (fra quanto finisce la finestra, a `now`) già calcolato; il
+    /// risveglio viene da [`rearm`].
     fn ring_step(&mut self, left: Option<Duration>, clock: f64, now: Instant) -> (bool, Option<Duration>) {
-        let end = left.map(|d| now + d);
-        let due = self.ring_wake.is_some_and(|w| clock >= w.at);
-        let wake = match left {
-            Some(d) if due || end != self.ring_wake.map(|w| w.end) => Some(d + Duration::from_millis(1)),
-            _ => None,
-        };
-        self.ring_wake = match (end, wake) {
-            (Some(end), Some(d)) => Some(RingWake { end, at: clock + d.as_secs_f64() }),
-            (Some(_), None) => self.ring_wake,
-            (None, _) => None,
-        };
+        let wake = rearm(&mut self.ring_wake, left, clock, now);
         let lit = left.is_some();
         if lit == self.ring_lit() {
             return (false, wake);
@@ -171,6 +215,10 @@ impl Doc {
                 self.visible_last = 0;
                 self.fire_since = None;
                 self.fire_armed = None;
+                // I segni erano dell'altro file; il dither lo riaccende il prossimo `poll`.
+                self.changed = live::arriving::Changed::default();
+                self.mark_wake = None;
+                self.dither_since = None;
             }
             Err(e) => eprintln!("runemd: {}: {e}", path.display()),
         }
@@ -187,7 +235,7 @@ fn init() -> Doc {
     if paths.is_empty() {
         paths.extend(std::env::var("MDSPIKE_FILE").ok().map(PathBuf::from));
     }
-    let mut doc = Doc { document: None, style: ui::markdown_style::style(&ui::theme::Theme::for_mode(dark_mode()), 15.5), scroll: probe::ScrollRun::from_env(), generation: 0, live: live::Live::default(), ring_since: None, ring_wake: None, below: live::below::Below::default(), visible_last: 0, fire_since: None, fire_armed: None, window_active: true };
+    let mut doc = Doc { document: None, style: ui::markdown_style::style(&ui::theme::Theme::for_mode(dark_mode()), 15.5), scroll: probe::ScrollRun::from_env(), generation: 0, live: live::Live::default(), ring_since: None, ring_wake: None, below: live::below::Below::default(), visible_last: 0, fire_since: None, fire_armed: None, window_active: true, changed: live::arriving::Changed::default(), mark_wake: None, dither_since: None };
     doc.open_paths(paths);
     doc
 }
@@ -203,9 +251,16 @@ fn open_document(s: &Doc) -> &Document {
 }
 
 fn view(s: &Doc, cx: &mut Cx<Doc>) -> El {
-    let body = if s.document.is_some() { ui::doc_view::view(s, open_document, s.generation, &s.style, Doc::visible_rows) } else { el() };
     let dark = dark_mode();
     let theme = ui::theme::Theme::for_mode(dark);
+    let body = if s.document.is_some() {
+        // Il dither: una barra alta una riga e larga come il testo, nello spazio sotto l'ultimo blocco.
+        let tail = s.dither_since.map(|since| fx::dither::slot(el().w_full().h(ui::theme::BODY_LINE), since, dark, cx.is_reduced_motion()));
+        let signals = ui::doc_view::Signals { marked: Doc::is_marked, mark: theme.line, tail };
+        ui::doc_view::view(s, open_document, s.generation, &s.style, Doc::visible_rows, signals)
+    } else {
+        el()
+    };
     // Vetro di sistema attorno, pannello pieno a `FRAME` dai bordi con il documento.
     let mut panel = el().w_full().h_full().fill(theme.panel).radius(ui::theme::R_PANEL).clip_rounded(ui::theme::R_PANEL).child(body);
     // Il fuoco: una fascia sul fondo del pannello, sopra il documento, con l'etichetta. Fuori
@@ -264,11 +319,19 @@ fn poll(s: &mut Doc, clock: f64, tx: &mut Tx) -> bool {
     // e il conto non scade col tempo.
 
     // L'anello si spegne con un solo risveglio a fine finestra, non con frame continui.
-    let (ring, wake) = s.update_ring(clock, Instant::now());
+    let now = Instant::now();
+    let (ring, wake) = s.update_ring(clock, now);
     if let Some(d) = wake {
         tx.wake_after(d);
     }
-    let changed = opened || reloaded.is_some() || ring || fire;
+    let dither = s.dither_step(s.live.writing_left(now).is_some(), clock);
+    // Il segno dei blocchi cambiati: ogni ricarica applicata viene da fuori (le scritture
+    // dell'app si saltano in `reload::commit`). Un risveglio per segno che scade.
+    let (marks, wake) = s.update_marks(reloaded.as_ref().map(|r| &r.change), clock, now);
+    if let Some(d) = wake {
+        tx.wake_after(d);
+    }
+    let changed = opened || reloaded.is_some() || ring || fire || dither || marks;
     let Some(run) = s.scroll.as_mut() else { return changed };
     if let Some(y) = run.step(clock) {
         tx.scroll_to_instant("doc", 0.0, y);
@@ -297,7 +360,7 @@ mod tests {
     use super::*;
 
     fn empty_doc() -> Doc {
-        Doc { document: None, style: ui::markdown_style::style(&ui::theme::Theme::for_mode(true), 15.5), scroll: None, generation: 0, live: live::Live::default(), ring_since: None, ring_wake: None, below: live::below::Below::default(), visible_last: 0, fire_since: None, fire_armed: None, window_active: true }
+        Doc { document: None, style: ui::markdown_style::style(&ui::theme::Theme::for_mode(true), 15.5), scroll: None, generation: 0, live: live::Live::default(), ring_since: None, ring_wake: None, below: live::below::Below::default(), visible_last: 0, fire_since: None, fire_armed: None, window_active: true, changed: live::arriving::Changed::default(), mark_wake: None, dither_since: None }
     }
 
     /// Con "riduci movimento" non passa nessun frame: `poll` gira solo ai risvegli. Rune misura
@@ -340,13 +403,60 @@ mod tests {
         assert!(doc.ring_step(Some(window), 0.032, t0 + 2 * dt).1.is_some());
     }
 
+    /// Come l'anello: il risveglio per il segno che scade arriva in anticipo sul muro, ne arma
+    /// un altro, e il segno si toglie alla fine.
+    #[test]
+    fn an_early_wake_rearms_and_the_changed_mark_goes_off() {
+        let t0 = Instant::now();
+        let ms = |n| Duration::from_millis(n);
+        let mut doc = empty_doc();
+        let change = doc::document::Change { added: vec![3], changed: vec![4], ..Default::default() };
+        let (changed, wake) = doc.update_marks(Some(&change), 100.0, t0);
+        assert!(changed && doc.is_marked(3) && doc.is_marked(4));
+        let wake = wake.expect("un risveglio alla scadenza");
+        let clock = 100.0 + wake.as_secs_f64();
+        let now = t0 + live::arriving::CHANGED_MARK - ms(5);
+        let (changed, again) = doc.update_marks(None, clock, now);
+        assert!(!changed && doc.changed.is_marked(3, now));
+        let again = again.expect("il risveglio in anticipo ne arma un altro");
+        let (changed, last) = doc.update_marks(None, clock + again.as_secs_f64(), now + again);
+        assert!(changed && !doc.changed.is_marked(3, now + again), "tolto alla scadenza");
+        assert_eq!(last, None, "nessun altro risveglio");
+    }
+
+    /// Un poll qualsiasi con un segno acceso non arma un risveglio nuovo.
+    #[test]
+    fn one_wake_per_mark_expiry() {
+        let t0 = Instant::now();
+        let mut doc = empty_doc();
+        let change = doc::document::Change { added: vec![1], ..Default::default() };
+        assert!(doc.update_marks(Some(&change), 0.0, t0).1.is_some());
+        let dt = Duration::from_millis(16);
+        assert_eq!(doc.update_marks(None, 0.016, t0 + dt).1, None);
+    }
+
+    /// Il dither: solo con l'ultimo blocco aperto e il file che sta scrivendo; si spegne a fine
+    /// finestra o quando il blocco si chiude.
+    #[test]
+    fn dither_only_on_an_open_last_block_while_writing() {
+        let mut doc = empty_doc();
+        doc.document = Some(Document::from_source(std::path::Path::new("t.md"), "a\n\n```rs\nfn"));
+        assert!(!doc.dither_step(false, 1.0) && doc.dither_since.is_none(), "non sta scrivendo");
+        assert!(doc.dither_step(true, 1.0) && doc.dither_since == Some(1.0));
+        assert!(!doc.dither_step(true, 2.0) && doc.dither_since == Some(1.0), "resta acceso dalla prima volta");
+        assert!(doc.dither_step(false, 3.0) && doc.dither_since.is_none(), "spento a fine finestra");
+        doc.dither_step(true, 4.0);
+        doc.document.as_mut().unwrap().update("a\n\n```rs\nfn\n```\n\n");
+        assert!(doc.dither_step(true, 5.0) && doc.dither_since.is_none(), "blocco chiuso");
+    }
+
     #[test]
     fn row_keys_change_after_open_paths() {
         let dir = std::env::temp_dir().join(format!("runemd-gen-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let f = dir.join("a.md");
         std::fs::write(&f, "# a\n\nb\n").unwrap();
-        let mut doc = Doc { document: None, style: ui::markdown_style::style(&ui::theme::Theme::for_mode(true), 15.5), scroll: None, generation: 0, live: live::Live::default(), ring_since: None, ring_wake: None, below: live::below::Below::default(), visible_last: 0, fire_since: None, fire_armed: None, window_active: true };
+        let mut doc = Doc { document: None, style: ui::markdown_style::style(&ui::theme::Theme::for_mode(true), 15.5), scroll: None, generation: 0, live: live::Live::default(), ring_since: None, ring_wake: None, below: live::below::Below::default(), visible_last: 0, fire_since: None, fire_armed: None, window_active: true, changed: live::arriving::Changed::default(), mark_wake: None, dither_since: None };
         doc.open_paths(vec![f.clone()]);
         // Rune rilegge le chiavi solo se la versione cambia: anche lo stesso file invariato,
         // riaperto, deve cambiare versione e chiavi.

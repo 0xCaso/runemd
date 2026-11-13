@@ -13,6 +13,19 @@ pub const TREE_INDENT: f32 = 16.0;
 pub const UI_TEXT: f32 = 13.0;
 /// L'etichetta del fuoco sta a questa distanza dal fondo del pannello.
 pub const FIRE_LABEL_BOTTOM: f32 = 10.0;
+/// Corpo del documento (DESIGN.md, `typography.doc-body`): 15,5 pt, interlinea 1,62.
+pub const BODY_TEXT: f32 = 15.5;
+pub const BODY_LEADING: f32 = 1.62;
+/// Una riga di testo del corpo, pt: l'altezza del dither "sta arrivando".
+pub const BODY_LINE: f32 = BODY_TEXT * BODY_LEADING;
+/// Margine orizzontale delle righe del documento: il testo parte da qui.
+pub const ROW_PAD_X: f32 = 28.0;
+/// Margine verticale delle righe del documento.
+pub const ROW_PAD_Y: f32 = 7.0;
+/// Segno "cosa è cambiato": largo 2 pt, in `line`, nel margine sinistro della riga.
+pub const CHANGED_MARK_W: f32 = 2.0;
+/// Il segno sta a questa distanza dal bordo sinistro della riga (a metà del margine).
+pub const CHANGED_MARK_X: f32 = (ROW_PAD_X - CHANGED_MARK_W) / 2.0;
 
 pub const R_KBD: f32 = 4.0;
 pub const R_ROW: f32 = 6.0;
