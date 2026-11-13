@@ -5,9 +5,6 @@
 //! rinomina come due eventi o flag fusi. Un file mancante diventa `Removed` solo se dopo 2 s non
 //! è tornato.
 
-// Usato dal task 10 (schede e ricarica).
-#![allow(dead_code)]
-
 pub mod debounce;
 pub mod filter;
 

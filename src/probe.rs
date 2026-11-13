@@ -20,7 +20,11 @@ fn epoch_ms(at: Instant) -> f64 {
 }
 
 fn log(line: &str) {
-    let Ok(path) = std::env::var("MDSPIKE_LOG") else { return };
+    log_to("MDSPIKE_LOG", line);
+}
+
+fn log_to(var: &str, line: &str) {
+    let Ok(path) = std::env::var(var) else { return };
     let mut f = std::fs::OpenOptions::new().create(true).append(true).open(path).expect("log");
     writeln!(f, "{line}").expect("log");
 }
@@ -33,6 +37,8 @@ struct Frames {
     drawn: Vec<(Instant, Option<Instant>)>,
     skipped: usize,
     refresh_hz: Option<f64>,
+    /// Ricaricamento in attesa del suo frame: (scrittura, ricarica) in ms epoch, blocchi toccati.
+    reload: Option<(f64, f64, usize)>,
 }
 
 thread_local! { static FRAMES: RefCell<Frames> = RefCell::default(); }
@@ -46,6 +52,15 @@ pub fn on_frame(f: &FrameEncoded) {
                 std::thread::spawn(|| { std::thread::sleep(std::time::Duration::from_millis(300)); std::process::exit(0) });
             }
         }
+        if f.outcome() == FrameOutcome::Drawn
+            && let Some((written, reloaded, blocks)) = fr.reload.take()
+        {
+            let frame = epoch_ms(f.presents_at().unwrap_or(f.at()));
+            log_to("MDSPIKE_LATENCY", &format!(
+                "reload write_to_reload_ms={:.1} write_to_frame_ms={:.1} blocks={blocks}",
+                reloaded - written, frame - written
+            ));
+        }
         if fr.recording {
             fr.refresh_hz = fr.refresh_hz.or(f.refresh_hz());
             match f.outcome() {
@@ -55,6 +70,15 @@ pub fn on_frame(f: &FrameEncoded) {
             }
         }
     });
+}
+
+/// Un ricaricamento applicato (`MDSPIKE_LATENCY`): il primo frame disegnato dopo scrive la
+/// latenza dalla scrittura del file (mtime) alla ricarica e al frame.
+pub fn reloaded(r: &crate::live::Reloaded) {
+    if std::env::var_os("MDSPIKE_LATENCY").is_none() { return; }
+    let Some(written) = r.written.and_then(|w| w.duration_since(UNIX_EPOCH).ok()) else { return };
+    let blocks = r.change.added.len() + r.change.changed.len() + r.change.removed.len();
+    FRAMES.with_borrow_mut(|fr| fr.reload = Some((written.as_secs_f64() * 1000.0, epoch_ms(r.at), blocks)));
 }
 
 /// Uno scroll a velocità costante, passo dopo passo da `poll`.

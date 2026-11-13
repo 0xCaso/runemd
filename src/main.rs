@@ -8,16 +8,19 @@
 //! - `MDSPIKE_EXIT=1`: esce 300 ms dopo il primo frame (misure d'avvio).
 //! - `MDSPIKE_SCROLL=secondi` (+ `MDSPIKE_SPEED` pt/s, default 3000): dopo 1 s scorre a
 //!   velocità costante e scrive gli intervalli tra frame presentati in `MDSPIKE_LOG`, poi esce.
+//! - `MDSPIKE_LATENCY=path`: a ogni ricaricamento scrive, al primo frame che lo mostra, i ms da
+//!   scrittura del file (mtime) a ricarica e a frame.
 
 mod doc;
 mod fx;
+mod live;
 mod open;
 mod probe;
 mod ui;
 mod watch;
 
 use std::path::PathBuf;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use rune::{App, AppSpec, Cx, El, Tx, Waker, el};
 use rune_kit::MarkdownStyle;
@@ -31,6 +34,8 @@ pub struct Doc {
     scroll: Option<probe::ScrollRun>,
     /// Cresce a ogni documento aperto: le chiavi delle righe cambiano e Rune scarta le altezze misurate.
     generation: u64,
+    /// Watcher e rilettura del file aperto.
+    live: live::Live,
 }
 
 impl Doc {
@@ -44,6 +49,7 @@ impl Doc {
         let Some(path) = paths.last() else { return };
         match Document::load(path) {
             Ok(document) => {
+                self.live.watch(path);
                 self.document = Some(document);
                 self.generation += 1;
             }
@@ -62,13 +68,14 @@ fn init() -> Doc {
     if paths.is_empty() {
         paths.extend(std::env::var("MDSPIKE_FILE").ok().map(PathBuf::from));
     }
-    let mut doc = Doc { document: None, style: ui::markdown_style::style(&ui::theme::Theme::for_mode(dark_mode()), 15.5), scroll: probe::ScrollRun::from_env(), generation: 0 };
+    let mut doc = Doc { document: None, style: ui::markdown_style::style(&ui::theme::Theme::for_mode(dark_mode()), 15.5), scroll: probe::ScrollRun::from_env(), generation: 0, live: live::Live::default() };
     doc.open_paths(paths);
     doc
 }
 
-fn setup(_: &mut Doc, waker: Waker) {
-    open::queue::set_waker(waker);
+fn setup(s: &mut Doc, waker: Waker) {
+    open::queue::set_waker(waker.clone());
+    s.live.start(waker);
 }
 
 /// Il documento aperto; `view` chiama la vista del documento solo quando c'è.
@@ -99,7 +106,16 @@ fn poll(s: &mut Doc, clock: f64, tx: &mut Tx) -> bool {
         s.open_paths(queued);
         tx.scroll_to_instant("doc", 0.0, 0.0);
     }
-    let Some(run) = s.scroll.as_mut() else { return opened };
+    // Il watcher va svuotato a ogni risveglio (`Watcher::drain`).
+    let (reloaded, recheck) = s.live.poll(s.document.as_mut(), Instant::now());
+    if let Some(d) = recheck {
+        tx.wake_after(d);
+    }
+    if let Some(r) = &reloaded {
+        probe::reloaded(r);
+    }
+    let changed = opened || reloaded.is_some();
+    let Some(run) = s.scroll.as_mut() else { return changed };
     if let Some(y) = run.step(clock) {
         tx.scroll_to_instant("doc", 0.0, y);
         tx.wake_after(Duration::from_millis(1));
@@ -110,7 +126,7 @@ fn poll(s: &mut Doc, clock: f64, tx: &mut Tx) -> bool {
     } else {
         tx.wake_after(Duration::from_millis(16));
     }
-    false
+    changed
 }
 
 fn main() {
@@ -132,7 +148,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let f = dir.join("a.md");
         std::fs::write(&f, "# a\n\nb\n").unwrap();
-        let mut doc = Doc { document: None, style: ui::markdown_style::style(&ui::theme::Theme::for_mode(true), 15.5), scroll: None, generation: 0 };
+        let mut doc = Doc { document: None, style: ui::markdown_style::style(&ui::theme::Theme::for_mode(true), 15.5), scroll: None, generation: 0, live: live::Live::default() };
         doc.open_paths(vec![f.clone()]);
         // Rune rilegge le chiavi solo se la versione cambia: anche lo stesso file invariato,
         // riaperto, deve cambiare versione e chiavi.

@@ -188,7 +188,7 @@ mod tests {
     }
 
     fn open_doc(document: Document) -> Runtime<Doc> {
-        let state = Doc { document: Some(document), style: MarkdownStyle::neutral(true), scroll: None, generation: 1 };
+        let state = Doc { document: Some(document), style: MarkdownStyle::neutral(true), scroll: None, generation: 1, live: crate::live::Live::default() };
         let mut rt = Runtime::new(state, crate::view, VIEWPORT, Env::new(true, 2.0));
         rt.on_key = Some(crate::on_key);
         rt.frame(0.0);
@@ -462,6 +462,35 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
         eprintln!("cjk: {} byte copiati su {}", copied.len(), src.len());
         assert_eq!(copied.trim_end(), src.trim_end());
+    }
+
+    /// Cmd+A, poi un agente riscrive il file (ricarica), poi Cmd+C: si copia il file nuovo.
+    #[test]
+    fn copy_after_cmd_a_and_a_reload_gives_the_new_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("live.md");
+        let before = join(&sample());
+        std::fs::write(&path, &before).unwrap();
+        let mut rt = open_doc(Document::load(&path).unwrap());
+        let clipboard = rune::clipboard::memory();
+        rt.use_clipboard(&clipboard);
+        let doc = rt.elements().into_iter().find(|e| e.key.as_deref() == Some("doc")).unwrap();
+        let (x, y) = (doc.rect[0] + doc.rect[2] / 2.0, doc.rect[1] + 12.0);
+        rt.pointer_move(x, y);
+        rt.pointer_down(x, y);
+        rt.pointer_up(x, y);
+        rt.frame(1.0 / 60.0);
+        cmd(&mut rt, 'a');
+        let after = format!("Nuovo in testa: {}\n\n{before}Nuovo in fondo: {}\n", paragraph(3), paragraph(4));
+        std::fs::write(&path, &after).unwrap();
+        rt.update(|s, _| {
+            let own = crate::live::reload::OwnWrites::default();
+            assert!(crate::live::reload::apply(s.document.as_mut().unwrap(), &after, &own).is_some());
+        });
+        settle(&mut rt);
+        cmd(&mut rt, 'c');
+        let copied = clipboard.text().map(|t| t.to_string()).unwrap_or_default();
+        assert_eq!(copied.trim_end(), after.trim_end(), "il file nuovo, non il vecchio né la selezione");
     }
 
     #[test]
