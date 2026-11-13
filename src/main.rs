@@ -27,6 +27,8 @@ pub struct Doc {
     blocks: Vec<String>,
     style: MarkdownStyle,
     scroll: Option<probe::ScrollRun>,
+    /// Cresce a ogni documento aperto: le chiavi delle righe cambiano e Rune scarta le altezze misurate.
+    generation: u64,
 }
 
 impl Doc {
@@ -39,10 +41,17 @@ impl Doc {
         }
         let Some(path) = paths.last() else { return };
         match std::fs::read_to_string(path) {
-            Ok(source) => self.blocks = doc::blocks::split(&source),
+            Ok(source) => {
+                self.blocks = doc::blocks::split(&source);
+                self.generation += 1;
+            }
             Err(e) => eprintln!("runemd: {}: {e}", path.display()),
         }
     }
+}
+
+fn row_key(generation: u64, i: usize) -> String {
+    format!("{generation}-b{i}")
 }
 
 fn init() -> Doc {
@@ -50,7 +59,7 @@ fn init() -> Doc {
     if paths.is_empty() {
         paths.extend(std::env::var("MDSPIKE_FILE").ok().map(PathBuf::from));
     }
-    let mut doc = Doc { blocks: Vec::new(), style: MarkdownStyle::neutral(true), scroll: probe::ScrollRun::from_env() };
+    let mut doc = Doc { blocks: Vec::new(), style: MarkdownStyle::neutral(true), scroll: probe::ScrollRun::from_env(), generation: 0 };
     doc.open_paths(paths);
     doc
 }
@@ -70,7 +79,7 @@ fn block_row(s: &Doc, i: usize) -> El {
 fn view(s: &Doc, _: &mut Cx<Doc>) -> El {
     let rows = col().key("rows").w_full().max_w(COLUMN).self_center().selection_group(true)
         .growth(GrowthSpec::default())
-        .virtual_rows(s.blocks.len(), 60.0, |_: &Doc, i| Cow::Owned(format!("b{i}")), block_row);
+        .virtual_rows(s.blocks.len(), 60.0, |s: &Doc, i| Cow::Owned(row_key(s.generation, i)), block_row);
     let page = col().w_full().child(el().h(24.0)).child(rows).child(el().h(48.0));
     let doc = col().key("doc").w_full().h_full().scroll(ScrollSpec { stick_bottom: false }).child(page);
     el().w_full().h_full().fill(oklcha(0.17, 0.01, 265.0, 1.0)).child(doc)
@@ -104,4 +113,22 @@ fn main() {
     // Lo slot mono di default è Inter: il codice va in SF Mono.
     let spec = AppSpec { setup: Some(setup), poll: Some(poll), families: ("Inter", "ui-monospace, Menlo"), ..AppSpec::new("runemd", (900.0, 1000.0), init, view) };
     App::new(spec).compositor(fx::FxCompositor::default()).on_frame_encoded(probe::on_frame).run();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn row_keys_change_after_open_paths() {
+        let dir = std::env::temp_dir().join(format!("runemd-gen-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("a.md");
+        std::fs::write(&f, "# a\n\nb\n").unwrap();
+        let mut doc = Doc { blocks: Vec::new(), style: MarkdownStyle::neutral(true), scroll: None, generation: 0 };
+        doc.open_paths(vec![f.clone()]);
+        let before = row_key(doc.generation, 0);
+        doc.open_paths(vec![f]);
+        assert_ne!(before, row_key(doc.generation, 0));
+    }
 }
