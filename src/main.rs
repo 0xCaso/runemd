@@ -47,6 +47,9 @@ pub struct Doc {
     visible_last: u64,
     /// L'orologio di Rune a cui si è acceso il fuoco; `None` quando è spento.
     fire_since: Option<f64>,
+    /// L'orologio della ricarica che ha portato blocchi sotto la vista, finché Rune non riporta
+    /// le righe visibili dopo il suo layout: solo allora si sa se sono davvero fuori vista.
+    fire_armed: Option<f64>,
     /// La finestra è attiva (`on_window_focus`): senza, il fuoco resta fermo.
     window_active: bool,
 }
@@ -71,21 +74,33 @@ impl Doc {
         self.ring_lit() || self.fire_since.is_some()
     }
 
-    /// Accende o spegne il fuoco secondo il conto di `below`; vero se è cambiato. Un fuoco già
-    /// acceso resta con il suo `since`: una seconda ricarica non lo fa risalire.
-    fn update_fire(&mut self, clock: f64) -> bool {
-        let lit = self.below.count() > 0;
-        if lit == self.fire_since.is_some() {
+    /// Una ricarica applicata: i blocchi nuovi o cambiati dopo l'ultimo visibile entrano nel
+    /// conto, ma il fuoco non si accende qui. `visible_last` viene dal layout di prima della
+    /// ricarica: in un documento corto il blocco aggiunto è già in vista, e lo si sa solo quando
+    /// Rune riporta le righe del layout nuovo (`visible_rows`, che si accende allora). Quando
+    /// le chiavi cambiano (blocchi aggiunti o tolti) Rune riporta di sicuro: `VirtualList::set_keys`
+    /// azzera l'ultimo rapporto. Con le stesse chiavi (solo blocchi cambiati) non riporta se la
+    /// parte visibile resta quella, ma allora gli indici del layout di prima valgono ancora e il
+    /// fuoco si accende subito. Vero se si è acceso.
+    fn note_reload(&mut self, change: &doc::document::Change, clock: f64) -> bool {
+        let Some(doc) = &self.document else { return false };
+        let order: Vec<u64> = doc.blocks.iter().map(|b| b.id).collect();
+        self.below.on_change(change, self.visible_last, &order);
+        if self.below.count() == 0 || self.fire_since.is_some() {
             return false;
         }
-        self.fire_since = lit.then_some(clock);
-        true
+        if change.added.is_empty() && change.removed.is_empty() {
+            self.fire_since = Some(clock);
+            return true;
+        }
+        self.fire_armed.get_or_insert(clock);
+        false
     }
 
     /// Le righe visibili sono cambiate (scroll, ricarica, ridimensionamento): l'ultima esce dal
     /// conto del fuoco e diventa l'ancora delle ricariche seguenti. Vero se la vista cambia
-    /// (etichetta o fuoco). Lo scroll toglie blocchi dal conto e non ne aggiunge: qui il fuoco
-    /// può solo spegnersi, si accende in `poll`.
+    /// (etichetta o fuoco). Il fuoco si accende qui, al primo rapporto dopo la ricarica che l'ha
+    /// armato (con l'orologio di quella ricarica), e si spegne quando il conto arriva a 0.
     fn visible_rows(&mut self, rows: std::ops::Range<usize>) -> bool {
         let Some(doc) = self.document.as_ref() else { return false };
         // Rune riporta gli indici dell'ultimo layout: con una ricarica in mezzo possono andare
@@ -95,10 +110,14 @@ impl Doc {
         let before = self.below.count();
         let order: Vec<u64> = doc.blocks.iter().map(|b| b.id).collect();
         self.below.on_scroll(last, &order);
+        let was = self.fire_since;
         if self.below.count() == 0 {
             self.fire_since = None;
+        } else if self.fire_since.is_none() {
+            self.fire_since = self.fire_armed;
         }
-        self.below.count() != before
+        self.fire_armed = None;
+        self.below.count() != before || self.fire_since != was
     }
 
     /// Accende o spegne l'anello secondo `Live` a `now`; vero se è cambiato. Ritorna anche il
@@ -151,6 +170,7 @@ impl Doc {
                 self.below = live::below::Below::default();
                 self.visible_last = 0;
                 self.fire_since = None;
+                self.fire_armed = None;
             }
             Err(e) => eprintln!("runemd: {}: {e}", path.display()),
         }
@@ -167,7 +187,7 @@ fn init() -> Doc {
     if paths.is_empty() {
         paths.extend(std::env::var("MDSPIKE_FILE").ok().map(PathBuf::from));
     }
-    let mut doc = Doc { document: None, style: ui::markdown_style::style(&ui::theme::Theme::for_mode(dark_mode()), 15.5), scroll: probe::ScrollRun::from_env(), generation: 0, live: live::Live::default(), ring_since: None, ring_wake: None, below: live::below::Below::default(), visible_last: 0, fire_since: None, window_active: true };
+    let mut doc = Doc { document: None, style: ui::markdown_style::style(&ui::theme::Theme::for_mode(dark_mode()), 15.5), scroll: probe::ScrollRun::from_env(), generation: 0, live: live::Live::default(), ring_since: None, ring_wake: None, below: live::below::Below::default(), visible_last: 0, fire_since: None, fire_armed: None, window_active: true };
     doc.open_paths(paths);
     doc
 }
@@ -236,15 +256,13 @@ fn poll(s: &mut Doc, clock: f64, tx: &mut Tx) -> bool {
     }
     if let Some(r) = &reloaded {
         probe::reloaded(r);
-        if let Some(doc) = &s.document {
-            let order: Vec<u64> = doc.blocks.iter().map(|b| b.id).collect();
-            s.below.on_change(&r.change, s.visible_last, &order);
-        }
     }
-    // Il fuoco si accende con una ricarica che porta testo sotto la vista e si spegne quando
-    // l'ultimo di quei blocchi entra nella vista (`visible_rows`). Non serve un risveglio: lo
-    // spegne un evento di scroll o di layout, e il conto non scade col tempo.
-    let fire = s.update_fire(clock);
+    let fire = reloaded.as_ref().is_some_and(|r| s.note_reload(&r.change, clock));
+    // Il fuoco si accende dopo una ricarica che porta testo sotto la vista (`note_reload`, o il
+    // primo `visible_rows` del layout nuovo) e si spegne quando l'ultimo di quei blocchi entra
+    // nella vista. Non serve un risveglio: lo accende e lo spegne un rapporto di righe visibili,
+    // e il conto non scade col tempo.
+
     // L'anello si spegne con un solo risveglio a fine finestra, non con frame continui.
     let (ring, wake) = s.update_ring(clock, Instant::now());
     if let Some(d) = wake {
@@ -279,7 +297,7 @@ mod tests {
     use super::*;
 
     fn empty_doc() -> Doc {
-        Doc { document: None, style: ui::markdown_style::style(&ui::theme::Theme::for_mode(true), 15.5), scroll: None, generation: 0, live: live::Live::default(), ring_since: None, ring_wake: None, below: live::below::Below::default(), visible_last: 0, fire_since: None, window_active: true }
+        Doc { document: None, style: ui::markdown_style::style(&ui::theme::Theme::for_mode(true), 15.5), scroll: None, generation: 0, live: live::Live::default(), ring_since: None, ring_wake: None, below: live::below::Below::default(), visible_last: 0, fire_since: None, fire_armed: None, window_active: true }
     }
 
     /// Con "riduci movimento" non passa nessun frame: `poll` gira solo ai risvegli. Rune misura
@@ -328,7 +346,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let f = dir.join("a.md");
         std::fs::write(&f, "# a\n\nb\n").unwrap();
-        let mut doc = Doc { document: None, style: ui::markdown_style::style(&ui::theme::Theme::for_mode(true), 15.5), scroll: None, generation: 0, live: live::Live::default(), ring_since: None, ring_wake: None, below: live::below::Below::default(), visible_last: 0, fire_since: None, window_active: true };
+        let mut doc = Doc { document: None, style: ui::markdown_style::style(&ui::theme::Theme::for_mode(true), 15.5), scroll: None, generation: 0, live: live::Live::default(), ring_since: None, ring_wake: None, below: live::below::Below::default(), visible_last: 0, fire_since: None, fire_armed: None, window_active: true };
         doc.open_paths(vec![f.clone()]);
         // Rune rilegge le chiavi solo se la versione cambia: anche lo stesso file invariato,
         // riaperto, deve cambiare versione e chiavi.

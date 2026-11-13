@@ -223,7 +223,7 @@ mod tests {
     }
 
     fn open_doc(document: Document) -> Runtime<Doc> {
-        let state = Doc { document: Some(document), style: MarkdownStyle::neutral(true), scroll: None, generation: 1, live: crate::live::Live::default(), ring_since: None, ring_wake: None, below: crate::live::below::Below::default(), visible_last: 0, fire_since: None, window_active: true };
+        let state = Doc { document: Some(document), style: MarkdownStyle::neutral(true), scroll: None, generation: 1, live: crate::live::Live::default(), ring_since: None, ring_wake: None, below: crate::live::below::Below::default(), visible_last: 0, fire_since: None, fire_armed: None, window_active: true };
         let mut rt = Runtime::new(state, crate::view, VIEWPORT, Env::new(true, 2.0));
         rt.on_key = Some(crate::on_key);
         rt.frame(0.0);
@@ -377,9 +377,7 @@ mod tests {
         let src = join(&blocks);
         rt.update(|s, _| {
             let change = s.document.as_mut().unwrap().update(&src);
-            let order: Vec<u64> = s.document.as_ref().unwrap().blocks.iter().map(|b| b.id).collect();
-            s.below.on_change(&change, s.visible_last, &order);
-            assert!(s.update_fire(1.0));
+            s.note_reload(&change, 1.0);
         });
         settle(&mut rt);
         assert_eq!(rt.state.below.count(), 3);
@@ -389,6 +387,52 @@ mod tests {
         assert_eq!(rt.state.below.count(), 0);
         assert_eq!(rt.state.fire_since, None);
         assert!(!rt.elements().iter().any(|e| e.key.as_deref() == Some("fire") && !e.exiting), "fuoco spento");
+    }
+
+    fn fire_drawn(rt: &Runtime<Doc>) -> bool {
+        rt.elements().iter().any(|e| matches!(e.key.as_deref(), Some("fire" | "fire-label")) && !e.exiting)
+    }
+
+    /// Un documento corto, tutto in vista: un blocco aggiunto in fondo entra subito nella vista.
+    /// Nessun frame deve disegnare il fuoco né l'etichetta, nemmeno quello subito dopo la
+    /// ricarica (Rune riporta le righe visibili nuove solo dopo il layout).
+    #[test]
+    fn a_block_appended_in_view_never_draws_the_fire() {
+        let blocks: Vec<String> = (0..3).map(|n| format!("Breve {n}")).collect();
+        let mut rt = open(&join(&blocks));
+        assert!(rt.state.visible_last != 0);
+        let mut more = blocks.clone();
+        more.push("Nuovo in fondo, già in vista".to_owned());
+        let src = join(&more);
+        rt.update(|s, _| {
+            let change = s.document.as_mut().unwrap().update(&src);
+            s.note_reload(&change, 1.0);
+        });
+        for f in 0..30 {
+            assert!(!fire_drawn(&rt), "fuoco disegnato al frame {f}");
+            assert_eq!(rt.state.fire_since, None, "fuoco acceso al frame {f}");
+            rt.frame(1.0 / 60.0);
+        }
+        assert_eq!(rt.state.below.count(), 0);
+    }
+
+    /// Un blocco cambiato sotto la vista (stessa chiave, niente righe nuove) accende il fuoco.
+    #[test]
+    fn a_block_changed_below_the_view_lights_the_fire() {
+        let mut rt = open(&join(&sample()));
+        let mut blocks = sample();
+        let last = blocks.len() - 1;
+        blocks[last] = format!("{} cambiato", blocks[last]);
+        let src = join(&blocks);
+        rt.update(|s, _| {
+            let change = s.document.as_mut().unwrap().update(&src);
+            assert_eq!(change.changed.len(), 1);
+            s.note_reload(&change, 1.0);
+        });
+        settle(&mut rt);
+        assert_eq!(rt.state.below.count(), 1);
+        assert_eq!(rt.state.fire_since, Some(1.0));
+        assert!(fire_drawn(&rt));
     }
 
     #[test]
