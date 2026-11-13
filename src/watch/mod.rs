@@ -11,10 +11,10 @@
 pub mod debounce;
 pub mod filter;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
@@ -44,6 +44,10 @@ enum Key {
 }
 
 /// La radice del repo se `path` è `<repo>/.git/HEAD`.
+///
+/// Limite noto: riconosce solo un genitore chiamato `.git`. Nei worktree `.git` è un file
+/// (`gitdir: ...`) e nei submodule HEAD sta in `.git/modules/<m>/HEAD`: in entrambi i casi non
+/// esce `GitHead`. Il task che mostra il ramo aggiungerà il supporto.
 fn git_head_root(path: &Path) -> Option<PathBuf> {
     if path.file_name()? != "HEAD" {
         return None;
@@ -60,11 +64,13 @@ struct Core {
     debounce: Debounce<Key>,
     /// File mancanti e da quando.
     missing: HashMap<PathBuf, Instant>,
+    /// File visti esistere (uscito `Changed`): da ricontrollare dopo un rescan.
+    known: HashSet<PathBuf>,
 }
 
 impl Core {
     fn new() -> Self {
-        Core { debounce: Debounce::new(DEBOUNCE_MS), missing: HashMap::new() }
+        Core { debounce: Debounce::new(DEBOUNCE_MS), missing: HashMap::new(), known: HashSet::new() }
     }
 
     fn observe(&mut self, path: PathBuf, at: Instant) {
@@ -73,6 +79,18 @@ impl Core {
             self.debounce.push(Key::Head(root), at);
         } else if filter::wanted(&path) {
             self.debounce.push(Key::File(path), at);
+        }
+    }
+
+    /// Notify ha perso eventi: ricontrolla ogni percorso noto e ogni file sotto le radici.
+    fn rescan(&mut self, roots: &[PathBuf], at: Instant) {
+        let mut paths: Vec<PathBuf> = self.known.iter().cloned().collect();
+        paths.extend(self.missing.keys().cloned());
+        for root in roots {
+            walk(root, &mut paths);
+        }
+        for path in paths {
+            self.observe(path, at);
         }
     }
 
@@ -87,6 +105,7 @@ impl Core {
                 Key::Head(root) => out.push(FsEvent::GitHead(root)),
                 Key::File(path) if path.is_file() => {
                     self.missing.remove(&path);
+                    self.known.insert(path.clone());
                     out.push(FsEvent::Changed(path));
                 }
                 // Cartella con nome `x.md`: non è un documento.
@@ -108,15 +127,40 @@ impl Core {
         }
         for (path, back) in settled {
             self.missing.remove(&path);
+            if back {
+                self.known.insert(path.clone());
+            } else {
+                self.known.remove(&path);
+            }
             out.push(if back { FsEvent::Changed(path) } else { FsEvent::Removed(path) });
         }
         out
     }
 }
 
+/// I file `wanted` sotto `dir`, ricorsivo; errori di lettura ignorati.
+fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            if !path.file_name().is_some_and(|n| filter::SKIPPED_DIRS.iter().any(|s| n == *s)) {
+                walk(&path, out);
+            }
+        } else if filter::wanted(&path) {
+            out.push(path);
+        }
+    }
+}
+
+enum Raw {
+    Path(PathBuf, Instant),
+    Rescan(Instant),
+}
+
 #[derive(Default)]
 struct Shared {
-    queue: Mutex<Vec<(PathBuf, Instant)>>,
+    queue: Mutex<Vec<Raw>>,
     /// Vero se qualcosa attende il debounce o la tolleranza: il ticker sveglia l'app.
     busy: AtomicBool,
     stop: AtomicBool,
@@ -151,14 +195,29 @@ impl Watcher {
             let shared = shared.clone();
             let ticker = ticker.thread().clone();
             move |event: notify::Result<notify::Event>| {
-                let Ok(event) = event else { return };
+                let now = Instant::now();
+                let event = match event {
+                    Ok(event) => event,
+                    Err(e) => {
+                        eprintln!("runemd: errore del watcher: {e}");
+                        // Un errore può voler dire eventi persi: ricontrolla dal disco.
+                        let mut queue = shared.queue.lock().unwrap_or_else(PoisonError::into_inner);
+                        queue.push(Raw::Rescan(now));
+                        shared.busy.store(true, Ordering::Release);
+                        drop(queue);
+                        ticker.unpark();
+                        return;
+                    }
+                };
                 if event.kind.is_access() {
                     return;
                 }
-                let now = Instant::now();
                 {
-                    let mut queue = shared.queue.lock().unwrap();
-                    queue.extend(event.paths.into_iter().map(|p| (p, now)));
+                    let mut queue = shared.queue.lock().unwrap_or_else(PoisonError::into_inner);
+                    if event.need_rescan() || (event.paths.is_empty() && event.flag() == Some(notify::event::Flag::Rescan)) {
+                        queue.push(Raw::Rescan(now));
+                    }
+                    queue.extend(event.paths.into_iter().map(|p| Raw::Path(p, now)));
                     shared.busy.store(true, Ordering::Release);
                 }
                 ticker.unpark();
@@ -204,18 +263,24 @@ impl Watcher {
     }
 
     /// Gli eventi pronti a `now` (debounce passato, tolleranza della rimozione scaduta).
+    ///
+    /// Il chiamante deve chiamarla a ogni risveglio: il watcher sveglia l'app finché c'è
+    /// qualcosa in attesa e si ferma quando `drain` ha svuotato tutto.
     pub fn drain(&mut self, now: Instant) -> Vec<FsEvent> {
         let queued = {
-            let mut queue = self.shared.queue.lock().unwrap();
+            let mut queue = self.shared.queue.lock().unwrap_or_else(PoisonError::into_inner);
             std::mem::take(&mut *queue)
         };
-        for (path, at) in queued {
-            self.core.observe(path, at);
+        for raw in queued {
+            match raw {
+                Raw::Path(path, at) => self.core.observe(path, at),
+                Raw::Rescan(at) => self.core.rescan(&self.roots, at),
+            }
         }
         self.drop_missing_roots();
         let out = self.core.drain(now);
         // Sotto lock: un evento arrivato ora non può perdere la sua sveglia.
-        let queue = self.shared.queue.lock().unwrap();
+        let queue = self.shared.queue.lock().unwrap_or_else(PoisonError::into_inner);
         self.shared.busy.store(self.core.pending() || !queue.is_empty(), Ordering::Release);
         out
     }
@@ -245,6 +310,23 @@ mod tests {
 
     /// Fa girare `drain` finché passa `until` o scade la scadenza; raccoglie tutto.
     fn collect(w: &mut Watcher, window: Duration, until: impl Fn(&[FsEvent]) -> bool) -> Vec<FsEvent> {
+        // La sentinella `ready.md` può avere eventi in ritardo: non fa parte delle asserzioni.
+        let mut seen = collect_raw(w, window, |s| until(&without_sentinel(s)));
+        seen = without_sentinel(&seen);
+        seen
+    }
+
+    fn without_sentinel(events: &[FsEvent]) -> Vec<FsEvent> {
+        events
+            .iter()
+            .filter(|e| match e {
+                FsEvent::Changed(p) | FsEvent::Removed(p) | FsEvent::GitHead(p) => p.file_name() != Some("ready.md".as_ref()),
+            })
+            .cloned()
+            .collect()
+    }
+
+    fn collect_raw(w: &mut Watcher, window: Duration, until: impl Fn(&[FsEvent]) -> bool) -> Vec<FsEvent> {
         let deadline = Instant::now() + window;
         let mut seen = Vec::new();
         while Instant::now() < deadline && !until(&seen) {
@@ -258,10 +340,19 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().canonicalize().unwrap();
         let mut w = Watcher::start(vec![root.clone()], waker());
-        // Lascia che FSEvents parta prima di toccare i file.
-        thread::sleep(Duration::from_millis(300));
-        w.drain(Instant::now());
+        // Sentinella: quando arriva il suo Changed, FSEvents è partito.
+        let ready = root.join("ready.md");
+        fs::write(&ready, "ready").unwrap();
+        let seen = collect_raw(&mut w, Duration::from_secs(5), |s| s.contains(&FsEvent::Changed(ready.clone())));
+        assert!(seen.contains(&FsEvent::Changed(ready)), "watcher non pronto");
         (dir, root, w)
+    }
+
+    /// Crea `path` e aspetta il suo `Changed`, così il test parte da un file già visto.
+    fn settle_file(w: &mut Watcher, path: &Path) {
+        fs::write(path, "# a").unwrap();
+        let seen = collect(w, Duration::from_secs(5), |s| s.contains(&FsEvent::Changed(path.to_path_buf())));
+        assert!(seen.contains(&FsEvent::Changed(path.to_path_buf())), "{seen:?}");
     }
 
     #[test]
@@ -275,6 +366,34 @@ mod tests {
         // Per tutta la tolleranza non deve comparire un Removed.
         let rest = collect(&mut w, Duration::from_millis(2600), |_| false);
         assert!(rest.iter().all(|e| matches!(e, FsEvent::Changed(p) if *p == target)), "{rest:?}");
+    }
+
+    #[test]
+    fn rename_atomic_over_existing_file() {
+        let (_dir, root, mut w) = setup();
+        let target = root.join("x.md");
+        settle_file(&mut w, &target);
+        collect(&mut w, Duration::from_millis(300), |_| false);
+        fs::write(root.join("x.md.tmp"), "# b").unwrap();
+        fs::rename(root.join("x.md.tmp"), &target).unwrap();
+        let mut events = collect(&mut w, Duration::from_secs(5), |s| s.contains(&FsEvent::Changed(target.clone())));
+        assert!(events.contains(&FsEvent::Changed(target.clone())), "{events:?}");
+        events.extend(collect(&mut w, Duration::from_millis(2600), |_| false));
+        assert!(!events.iter().any(|e| matches!(e, FsEvent::Removed(_))), "{events:?}");
+    }
+
+    #[test]
+    fn rename_away_and_back_within_2s() {
+        let (_dir, root, mut w) = setup();
+        let x = root.join("x.md");
+        settle_file(&mut w, &x);
+        collect(&mut w, Duration::from_millis(300), |_| false);
+        fs::rename(&x, root.join("y.md")).unwrap();
+        fs::rename(root.join("y.md"), &x).unwrap();
+        let mut events = collect(&mut w, Duration::from_secs(5), |s| s.contains(&FsEvent::Changed(x.clone())));
+        assert!(events.contains(&FsEvent::Changed(x.clone())), "{events:?}");
+        events.extend(collect(&mut w, Duration::from_millis(2600), |_| false));
+        assert!(!events.contains(&FsEvent::Removed(x)), "{events:?}");
     }
 
     #[test]
@@ -384,6 +503,29 @@ mod tests {
         fs::write(&file, "x").unwrap();
         assert_eq!(core.drain(at(1000)), vec![FsEvent::Changed(file)]);
         assert!(core.drain(at(3000)).is_empty());
+    }
+
+    #[test]
+    fn core_rescan_rechecks_known_paths_and_roots_from_disk() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_path_buf();
+        let (kept, gone, fresh) = (root.join("kept.md"), root.join("gone.md"), root.join("fresh.md"));
+        fs::write(&kept, "x").unwrap();
+        fs::write(&gone, "x").unwrap();
+        let t0 = Instant::now();
+        let at = |ms| t0 + Duration::from_millis(ms);
+        let mut core = Core::new();
+        core.observe(kept.clone(), at(0));
+        core.observe(gone.clone(), at(0));
+        assert_eq!(core.drain(at(60)).len(), 2);
+        // Eventi persi: `gone` sparisce, `fresh` nasce, nessun evento arriva.
+        fs::remove_file(&gone).unwrap();
+        fs::write(&fresh, "x").unwrap();
+        core.rescan(std::slice::from_ref(&root), at(100));
+        let mut first = core.drain(at(200));
+        first.sort_by_key(|e| format!("{e:?}"));
+        assert_eq!(first, vec![FsEvent::Changed(fresh), FsEvent::Changed(kept)]);
+        assert_eq!(core.drain(at(2300)), vec![FsEvent::Removed(gone)]);
     }
 
     #[test]

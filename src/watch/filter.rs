@@ -3,7 +3,7 @@
 use std::path::Path;
 
 /// Cartelle che non si guardano mai (i file dentro non sono documenti dell'utente).
-const SKIPPED_DIRS: [&str; 3] = [".git", "node_modules", "target"];
+pub(super) const SKIPPED_DIRS: [&str; 3] = [".git", "node_modules", "target"];
 
 /// Vero per un file `.md` o `.markdown` (maiuscole comprese) che non sta sotto una cartella saltata.
 pub fn wanted(path: &Path) -> bool {
