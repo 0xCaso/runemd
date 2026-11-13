@@ -17,7 +17,7 @@ use rune_kit::MarkdownStyle;
 use crate::doc::document::Document;
 use crate::doc::ids;
 
-const COLUMN: f32 = 760.0;
+use super::theme::COLUMN;
 
 /// Chiave della riga `i`: generazione del file aperto + id del blocco. Gli id ripartono da 1 a
 /// ogni `Document`, la generazione no: senza, un file nuovo erediterebbe le altezze misurate
@@ -81,14 +81,15 @@ pub fn note_key(doc: &Document, key: &KeyEvent, repeat: bool) {
 /// Ogni cambio di selezione. Un Cmd+A in attesa scade al primo cambio che non è di Rune: una
 /// selezione fatta col puntatore (`dragging`) o svuotata. Dopo un Cmd+A la prima selezione vale
 /// "tutto"; Rune poi la completa
-/// con le righe che ricostruisce, senza `started` e senza accorciarla: resta "tutto". Un clic, uno
+/// con le righe che ricostruisce, senza `started` e senza accorciarla (oltre il tetto di copia la lunghezza
+/// oscilla di qualche per mille col layout: si tollera lo 0,1 %): resta "tutto". Un clic, uno
 /// svuotamento, una selezione nuova o più corta la tolgono.
 fn selection_changed(flag: &AtomicU64, change: &rune::SelectionChange) {
     let len = change.selection().map_or(0, |t| t.text().len() as u64);
     let state = flag.load(Ordering::Relaxed);
     let next = if change.cleared() || change.dragging() || len == 0 {
         NO_SELECT_ALL
-    } else if state == SELECT_ALL_PENDING || (state >= SELECT_ALL && !change.started() && len + SELECT_ALL >= state) {
+    } else if state == SELECT_ALL_PENDING || (state >= SELECT_ALL && !change.started() && len + SELECT_ALL + state / 1000 >= state) {
         SELECT_ALL + len
     } else {
         NO_SELECT_ALL

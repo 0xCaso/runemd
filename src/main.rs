@@ -61,7 +61,7 @@ fn init() -> Doc {
     if paths.is_empty() {
         paths.extend(std::env::var("MDSPIKE_FILE").ok().map(PathBuf::from));
     }
-    let mut doc = Doc { document: None, style: ui::markdown_style::style(&ui::theme::Theme::for_mode(dark_mode()), "Inter", 15.5), scroll: probe::ScrollRun::from_env(), generation: 0 };
+    let mut doc = Doc { document: None, style: ui::markdown_style::style(&ui::theme::Theme::for_mode(dark_mode()), 15.5), scroll: probe::ScrollRun::from_env(), generation: 0 };
     doc.open_paths(paths);
     doc
 }
@@ -131,7 +131,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let f = dir.join("a.md");
         std::fs::write(&f, "# a\n\nb\n").unwrap();
-        let mut doc = Doc { document: None, style: ui::markdown_style::style(&ui::theme::Theme::for_mode(true), "Inter", 15.5), scroll: None, generation: 0 };
+        let mut doc = Doc { document: None, style: ui::markdown_style::style(&ui::theme::Theme::for_mode(true), 15.5), scroll: None, generation: 0 };
         doc.open_paths(vec![f.clone()]);
         // Rune rilegge le chiavi solo se la versione cambia: anche lo stesso file invariato,
         // riaperto, deve cambiare versione e chiavi.
