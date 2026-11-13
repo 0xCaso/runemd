@@ -3,9 +3,9 @@
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::atomic::AtomicU64;
 
 use super::{blocks, ids};
+use crate::ui::doc_view::SelectAllFlag;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Block {
@@ -27,9 +27,8 @@ pub struct Document {
     pub revision: u64,
     pub blocks: Vec<Block>,
     pub file_hash: u64,
-    /// Se la selezione corrente è un Cmd+A, e quanto è lunga (`ui::doc_view`); condiviso con le
-    /// closure della vista.
-    pub select_all: Arc<AtomicU64>,
+    /// Se la selezione corrente è un Cmd+A (`ui::doc_view`); condiviso con le closure della vista.
+    pub select_all: Arc<SelectAllFlag>,
     next_id: u64,
 }
 

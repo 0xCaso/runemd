@@ -7,11 +7,11 @@
 
 use std::borrow::Cow;
 use std::collections::HashSet;
+use std::ops::Range;
 use std::path::PathBuf;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, PoisonError};
 
-use rune::{El, GrowthSpec, Key, KeyEvent, ScrollSpec, TextSelection, col, el};
+use rune::{El, GrowthSpec, Key, KeyEvent, ScrollSpec, SelectedText, TextSelection, col, el};
 use rune_kit::MarkdownStyle;
 
 use crate::doc::document::Document;
@@ -44,10 +44,11 @@ pub fn view<S: 'static>(s: &S, doc_of: fn(&S) -> &Document, generation: u64, sty
     let file = File { path: doc.path.clone(), hash: doc.file_hash };
     let select_all = doc.select_all.clone();
     let flag = select_all.clone();
+    let order = blocks.clone();
     let rows = col().key("rows").w_full().max_w(COLUMN).self_center().selection_group(true)
         .growth(GrowthSpec::default())
         .selection_copy(move |sel| copy_source(sel, generation, &file, &select_all, &blocks))
-        .on_selection_change(move |_: &mut S, ch, _| selection_changed(&flag, ch))
+        .on_selection_change(move |_: &mut S, ch, _| selection_changed(&flag, ch, generation, &order))
         .virtual_rows(
             doc.blocks.len(),
             60.0,
@@ -59,11 +60,63 @@ pub fn view<S: 'static>(s: &S, doc_of: fn(&S) -> &Document, generation: u64, sty
     col().key("doc").w_full().h_full().scroll(ScrollSpec { stick_bottom: false }).child(page)
 }
 
-/// Stato di `Document::select_all`: `0` nessun Cmd+A; `1` Cmd+A premuto, la selezione che ne
-/// segue non è ancora arrivata; `2 + n` selezione fatta da un Cmd+A, lunga `n` byte di testo.
-const NO_SELECT_ALL: u64 = 0;
-const SELECT_ALL_PENDING: u64 = 1;
-const SELECT_ALL: u64 = 2;
+/// Se la selezione corrente viene da un Cmd+A (`Document::select_all`, condiviso con le closure
+/// della vista).
+#[derive(Debug, Default)]
+pub struct SelectAllFlag(Mutex<SelectAll>);
+
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+enum SelectAll {
+    #[default]
+    No,
+    /// Cmd+A premuto, la selezione che ne segue non è ancora arrivata.
+    Pending,
+    /// La selezione fatta dal Cmd+A, con le righe ai suoi capi.
+    All(Ends),
+}
+
+/// I capi di una selezione: per la prima e l'ultima riga toccate, l'id del blocco e i byte
+/// selezionati del suo testo; e se la selezione è arrivata troncata al tetto di copia di Rune
+/// (allora l'ultima riga non è la fine).
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Ends {
+    first: End,
+    last: End,
+    capped: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct End {
+    row: u64,
+    range: Range<usize>,
+    whole: bool,
+}
+
+impl End {
+    /// Lo stesso capo di `was`: stessa riga, e il testo intero o selezionato come allora (un
+    /// ricaricamento può allungare il blocco sotto una selezione che non è cambiata).
+    fn holds(&self, was: &End) -> bool {
+        self.row == was.row && (self.whole || self.range == was.range)
+    }
+}
+
+/// I tetti della selezione ricostruita fuori vista (rune `MAX_VIRTUAL_COPY_BYTES` e
+/// `MAX_VIRTUAL_COPY_ROWS`, `pub(crate)` in Rune): oltre, `TextSelection` si ferma prima della
+/// fine. Il tetto delle righe conta anche le righe senza testo (`---`).
+const COPY_CAP_BYTES: usize = 4 * 1024 * 1024;
+const COPY_CAP_ROWS: usize = 10_000;
+/// Il testo troncato può fermarsi poco prima del tetto (righe vuote e prefisso tra due pezzi).
+const COPY_CAP_SLACK: usize = 1024;
+
+impl SelectAllFlag {
+    fn get(&self) -> SelectAll {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner).clone()
+    }
+
+    fn set(&self, next: SelectAll) {
+        *self.0.lock().unwrap_or_else(PoisonError::into_inner) = next;
+    }
+}
 
 /// Da chiamare con ogni tasto che l'app riceve (`AppSpec::on_key`, prima della selezione di
 /// Rune): un Cmd+A segna che la selezione che ne segue è "tutto il file".
@@ -73,28 +126,45 @@ const SELECT_ALL: u64 = 2;
 pub fn note_key(doc: &Document, key: &KeyEvent, repeat: bool) {
     let m = key.mods;
     let plain = m.cmd && !m.shift && !m.alt && !(m.ctrl && m.logo);
-    if matches!(key.key, Key::Command('a')) && plain && !repeat {
-        let _ = doc.select_all.compare_exchange(NO_SELECT_ALL, SELECT_ALL_PENDING, Ordering::Relaxed, Ordering::Relaxed);
+    if matches!(key.key, Key::Command('a')) && plain && !repeat && doc.select_all.get() == SelectAll::No {
+        doc.select_all.set(SelectAll::Pending);
     }
+}
+
+/// I capi di `sel`; `None` se nessun testo selezionato sta in una riga del documento.
+fn ends(sel: &TextSelection, generation: u64, blocks: &[(u64, Arc<str>)]) -> Option<Ends> {
+    let texts: Vec<_> = sel.texts().iter().filter(|t| !t.range().is_empty()).collect();
+    let end = |t: &SelectedText| Some(End { row: row_id(t.path(), generation)?, range: t.range(), whole: t.is_whole() });
+    let (first, last) = (end(texts.first()?)?, end(texts.last()?)?);
+    let index = |row: u64| blocks.iter().position(|(id, _)| *id == row);
+    let rows = match (index(first.row), index(last.row)) {
+        (Some(a), Some(b)) => b.saturating_sub(a) + 1,
+        _ => 0,
+    };
+    let capped = sel.text().len() + COPY_CAP_SLACK >= COPY_CAP_BYTES || rows >= COPY_CAP_ROWS;
+    Some(Ends { first, last, capped })
 }
 
 /// Ogni cambio di selezione. Un Cmd+A in attesa scade al primo cambio che non è di Rune: una
 /// selezione fatta col puntatore (`dragging`) o svuotata. Dopo un Cmd+A la prima selezione vale
-/// "tutto"; Rune poi la completa
-/// con le righe che ricostruisce, senza `started` e senza accorciarla (oltre il tetto di copia la lunghezza
-/// oscilla di qualche per mille col layout: si tollera lo 0,1 %): resta "tutto". Un clic, uno
-/// svuotamento, una selezione nuova o più corta la tolgono.
-fn selection_changed(flag: &AtomicU64, change: &rune::SelectionChange) {
-    let len = change.selection().map_or(0, |t| t.text().len() as u64);
-    let state = flag.load(Ordering::Relaxed);
-    let next = if change.cleared() || change.dragging() || len == 0 {
-        NO_SELECT_ALL
-    } else if state == SELECT_ALL_PENDING || (state >= SELECT_ALL && !change.started() && len + SELECT_ALL + state / 1000 >= state) {
-        SELECT_ALL + len
-    } else {
-        NO_SELECT_ALL
+/// "tutto" e se ne ricordano i capi. Rune poi la completa con le righe che ricostruisce, senza
+/// `started` (oltre il tetto di copia la lunghezza oscilla col layout): resta "tutto" finché i
+/// capi tengono ([`End::holds`]). Se la selezione è troncata l'ultima riga vista non è la fine e
+/// non si confronta. Un clic, uno svuotamento, una selezione nuova o con un capo spostato
+/// (Shift+clic) la tolgono.
+fn selection_changed(flag: &SelectAllFlag, change: &rune::SelectionChange, generation: u64, blocks: &[(u64, Arc<str>)]) {
+    let now = change.selection().filter(|t| !t.text().is_empty()).and_then(|t| ends(t, generation, blocks));
+    let next = match (flag.get(), now) {
+        _ if change.cleared() || change.dragging() => SelectAll::No,
+        (SelectAll::Pending, Some(ends)) => SelectAll::All(ends),
+        (SelectAll::All(was), Some(now))
+            if !change.started() && now.first.holds(&was.first) && ((was.capped && now.capped) || now.last.holds(&was.last)) =>
+        {
+            SelectAll::All(was)
+        }
+        _ => SelectAll::No,
     };
-    flag.store(next, Ordering::Relaxed);
+    flag.set(next);
 }
 
 /// Ciò che copiano Cmd+C e il menu Copia: il Markdown sorgente dei blocchi toccati dalla
@@ -104,8 +174,8 @@ fn selection_changed(flag: &AtomicU64, change: &rune::SelectionChange) {
 ///
 /// Per questo "tutto il file" non si deduce dalla selezione: lo dice il Cmd+A (`select_all`). Allora
 /// si copia il file letto dal disco, che conserva le righe vuote in più tra i blocchi.
-fn copy_source(sel: &TextSelection, generation: u64, file: &File, select_all: &AtomicU64, blocks: &[(u64, Arc<str>)]) -> Option<String> {
-    if select_all.load(Ordering::Relaxed) >= SELECT_ALL && !blocks.is_empty() {
+fn copy_source(sel: &TextSelection, generation: u64, file: &File, select_all: &SelectAllFlag, blocks: &[(u64, Arc<str>)]) -> Option<String> {
+    if matches!(select_all.get(), SelectAll::All(_)) && !blocks.is_empty() {
         return file.read().or_else(|| Some(join(blocks.iter().map(|(_, s)| &**s))));
     }
     let picked: HashSet<u64> = sel.texts().iter().filter(|t| !t.range().is_empty()).filter_map(|t| row_id(t.path(), generation)).collect();
@@ -491,6 +561,43 @@ mod tests {
         cmd(&mut rt, 'c');
         let copied = clipboard.text().map(|t| t.to_string()).unwrap_or_default();
         assert_eq!(copied.trim_end(), after.trim_end(), "il file nuovo, non il vecchio né la selezione");
+    }
+
+    /// Cmd+A, poi Shift+clic nel penultimo blocco (pressione e rilascio nello stesso frame,
+    /// come un clic veloce: la selezione non arriva mai `dragging`): toglie meno dello 0,1 % del
+    /// file, ma non è più "tutto": Cmd+C copia i blocchi fino al penultimo.
+    #[test]
+    fn a_shift_trim_after_cmd_a_copies_the_trimmed_blocks_not_the_file() {
+        let path = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/big.md"));
+        let src = std::fs::read_to_string(path).unwrap();
+        let mut rt = open_doc(Document::load(path).unwrap());
+        let blocks = source(&rt);
+        let n = blocks.len();
+        let clipboard = rune::clipboard::memory();
+        rt.use_clipboard(&clipboard);
+        let doc = rt.elements().into_iter().find(|e| e.key.as_deref() == Some("doc")).unwrap();
+        let (x, y) = (doc.rect[0] + doc.rect[2] / 2.0, doc.rect[1] + 12.0);
+        rt.pointer_move(x, y);
+        rt.pointer_down(x, y);
+        rt.pointer_up(x, y);
+        rt.frame(1.0 / 60.0);
+        cmd(&mut rt, 'a');
+        scroll_to(&mut rt, 1.0e9);
+        let key = row_key(rt.state.generation, n - 2, rt.state.document.as_ref().unwrap());
+        let r = rt.elements().into_iter().find(|e| e.key.as_deref() == Some(key.as_str())).expect("penultimo blocco in vista").rect;
+        let (x, y) = (r[0] + 80.0, r[1] + r[3] / 2.0);
+        let trimmed = blocks[n - 2].len() + blocks[n - 1].len();
+        assert!(trimmed * 1000 < src.len(), "il taglio sta nella vecchia tolleranza: {trimmed} su {}", src.len());
+        rt.physical_input(rune::PhysicalInput::Modifiers(Mods { shift: true, ..Mods::default() }));
+        rt.pointer_move(x, y);
+        rt.pointer_down(x, y);
+        rt.pointer_up(x, y);
+        rt.frame(1.0 / 60.0);
+        rt.physical_input(rune::PhysicalInput::Modifiers(Mods::default()));
+        cmd(&mut rt, 'c');
+        let copied = clipboard.text().map(|t| t.to_string()).unwrap_or_default();
+        assert_ne!(copied.trim_end(), src.trim_end(), "copiato tutto il file dopo il taglio");
+        assert_eq!(copied, blocks[..=n - 2].join("\n\n"));
     }
 
     #[test]
