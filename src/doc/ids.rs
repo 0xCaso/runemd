@@ -79,7 +79,7 @@ pub fn assign(old: &[Block], new: Vec<(String, u64)>, next_id: &mut u64) -> (Vec
                 change.added.push(id);
                 id
             });
-            Block { id, source, hash }
+            Block { id, source: source.into(), hash }
         })
         .collect();
     change.removed = old.iter().zip(&kept).filter(|(_, k)| !**k).map(|(b, _)| b.id).collect();

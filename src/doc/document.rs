@@ -2,13 +2,14 @@
 
 use std::io;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 
 use super::{blocks, ids};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Block {
     pub id: u64,
-    pub source: String,
+    pub source: Rc<str>,
     pub hash: u64,
 }
 
