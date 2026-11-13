@@ -1,7 +1,7 @@
 //! "Sta arrivando" e "cosa è cambiato" (spec, "Segnali live").
 //!
 //! - [`last_block_open`]: l'ultimo blocco del file è ancora aperto (fence non chiusa, oppure il
-//!   file non finisce con una riga vuota dopo il blocco). Con il file "sta scrivendo" accende il
+//!   file non finisce con un a capo). Con il file "sta scrivendo" accende il
 //!   dither in fondo al documento.
 //! - [`Changed`]: i blocchi nuovi o cambiati da una ricarica esterna, segnati per
 //!   [`CHANGED_MARK`] (`CHANGED_MARK_MS` in `docs/agent-writes.md`).
@@ -12,16 +12,18 @@ use std::time::{Duration, Instant};
 /// Per quanto resta il segno dei blocchi cambiati (`docs/agent-writes.md`: 8000 ms, `ipotesi`).
 pub const CHANGED_MARK: Duration = Duration::from_millis(8000);
 
-/// L'ultimo blocco di `source` (il file intero) è aperto: dentro una fence ``` o ~~~ non chiusa,
-/// oppure il file non finisce con una riga vuota dopo l'ultimo blocco. Un file vuoto o di soli
-/// spazi non ha blocchi: chiuso.
+/// L'ultimo blocco di `source` (il file intero) è aperto: dentro una fence ``` o ~~~ non chiusa
+/// (qualunque a capo ci sia dopo), oppure il file non finisce con un a capo. Un solo a capo
+/// finale chiude il blocco: quasi tutti i file degli agenti finiscono così, e con la riga vuota
+/// della spec il dither si vedrebbe a ogni scrittura, non "di rado" (spec:156, decisione
+/// "Dither raro"). Un file vuoto o di soli spazi non ha blocchi: chiuso.
 pub fn last_block_open(source: &str) -> bool {
     let body = source.trim_end();
     if body.is_empty() {
         return false;
     }
-    let blank_after = source[body.len()..].matches('\n').count() >= 2;
-    open_fence(body) || !blank_after
+    let ends_line = source[body.len()..].contains('\n');
+    open_fence(body) || !ends_line
 }
 
 /// Se `source` finisce dentro una fence di codice. Come CommonMark: fino a 3 spazi prima, almeno
@@ -111,8 +113,15 @@ mod tests {
     }
 
     #[test]
-    fn a_closed_fence_without_blank_line_is_still_open() {
-        assert!(last_block_open("a\n\n```rs\nfn\n```\n"));
+    fn a_final_newline_closes_the_last_block() {
+        assert!(!last_block_open("a\n\nparagrafo\n"));
+        assert!(!last_block_open("a\n\n```rs\nfn\n```\n"), "fence chiusa e a capo finale");
+    }
+
+    #[test]
+    fn an_open_fence_stays_open_after_a_final_newline() {
+        assert!(last_block_open("a\n\n```rs\nfn\n"));
+        assert!(last_block_open("a\n\n```rs\nfn\n\n"), "anche con una riga vuota");
     }
 
     #[test]
