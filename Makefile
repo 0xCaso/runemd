@@ -1,3 +1,5 @@
+.PHONY: check app
+
 check:
 	cargo clippy --profile perf --all-targets -- -D warnings
 	cargo test --profile perf

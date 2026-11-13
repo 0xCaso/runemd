@@ -7,7 +7,7 @@ Lettore Markdown per Mac, scritto in Rust con [Rune](https://github.com/anomalyc
     make app                        # compila e crea build/RuneMD.app (firmato "RuneMD Local")
     open build/RuneMD.app --args file.md
 
-Prima volta: `scripts/make_cert.sh` crea il certificato di firma locale "RuneMD Local" nel Portachiavi login.
+Prima volta: `scripts/make_cert.sh` crea il certificato di firma locale "RuneMD Local" in un portachiavi dedicato (`~/Library/Keychains/runemd.keychain-db`): nel login keychain codesign aspetta un dialogo grafico e si blocca.
 
 ## Sviluppo
 
