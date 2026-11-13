@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 use rune::compose::{Compositor, Frame};
-use rune::render::{EffectPhase, Instance, KIND_EFFECT};
-use rune_fx::{FxBlend, FxFrame, FxLayer, FxOptions, FxRenderer, FxSlot, Rect};
+use rune::render::{EffectSite, Instance, KIND_EFFECT};
+use rune_fx::{FxFrame, FxLayer, FxOptions, FxRenderer, FxSlot, Rect};
 
 use super::marks::Mark;
 use super::{fire, ring};
@@ -13,8 +13,7 @@ use crate::Doc;
 ///
 /// Anelli e fuoco non passano da `set`: la vista mette uno slot `ring::slot` solo mentre il file
 /// è "sta scrivendo" e uno `fire::slot` solo mentre c'è testo nuovo sotto la vista; qui ogni slot
-/// diventa il layer del suo rect. Il fuoco nel tema chiaro è Multiply sulla copia del backdrop
-/// che Rune fa allo slot (`effect_backdrop`).
+/// diventa il layer del suo rect.
 #[derive(Default)]
 pub struct FxCompositor {
     layers: HashMap<u32, FxLayer>,
@@ -39,11 +38,11 @@ fn ring_layer(i: &Instance, clock: f64) -> FxLayer {
     ring::layer_rounded(rect_pt(i), radius, t, reduced)
 }
 
-/// Il layer e la miscela del fuoco per uno slot `fire::slot`: il rect dello slot tocca il fondo
-/// del pannello e ne ha la larghezza.
-fn fire_layer(i: &Instance, clock: f64) -> (FxLayer, FxBlend) {
+/// Il layer del fuoco per uno slot `fire::slot`: il rect dello slot tocca il fondo del pannello
+/// e ne ha la larghezza.
+fn fire_layer(i: &Instance, clock: f64) -> FxLayer {
     let s = fire::slot_state(i.uv, clock);
-    (fire::layer(rect_pt(i), s.t, s.dark, s.reduced, s.active_window), fire::blend(s.dark))
+    fire::layer(rect_pt(i), s.t, s.dark, s.reduced, s.active_window)
 }
 
 impl FxCompositor {
@@ -85,18 +84,18 @@ impl Compositor<Doc> for FxCompositor {
                 continue;
             }
             let mark = f.rt.marks.get(n).copied().unwrap_or(0);
-            let (layer, blend) = if Mark::is_ring(mark) {
-                (ring_layer(i, clock), FxBlend::Normal)
+            let layer = if Mark::is_ring(mark) {
+                ring_layer(i, clock)
             } else if mark == Mark::Fire.id() {
                 fire_layer(i, clock)
             } else if let Some(l) = self.layers.get(&mark) {
-                (*l, FxBlend::Normal)
+                *l
             } else {
                 continue;
             };
             at.push(n as u32);
             layers.push(layer);
-            slots.push(FxSlot::default().scale(i.params[3]).clip(i.clip, i.fade).blend(blend));
+            slots.push(FxSlot::default().scale(i.params[3]).clip(i.clip, i.fade));
         }
         // Fermo appena nessun layer si muove: un anello con "riduci movimento" non tiene il
         // display link, e uno spento non c'è più fra le istanze.
@@ -107,16 +106,9 @@ impl Compositor<Doc> for FxCompositor {
         fx.prepare_with_slots(device, queue, &FxFrame { viewport: [size.0, size.1], scale: 1.0, layers: &layers, backdrop: None, sources: &[] }, &slots);
         let clear = f.rt.clear_color();
         f.ui.prepare(device, queue, &mut f.rt.text.atlas, &f.rt.instances, size);
-        f.ui.draw_with_backdrop(f.encoder, f.target, clear, &mut |phase, s| {
-            let Some(k) = at.iter().position(|n| *n == s.index) else { return };
-            match phase {
-                // Solo gli slot con `effect_backdrop` (il fuoco nel chiaro) arrivano qui.
-                EffectPhase::Backdrop(_) => {
-                    if let Some(backdrop) = s.backdrop {
-                        fx.set_layer_backdrop(device, backdrop, k);
-                    }
-                }
-                EffectPhase::Draw(pass) => fx.draw_layer_in(pass, s.format, s.origin, k),
+        f.ui.draw_with(f.encoder, f.target, clear, &mut |pass, s: &EffectSite<'_>| {
+            if let Some(k) = at.iter().position(|n| *n == s.index) {
+                fx.draw_layer_in(pass, s.format, s.origin, k);
             }
         });
     }

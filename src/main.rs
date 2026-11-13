@@ -211,8 +211,8 @@ fn view(s: &Doc, cx: &mut Cx<Doc>) -> El {
     // Il fuoco: una fascia sul fondo del pannello, sopra il documento, con l'etichetta. Fuori
     // dal flusso, così il documento e il suo scroll non si muovono quando compare.
     // L'etichetta è una fascia sorella dopo lo slot, così Rune la dipinge sopra le fiamme. Sta
-    // sulla base calda del fuoco: nel tema scuro la base è quasi bianca e il testo prende il
-    // colore del pannello; nel chiaro (Multiply) la base è arancio e il testo resta `fg`.
+    // sulla base calda del fuoco, quasi bianca nei due temi: il testo prende un grigio scuro dei
+    // token (`panel` nello scuro, `fg` nel chiaro).
     if let Some(since) = s.fire_since {
         let band = |key: &str| rune::col().key(key).pin(Some(0.0), None, Some(0.0), Some(0.0)).h(fx::fire::FIRE_H);
         panel = panel.child(fx::fire::slot(band("fire"), since, dark, cx.is_reduced_motion(), s.window_active));

@@ -1,13 +1,13 @@
 //! Fuoco "testo nuovo più in basso" (DESIGN.md, "Segnali live"): fiamme e braci alte `FIRE_H`
 //! dal fondo del pannello, che salgono in `RISE` ease-out.
 //!
-//! `layer` è una funzione pura del rect del pannello e del tempo. Nel tema chiaro lo slot va
-//! composto con `FxBlend::Multiply` sulla copia del backdrop (rune-fx README, "Targets and blend
-//! modes"): la miscela sta in `FxSlot`, non in `FxLayer`, quindi la sceglie [`blend`] e il
-//! compositor la mette sullo slot.
+//! `layer` è una funzione pura del rect del pannello e del tempo. In entrambi i temi le fiamme
+//! coprono il testo sotto di loro (miscela normale, stessa occlusione): decisione di Matteo,
+//! `docs/decisions/2026-11-14-fuoco-tema-chiaro.md`. Il Multiply del tema chiaro (DESIGN.md e
+//! spec) è scartato: lasciava il testo sopra le fiamme e l'etichetta illeggibile.
 
 use rune::El;
-use rune_fx::{FireParams, Fx, FxBlend, FxLayer, Rect, Shape};
+use rune_fx::{FireParams, Fx, FxLayer, Rect, Shape};
 
 use super::Mark;
 
@@ -18,6 +18,10 @@ pub const RISE: f32 = 0.42;
 /// Spessore della forma sotto il fondo del pannello da cui partono le fiamme (fuori vista: lo
 /// slot è tagliato dal pannello). Le fiamme `Top` salgono dal bordo alto della forma.
 const BASE: f32 = 24.0;
+/// Quanto la fiamma densa copre ciò che ha dietro (0..1), uguale nei due temi.
+pub const OCCLUSION: f32 = 0.85;
+/// Intensità nel tema chiaro (1 nello scuro).
+const LIGHT_INTENSITY: f32 = 1.0;
 
 /// Il fuoco sul fondo di `panel` (pt), `t` secondi dopo che si è acceso.
 /// Con `reduced` compare a piena altezza senza salire e resta fermo; con la finestra non attiva
@@ -32,29 +36,20 @@ pub fn layer(panel: Rect, t: f32, dark: bool, reduced: bool, active_window: bool
         scale: 22.0,
         embers: 18,
         ember_rise: 64.0,
-        // Nel chiaro la miscela è Multiply: la luce della fiamma diventa una maschera colorata
-        // sul bianco, un po' più intensa perché non si somma.
-        intensity: if dark { 1.0 } else { 1.25 },
-        // Nel tema scuro la fiamma densa copre il testo dietro (con Multiply l'occlusione non
-        // conta): l'etichetta sopra resta leggibile.
-        occlusion: 0.85,
+        intensity: if dark { 1.0 } else { LIGHT_INTENSITY },
+        // La fiamma densa copre il testo dietro, nei due temi: l'etichetta sopra resta leggibile.
+        occlusion: OCCLUSION,
         ..FireParams::default()
     };
     let shape = Shape::rounded(panel.x, panel.y + panel.h, panel.w, BASE, 0.0);
     Fx::fire(fire).on(shape).at(t).seed(12).reduced(still)
 }
 
-/// La miscela dello slot del fuoco: luce sommata sul pannello scuro, Multiply sul chiaro (sul
-/// bianco una luce sommata sparirebbe).
-pub fn blend(dark: bool) -> FxBlend {
-    if dark { FxBlend::Normal } else { FxBlend::Multiply }
-}
-
-/// Fa di `el` lo slot del fuoco, acceso al tempo `since` dell'orologio di Rune. Nel chiaro lo
-/// slot chiede la copia del backdrop per il Multiply. Il compositor lo dipinge con [`layer`]
-/// sul rect di `el`, che deve toccare il fondo del pannello e averne la larghezza.
+/// Fa di `el` lo slot del fuoco, acceso al tempo `since` dell'orologio di Rune. Il compositor lo
+/// dipinge con [`layer`] sul rect di `el`, che deve toccare il fondo del pannello e averne la
+/// larghezza.
 pub fn slot(el: El, since: f64, dark: bool, reduced: bool, active_window: bool) -> El {
-    el.effect(Mark::Fire.id()).effect_backdrop(!dark).effect_data(slot_data(since, dark, reduced, active_window))
+    el.effect(Mark::Fire.id()).effect_data(slot_data(since, dark, reduced, active_window))
 }
 
 /// Quanto legge il compositor da uno [`slot`].
@@ -150,10 +145,12 @@ mod tests {
         assert!(l.opacity > 0.99 && !l.is_animating());
     }
 
+    /// Nel tema chiaro le fiamme coprono il testo come nello scuro (decisione 2026-11-14).
     #[test]
-    fn light_theme_multiplies() {
-        assert_eq!(blend(true), FxBlend::Normal);
-        assert_eq!(blend(false), FxBlend::Multiply);
+    fn light_theme_covers_the_text_like_dark() {
+        let (d, l) = (fire(&layer(panel(), 1.0, true, false, true)), fire(&layer(panel(), 1.0, false, false, true)));
+        assert_eq!(l.occlusion, d.occlusion);
+        assert_eq!(l.occlusion, OCCLUSION);
     }
 
     #[test]
