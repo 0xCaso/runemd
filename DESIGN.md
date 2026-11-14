@@ -195,8 +195,8 @@ linee solo decorative e i riempimenti. I test falliscono se un minimo non è ris
 | `mark` su panel (anello dei risultati di Cerca, segno "cambiato") | 1,19 | 3,89 | 1,22 | 3,52 | 3 |
 | `mark` su `sel` (anello di Cerca, lato interno) | 1,27 | 3,34 | 1,22 | 3,27 | 3 |
 | Anello del risultato attivo su `sel` (`fg-3` prima, `fg-2` dopo) | 5,73 | 8,30 | 6,42 | 9,38 | 3 |
-| Anello "sta scrivendo" sulla barra delle schede (pixel, vedi sotto) | — | 4,62 | — | — | 3 nello scuro |
-| Anello "sta scrivendo" sul riempimento `sel` della scheda (pixel) | — | 3,44 | — | — | 3 nello scuro |
+| Anello "sta scrivendo" sulla barra delle schede (pixel, minimo; vedi sotto) | — | 4,62 | 3,17 | 4,86 | 3 |
+| Anello "sta scrivendo" sul riempimento `sel` della scheda (pixel, minimo) | — | 3,44 | 2,78 | 4,26 | 3 |
 | Fuoco della tastiera su vetro | 1,77 | 3,24 | 1,68 | 3,15 | 3 |
 | Fuoco della tastiera su panel | 2,13 | 5,36 | 1,97 | 4,72 | 3 |
 | Impostazioni: scelta fatta e sua spunta (`fg`) su panel + `sel` | — | 12,53 | — | 14,94 | 4,5 |
@@ -222,6 +222,14 @@ linee solo decorative e i riempimenti. I test falliscono se un minimo non è ris
   per ogni punto dei lati dritti attorno alla scheda si prende il pixel più contrastato sui 3 px di spessore; il
   minimo è 4,62:1 sul pannello e 3,44:1 sul `sel` della scheda (mediane 11,37 e 8,46), cioè ≥ 3:1 su tutto il
   perimetro. Lo studio riflesso gira, quindi un altro fotogramma dà valori un po' diversi.
+- Nel tema chiaro (review finale I5) lo stesso metodo (`bench/ring_contrast.py`, scala 2, `RUNEMD_THEME=light`,
+  scheda di `bench/worst_case.sh` a rect 258,16,240×28 pt) sul cromo di Rune dava minimo 3,17:1 sulla barra e
+  2,78:1 sul `sel` (mediane 8,30 e 7,28): sotto 3 sul `sel`. Nel chiaro il metallo è più scuro (`fx::ring::metal`:
+  tinta `d8dbe0` e luci `e6e7ea` al posto di `e9ecf0` e `ffffff`); ora minimo 4,86:1 sulla barra e 4,26:1 sul
+  `sel` (mediane 11,01 e 9,65), e su un secondo fotogramma 1,5 s dopo 4,77 e 4,19 (mediane 10,54 e 9,24). Prove:
+  `docs/proof/ring-light-before.png`, `docs/proof/ring-light-after.png`. Nello scuro il metallo resta il cromo;
+  con lo stesso script sulla scheda di `bench/worst_case.sh` dà minimo 4,43 sulla barra e 3,30 sul `sel`
+  (mediane 10,66 e 7,93).
 - Il nome doppio (repo o cartella) è in `fg-2` sulla riga scelta di ⌘P: in `fg-3` sul `sel` scendeva a 3,2:1.
 - Ogni testo piccolo dentro una riga che prende `sel` in hover sul vetro (tempo di Recenti, nome doppio, link
   "Apri Impostazioni di Sistema") è in `fg-2` (`sidebar::row_meta`): con i token di oggi `fg-3` su vetro + `sel`

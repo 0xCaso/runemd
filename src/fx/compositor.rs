@@ -36,7 +36,7 @@ fn rect_pt(i: &Instance) -> Rect {
 fn ring_layer(i: &Instance, clock: f64) -> FxLayer {
     let radius = i.radii.iter().fold(0.0f32, |a, v| a.max(v.abs())) / i.params[3].max(f32::EPSILON);
     let (t, reduced) = ring::slot_time(i.uv, clock);
-    ring::layer_rounded(rect_pt(i), radius, t, reduced)
+    ring::layer_rounded(rect_pt(i), radius, t, reduced, ring::slot_dark(i.uv))
 }
 
 /// Il layer del fuoco per uno slot `fire::slot`: il rect dello slot tocca il fondo del pannello

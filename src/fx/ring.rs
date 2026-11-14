@@ -27,31 +27,53 @@ pub const ROW_RADIUS: f32 = crate::ui::theme::R_ROW;
 /// `RING_W` per lato, così la banda sta tutta fuori dalla riga. Con `reduced` è fermo e
 /// visibile da subito.
 pub fn layer(rect: Rect, t: f32, reduced: bool) -> FxLayer {
-    layer_rounded(rect, ROW_RADIUS, t, reduced)
+    layer_rounded(rect, ROW_RADIUS, t, reduced, true)
 }
 
-/// Come [`layer`], per uno slot con raggio `radius` (le righe della sidebar; la scheda, task 19).
-pub fn layer_rounded(rect: Rect, radius: f32, t: f32, reduced: bool) -> FxLayer {
+/// Come [`layer`], per uno slot con raggio `radius` (le righe della sidebar; la scheda, task 19),
+/// nel tema `dark` o nel chiaro ([`metal`]).
+pub fn layer_rounded(rect: Rect, radius: f32, t: f32, reduced: bool, dark: bool) -> FxLayer {
     let t = if reduced { 0.0 } else { t.max(0.0) };
-    let base = LiquidMetalParams::chrome();
+    let base = metal(dark);
     let metal = LiquidMetalParams { angle: base.angle + TAU * (t / TURN).fract(), ..base };
     let r = rect.inflate(RING_W);
     let shape = Shape::rounded(r.x, r.y, r.w, r.h, radius + RING_W);
     Fx::fill(metal.border(RING_W)).on(shape).at(t).reduced(reduced).opacity(if reduced { 1.0 } else { enter(t) })
 }
 
+/// Il metallo dell'anello: il cromo di Rune nello scuro. Nel chiaro i riflessi più chiari del
+/// cromo sono quasi bianchi e sul pannello e sul `sel` della scheda scendono sotto 3:1: il
+/// metallo è più scuro (tinta e luci dello studio), così tiene ≥ 3:1 su tutto il perimetro
+/// (review finale I5, misura in DESIGN.md "Contrasto").
+pub fn metal(dark: bool) -> LiquidMetalParams {
+    let chrome = LiquidMetalParams::chrome();
+    if dark {
+        return chrome;
+    }
+    // Tinta e luci del metallo nel tema chiaro (il cromo ha `e9ecf0` e `ffffff`).
+    LiquidMetalParams { tint: rune_fx::rgb(LIGHT_TINT), light: rune_fx::rgb(LIGHT_STUDIO), ..chrome }
+}
+
+const LIGHT_TINT: u32 = 0xd8dbe0;
+const LIGHT_STUDIO: u32 = 0xe6e7ea;
+
 /// Fa di `el` lo slot dell'anello `mark`, acceso al tempo `since` dell'orologio di Rune
 /// (`poll` lo riceve, il compositor legge `Runtime::clock`). Il compositor lo dipinge con
 /// [`layer_rounded`] sul rect e il raggio di `el`.
-pub fn slot(el: El, mark: Mark, since: f64, reduced: bool) -> El {
-    el.effect(mark.id()).effect_bleed(RING_W).effect_data(slot_data(since, reduced))
+pub fn slot(el: El, mark: Mark, since: f64, reduced: bool, dark: bool) -> El {
+    el.effect(mark.id()).effect_bleed(RING_W).effect_data(slot_data(since, reduced, dark))
 }
 
 /// `effect_data` di uno [`slot`]: `since` in due f32 (parte alta e resto), così dopo giorni di
-/// orologio la differenza resta precisa al µs; poi "riduci movimento".
-pub fn slot_data(since: f64, reduced: bool) -> [f32; 4] {
+/// orologio la differenza resta precisa al µs; poi "riduci movimento" e il tema chiaro.
+pub fn slot_data(since: f64, reduced: bool, dark: bool) -> [f32; 4] {
     let hi = since as f32;
-    [hi, if reduced { 1.0 } else { 0.0 }, (since - f64::from(hi)) as f32, 0.0]
+    [hi, if reduced { 1.0 } else { 0.0 }, (since - f64::from(hi)) as f32, if dark { 0.0 } else { 1.0 }]
+}
+
+/// Da `effect_data` di uno [`slot`]: il tema scuro.
+pub fn slot_dark(data: [f32; 4]) -> bool {
+    data[3] < 0.5
 }
 
 /// Da `effect_data` di uno [`slot`]: secondi da quando l'anello è acceso e "riduci movimento".
@@ -84,7 +106,7 @@ mod tests {
         }
     }
 
-    fn metal(l: &FxLayer) -> LiquidMetalParams {
+    fn metal_of(l: &FxLayer) -> LiquidMetalParams {
         match fill(l).style {
             FillStyle::LiquidMetal(m) => m,
             other => panic!("non è metallo liquido: {other:?}"),
@@ -94,7 +116,7 @@ mod tests {
     #[test]
     fn ring_is_a_liquid_metal_border_outside_the_row() {
         let l = layer(row(), 1.0, false);
-        metal(&l);
+        metal_of(&l);
         assert_eq!(fill(&l).border, RING_W);
         let r = l.shape.rect;
         assert_eq!((r.x, r.y, r.w, r.h), (10.0 - RING_W, 20.0 - RING_W, 200.0 + 2.0 * RING_W, 28.0 + 2.0 * RING_W));
@@ -113,15 +135,16 @@ mod tests {
     #[test]
     fn ring_turns_once_every_3_s() {
         let tau = std::f32::consts::TAU;
-        let angle = |t| metal(&layer(row(), t, false)).angle.rem_euclid(tau);
+        let angle = |t| metal_of(&layer(row(), t, false)).angle.rem_euclid(tau);
         assert!((angle(1.0) - angle(1.0 + TURN / 2.0)).abs() > 3.0, "mezzo giro in TURN / 2");
         assert!((angle(1.0) - angle(1.0 + TURN)).abs() < 1e-3, "un giro in TURN");
     }
 
     #[test]
     fn slot_data_round_trips() {
-        assert_eq!(slot_time(slot_data(12.5, true), 13.0), (0.5, true));
-        assert_eq!(slot_time(slot_data(12.5, false), 12.0), (0.0, false), "mai negativo");
+        assert_eq!(slot_time(slot_data(12.5, true, true), 13.0), (0.5, true));
+        assert_eq!(slot_time(slot_data(12.5, false, true), 12.0), (0.0, false), "mai negativo");
+        assert!(slot_dark(slot_data(1.0, false, true)) && !slot_dark(slot_data(1.0, false, false)));
     }
 
     /// Dopo 30 giorni di orologio (2,6 milioni di s, oltre la precisione di un f32) l'entrata
@@ -129,13 +152,24 @@ mod tests {
     #[test]
     fn fade_still_ramps_after_30_days() {
         let since = 30.0 * 86_400.0 + 0.123_456;
-        let data = slot_data(since, false);
+        let data = slot_data(since, false, true);
         let opacity = |dt: f64| layer(row(), slot_time(data, since + dt).0, false).opacity;
         let ramp: Vec<f32> = [0.0, 0.033, 0.066, 0.1, 0.15, 0.22].iter().map(|dt| opacity(*dt)).collect();
         assert!(ramp[0] < 0.01, "{ramp:?}");
         assert!(ramp.windows(2).all(|w| w[1] > w[0]), "sale a ogni frame: {ramp:?}");
         assert!(ramp[5] > 0.999, "{ramp:?}");
         assert!((slot_time(data, since + 1.5).0 - 1.5).abs() < 1e-3);
+    }
+
+    /// I5: nel tema chiaro il metallo è più scuro del cromo (tinta e luci), nello scuro è il cromo.
+    #[test]
+    fn the_light_ring_is_darker_metal() {
+        let lum = |c: rune_fx::Rgb| 0.2126 * c.0[0] + 0.7152 * c.0[1] + 0.0722 * c.0[2];
+        let (dark, light) = (metal(true), metal(false));
+        assert_eq!(dark, LiquidMetalParams::chrome());
+        assert!(lum(light.tint) < lum(dark.tint) && lum(light.light) < lum(dark.light));
+        let l = layer_rounded(row(), 6.0, 1.0, false, false);
+        assert_eq!(metal_of(&l).tint, light.tint);
     }
 
     #[test]
@@ -145,6 +179,6 @@ mod tests {
         assert_eq!(a.opacity, 1.0, "visibile subito, senza entrata");
         assert!(a.reduced_motion);
         assert!(!a.is_animating());
-        assert_eq!((a.time, metal(&a)), (b.time, metal(&b)), "fermo");
+        assert_eq!((a.time, metal_of(&a)), (b.time, metal_of(&b)), "fermo");
     }
 }

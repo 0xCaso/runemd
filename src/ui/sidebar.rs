@@ -479,10 +479,10 @@ pub(super) fn pressable<S: 'static>(e: El, key: String, sb: &Sidebar, hooks: Hoo
 
 /// L'ospite dell'anello "sta scrivendo" attorno a una riga: sempre presente, così la struttura
 /// non cambia quando si accende.
-fn ring_host(row: El, mark: Mark, since: Option<f64>, reduced: bool) -> El {
+fn ring_host(row: El, mark: Mark, since: Option<f64>, reduced: bool, dark: bool) -> El {
     let host = el().w_full().radius(R_ROW).child(row);
     match since {
-        Some(t) => fx::ring::slot(host, mark, t, reduced),
+        Some(t) => fx::ring::slot(host, mark, t, reduced, dark),
         None => host,
     }
 }
@@ -519,7 +519,7 @@ fn recent_row<S: 'static>(s: &S, hooks: Hooks<S>, i: usize, r: &RecentRow, label
     let since = (hooks.ring)(s, &r.path);
     let key = format!("recent-{}", r.path.display());
     let e = pressable(e, key.clone(), (hooks.get)(s), hooks, theme, motion, true);
-    ring_host(e, Mark::RecentRing(i as u32), since, motion.reduced).key(key)
+    ring_host(e, Mark::RecentRing(i as u32), since, motion.reduced, theme.dark).key(key)
 }
 
 /// La riga del repo: icona cartella e nome 600; sotto il nome il branch, più piccolo (12) e a
@@ -592,7 +592,7 @@ fn tree_row<S: 'static>(s: &S, hooks: Hooks<S>, i: usize, theme: &Theme, motion:
     let since = node.data.as_deref().and_then(|p| (hooks.ring)(s, p));
     // L'ospite è largo quanto la riga: col rientro deve stringersi, o esce dall'albero (nome
     // tagliato senza "…", riempimento e anello senza il lato destro).
-    outer.child(ring_host(e, Mark::TreeRing(i as u32), since, motion.reduced).grow(1.0).shrink().min_w(0.0).ml(TREE_X + depth * TREE_INDENT))
+    outer.child(ring_host(e, Mark::TreeRing(i as u32), since, motion.reduced, theme.dark).grow(1.0).shrink().min_w(0.0).ml(TREE_X + depth * TREE_INDENT))
 }
 
 #[cfg(test)]

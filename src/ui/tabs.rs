@@ -85,7 +85,7 @@ fn tab_row(s: &App, hooks: Hooks<App>, i: usize, tab: &crate::app::Tab, theme: &
     // L'ospite dell'anello: sempre presente, così la struttura non cambia quando si accende.
     let host = el().radius(R_ROW).child(e);
     match s.ring_of(tab.path()) {
-        Some(since) => fx::ring::slot(host, Mark::TabRing(i as u32), since, motion.reduced),
+        Some(since) => fx::ring::slot(host, Mark::TabRing(i as u32), since, motion.reduced, theme.dark),
         None => host,
     }
 }
