@@ -44,13 +44,17 @@ pub struct Rings {
     pub active: Color,
     pub focus: Color,
     pub chosen: Color,
+    /// Il testo piccolo dentro le righe premibili della sidebar, che prendono `sel` in hover: il
+    /// tempo di Recenti, il nome doppio, il link "Apri Impostazioni di Sistema"
+    /// (`sidebar::row_meta`).
+    pub row_meta: Color,
 }
 
 impl Rings {
     /// Quelli dell'app: anello attivo in `fg2` (`markdown_style`), fuoco da [`focus_ring`] con
     /// l'accento di sistema predefinito (blu).
     pub fn of(t: &Theme) -> Rings {
-        Rings { active: t.fg2, focus: focus_ring(rune::SystemAccent::DEFAULT.focus(t.dark), t.dark), chosen: t.fg2 }
+        Rings { active: t.fg2, focus: focus_ring(rune::SystemAccent::DEFAULT.focus(t.dark), t.dark), chosen: t.fg2, row_meta: super::sidebar::row_meta(t) }
     }
 }
 
@@ -68,6 +72,7 @@ pub fn rows(t: &Theme, rings: &Rings) -> Vec<Row> {
         row("fg3 su vetro", t.fg3, glass, 4.5),
         row("fg2 su vetro", t.fg2, glass, 4.5),
         row("nome doppio della riga scelta su vetro + sel (fg3 prima, fg2 dopo)", rings.chosen, glass_sel, 4.5),
+        row("testo piccolo delle righe premibili (tempo di Recenti, nome doppio, link) su vetro + sel (hover)", rings.row_meta, glass_sel, 4.5),
         row("titolo evidenziato dell'indice (fg) su panel + sel (hover)", t.fg, panel_sel, 4.5),
         row("titoli dell'indice (fg2) su panel + sel (hover)", t.fg2, panel_sel, 4.5),
         row("mark su panel (anello Cerca, segno cambiato)", t.mark, panel, mark),
@@ -108,7 +113,7 @@ mod tests {
 
     /// Gli anelli prima del fix: attivo in `fg3`, fuoco del sistema al 50 %.
     fn rings_before(dark: bool) -> Rings {
-        Rings { active: before(dark).fg3, focus: rune::SystemAccent::DEFAULT.focus(dark), chosen: before(dark).fg3 }
+        Rings { active: before(dark).fg3, focus: rune::SystemAccent::DEFAULT.focus(dark), chosen: before(dark).fg3, row_meta: before(dark).fg3 }
     }
 
     fn table(dark: bool) -> (Vec<Row>, Vec<Row>) {

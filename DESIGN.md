@@ -156,7 +156,7 @@ Una scala di grigi OKLCH a bassissimo croma, in due temi. In Rune si scrivono ug
 | `fg` | 0.22 | 0.95 | Titoli, nomi file, testo forte |
 | `body` | 0.28 | 0.90 | Corpo del documento |
 | `fg-2` | 0.36 | 0.82 | Intestazioni di tabella, campo "Apri file" |
-| `fg-3` | 0.45 | 0.72 | Tempi, branch, etichette di sezione, meta del file |
+| `fg-3` | 0.45 | 0.72 | Branch, etichette di sezione, meta del file (fuori dalle righe con hover: lì `fg-2`) |
 | `glass` | 0.965 / 86 % | 0.18 / 84 % | Cornice e sidebar, con blur 40 e saturazione 1,6 |
 | `line` | nero 9 % | bianco 14 % | Linee solo decorative: righe di tabella, linee guida dell'albero, bordi dei campi |
 | `sel` | nero 6 % | bianco 12 % | Riga selezionata, hover, selezione, riempimento dei risultati di Cerca |
@@ -186,6 +186,7 @@ linee solo decorative e i riempimenti. I test falliscono se un minimo non è ris
 | `fg-3` su vetro | 4,26 | 4,76 | 4,89 | 4,89 | 4,5 |
 | `fg-2` su vetro | 6,32 | 6,77 | 7,13 | 7,13 | 4,5 |
 | Nome doppio della riga scelta su vetro + `sel` (`fg-3` prima, `fg-2` dopo) | 3,22 | 4,66 | 4,30 | 6,28 | 4,5 |
+| Testo piccolo delle righe premibili (tempo di Recenti, nome doppio, "Apri Impostazioni di Sistema") su vetro + `sel` (hover; `fg-3` prima, `fg-2` dopo) | 3,22 | 4,66 | 4,30 | 6,28 | 4,5 |
 | Titolo evidenziato dell'indice (`fg`) su panel + `sel` (hover) | — | 12,53 | — | 14,94 | 4,5 |
 | Titoli dell'indice (`fg-2`) su panel + `sel` (hover) | — | 8,30 | — | 9,38 | 4,5 |
 | `mark` su panel (anello dei risultati di Cerca, segno "cambiato") | 1,19 | 3,89 | 1,22 | 3,52 | 3 |
@@ -219,6 +220,10 @@ linee solo decorative e i riempimenti. I test falliscono se un minimo non è ris
   minimo è 4,62:1 sul pannello e 3,44:1 sul `sel` della scheda (mediane 11,37 e 8,46), cioè ≥ 3:1 su tutto il
   perimetro. Lo studio riflesso gira, quindi un altro fotogramma dà valori un po' diversi.
 - Il nome doppio (repo o cartella) è in `fg-2` sulla riga scelta di ⌘P: in `fg-3` sul `sel` scendeva a 3,2:1.
+- Ogni testo piccolo dentro una riga che prende `sel` in hover sul vetro (tempo di Recenti, nome doppio, link
+  "Apri Impostazioni di Sistema") è in `fg-2` (`sidebar::row_meta`): con i token di oggi `fg-3` su vetro + `sel`
+  dà 3,28:1 nello scuro e 4,30:1 nel chiaro (review finale I4). `fg-3` resta solo fuori dalle righe premibili:
+  etichette di sezione, branch della riga del repo (che non ha hover), "⌘E sorgente" sul pannello.
 
 ## Typography
 
@@ -278,7 +283,7 @@ bordo 0,5 px in `line`, raggio 4 e margine interno `kbd-pad`; il campo ha margin
 **Apri veloce (⌘P).** Il campo "Apri file" è un campo di testo: ⌘P gli dà il fuoco. Finché la ricerca non è
 vuota, la lista dei risultati prende il posto di Recenti e dell'albero. Le righe sono quelle della sidebar (28 px,
 raggio 6, hover `sel`, scala 0,98 premuta); la riga scelta con le frecce ha riempimento `sel` e testo `fg`. Un nome
-doppio mostra repo o cartella in `fg-3`, come in Recenti, e in `fg-2` sulla riga scelta. Invio apre, Esc svuota e chiude, nessuna animazione di
+doppio mostra repo o cartella in `fg-2`, come in Recenti. Invio apre, Esc svuota e chiude, nessuna animazione di
 apertura (azione da tastiera). Nessun accento: caret `fg`, selezione `sel`. Nessun risultato: "Nessun file" in `fg-3`.
 
 **Scheda.** Una riga come quelle della sidebar, larga quanto il nome del file: alta 28 (`row`), raggio 6, testo UI

@@ -263,7 +263,7 @@ pub(super) fn view<S: 'static>(sb: &super::sidebar::Sidebar, hooks: Hooks<S>, th
             .px(ROW_PAD)
             .gap(ROW_GAP)
             .center_y()
-            .child(name_cell(&r.name, r.qualifier.as_deref(), selected, theme))
+            .child(name_cell(&r.name, r.qualifier.as_deref(), theme))
             .on_press_tx(move |s: &mut S, tx: &mut Tx| {
                 (hooks.get_mut)(s).quick.close();
                 (hooks.open)(s, path.clone(), tx);

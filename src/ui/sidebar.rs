@@ -10,7 +10,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
-use rune::{Anim, Curve, Drag, El, Easing, GrowthSpec, Phase, ScrollSpec, TextStyle, Tx, col, el, icon, row, text};
+use rune::{Anim, Color, Curve, Drag, El, Easing, GrowthSpec, Phase, ScrollSpec, TextStyle, Tx, col, el, icon, row, text};
 use rune_kit::{FileNode, FileTree, TreeModel, glyphs};
 
 use super::quick_open::{self, QuickOpen};
@@ -389,7 +389,7 @@ pub fn view<S: 'static>(s: &S, hooks: Hooks<S>, theme: &Theme, reduced: bool, ho
 /// Dove macOS tiene il permesso "File e cartelle".
 const PRIVACY_URL: &str = "x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders";
 
-/// L'avviso sotto il campo: il testo in `fg`, e sotto una riga premibile in `fg3` che apre le
+/// L'avviso sotto il campo: il testo in `fg`, e sotto una riga premibile in [`row_meta`] che apre le
 /// Impostazioni di Sistema. Solo token di DESIGN.md: niente accento, niente pillola.
 fn no_access<S: 'static>(sb: &Sidebar, hooks: Hooks<S>, theme: &Theme, motion: Motion) -> El {
     let link = row()
@@ -397,7 +397,7 @@ fn no_access<S: 'static>(sb: &Sidebar, hooks: Hooks<S>, theme: &Theme, motion: M
         .h(ROW)
         .px(ROW_PAD)
         .center_y()
-        .child(text("Apri Impostazioni di Sistema").font(small_font()).color(theme.fg3).truncate().shrink().min_w(0.0))
+        .child(text("Apri Impostazioni di Sistema").font(small_font()).color(row_meta(theme)).truncate().shrink().min_w(0.0))
         .on_press_tx(|_: &mut S, _: &mut Tx| {
             if let Err(e) = std::process::Command::new("open").arg(PRIVACY_URL).spawn() {
                 eprintln!("runemd: Impostazioni di Sistema non aperte: {e}");
@@ -463,21 +463,25 @@ fn ring_host(row: El, mark: Mark, since: Option<f64>, reduced: bool) -> El {
     }
 }
 
-/// Il nome del file e, se un'altra riga ha lo stesso nome, il repo o la cartella in `fg3`; in
-/// `fg2` sulla riga scelta (`selected`), dove il riempimento `sel` porterebbe `fg3` sotto 4,5:1
-/// (DESIGN.md, "Contrasto").
-pub(super) fn name_cell(name: &str, qualifier: Option<&str>, selected: bool, theme: &Theme) -> El {
+/// Il colore del testo piccolo dentro una riga premibile (tempo di Recenti, nome doppio, link):
+/// l'hover `sel` sul vetro porterebbe `fg3` sotto 4,5:1 (DESIGN.md, "Contrasto").
+pub fn row_meta(theme: &Theme) -> Color {
+    theme.fg2
+}
+
+/// Il nome del file e, se un'altra riga ha lo stesso nome, il repo o la cartella in
+/// [`row_meta`]: la riga prende `sel` in hover o scelta.
+pub(super) fn name_cell(name: &str, qualifier: Option<&str>, theme: &Theme) -> El {
     let mut cell = row().gap(QUALIFIER_GAP).center_y().grow(1.0).shrink().min_w(0.0).child(text(name.to_owned()).font(ui_font()).color(theme.fg).truncate().shrink().min_w(0.0));
     if let Some(q) = qualifier {
-        let color = if selected { theme.fg2 } else { theme.fg3 };
-        cell = cell.child(text(q.to_owned()).font(small_font()).color(color).truncate().shrink().min_w(0.0));
+        cell = cell.child(text(q.to_owned()).font(small_font()).color(row_meta(theme)).truncate().shrink().min_w(0.0));
     }
     cell
 }
 
 #[allow(clippy::too_many_arguments)]
 fn recent_row<S: 'static>(s: &S, hooks: Hooks<S>, i: usize, r: &RecentRow, label: String, theme: &Theme, motion: Motion) -> El {
-    let name = name_cell(&r.name, r.qualifier.as_deref(), false, theme);
+    let name = name_cell(&r.name, r.qualifier.as_deref(), theme);
     let path = r.path.clone();
     let e = row()
         .w_full()
@@ -486,7 +490,7 @@ fn recent_row<S: 'static>(s: &S, hooks: Hooks<S>, i: usize, r: &RecentRow, label
         .gap(ROW_GAP)
         .center_y()
         .child(name)
-        .child(text(label).font(small_font()).color(theme.fg3))
+        .child(text(label).font(small_font()).color(row_meta(theme)))
         .on_press_tx(move |s: &mut S, tx: &mut Tx| (hooks.open)(s, path.clone(), tx));
     let since = (hooks.ring)(s, &r.path);
     let key = format!("recent-{}", r.path.display());
