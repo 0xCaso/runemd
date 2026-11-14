@@ -35,6 +35,10 @@ pub struct SourceEdit {
     /// La riga sopra il sorgente dopo un salvataggio che non ha scritto; resta finché un
     /// salvataggio riesce o si sceglie (anche con la scheda in secondo piano).
     pub notice: Option<Notice>,
+    /// Cmd+W o il clic centrale con modifiche non salvate: al posto di `notice` la riga chiede
+    /// "Salvare le modifiche a …?" (Salva, Non salvare, Annulla). Ogni salvataggio la toglie: se
+    /// non scrive, torna la riga di `notice`.
+    pub asking: bool,
 }
 
 /// Perché l'ultimo salvataggio non ha scritto: quello che la riga sopra il sorgente dice.
@@ -76,18 +80,20 @@ pub fn enter(doc: &Document) -> SourceEdit {
         Ok((text, hash)) => (text, hash),
         Err(_) => (doc.blocks.iter().map(|b| &*b.source).collect::<Vec<_>>().join("\n\n") + "\n", doc.file_hash),
     };
-    SourceEdit { pieces: Pieces::new(&text), base_hash, dirty: false, notice: None }
+    SourceEdit { pieces: Pieces::new(&text), base_hash, dirty: false, notice: None, asking: false }
 }
 
 /// Salva il sorgente della scheda se il disco ha ancora il contenuto da cui è partita la
 /// modifica; altrimenti non scrive e ritorna [`SaveError::Conflict`]. Un errore non scrive e
-/// accende la riga ([`SourceEdit::notice`]); un salvataggio riuscito la spegne. Il salvataggio aggiorna anche il
+/// accende la riga ([`SourceEdit::notice`]); un salvataggio riuscito la spegne. Toglie sempre la
+/// domanda della chiusura ([`SourceEdit::asking`]). Il salvataggio aggiorna anche il
 /// documento, così la lettura mostra il testo salvato senza passare dalla ricarica: niente segno
 /// dei blocchi cambiati, fuoco o "sta scrivendo". La rilettura che il watcher farà della nostra
 /// scrittura si salta (`OwnWrites`). Fuori dalla modifica non fa niente.
 pub fn save(tab: &mut Tab, own: &mut OwnWrites) -> Result<(), SaveError> {
     let result = try_save(tab, own);
     if let Mode::Source(src) = &mut tab.mode {
+        src.asking = false;
         src.notice = match &result {
             Ok(()) => None,
             Err(SaveError::Conflict) => Some(Notice::Conflict),

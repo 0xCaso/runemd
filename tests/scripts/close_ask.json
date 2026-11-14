@@ -1,0 +1,13 @@
+[
+  {"t": 0.5, "type": "key", "name": "e", "cmd": true},
+  {"t": 0.8, "type": "type", "text": "Nota mia. ", "every": 0.03},
+  {"t": 1.5, "type": "key", "name": "w", "cmd": true},
+  {"t": 2.0, "type": "mark", "name": "asked"},
+  {"t": 2.5, "type": "key", "name": "w", "cmd": true},
+  {"t": 3.0, "type": "mark", "name": "again"},
+  {"t": 3.5, "type": "key", "name": "Escape"},
+  {"t": 4.0, "type": "mark", "name": "cancelled"},
+  {"t": 4.5, "type": "key", "name": "w", "cmd": true},
+  {"t": 5.0, "type": "key", "name": "Enter"},
+  {"t": 5.5, "type": "mark", "name": "saved"}
+]

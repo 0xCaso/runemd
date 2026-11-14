@@ -14,6 +14,10 @@
 //! schede, con una linea sotto: "Il file è cambiato su disco" con "Ricarica" e "Tieni il mio"
 //! (righe premibili come le schede, testo `fg2`, hover `sel`), o "Salvataggio non riuscito" da
 //! sola. Testo UI in `fg`, nessun accento.
+//!
+//! Cmd+W o il clic centrale su una scheda con modifiche non salvate: al posto di quella riga, con
+//! lo stesso aspetto, "Salvare le modifiche a <nome>?" con "Salva" (anche Invio), "Non salvare" e
+//! "Annulla" (anche Esc). Il campo tiene il fuoco ([`App::answer_close`]).
 
 use std::borrow::Cow;
 
@@ -23,7 +27,7 @@ use rune_kit::syntax::{self, Syntax, SyntaxTheme};
 use super::doc_view::{BOTTOM, TOP};
 use super::sidebar::{self, Hooks, Motion};
 use super::theme::{CODE_TEXT, COLUMN, HAIRLINE, ROW, ROW_PAD, ROW_PAD_X, TAB_BAR_H, TAB_GAP, Theme, UI_STRONG_WEIGHT};
-use crate::app::{App, Mode, Tab};
+use crate::app::{App, CloseAnswer, Mode, Tab};
 use crate::edit::blocks::{Edge, Pieces};
 use crate::edit::{Notice, SourceEdit};
 
@@ -36,6 +40,21 @@ pub const FAILED_TEXT: &str = "Salvataggio non riuscito";
 pub const NOTICE_KEY: &str = "source-notice";
 pub const RELOAD_KEY: &str = "source-reload";
 pub const KEEP_KEY: &str = "source-keep";
+/// I bottoni della riga che chiede alla chiusura (record `2026-11-14-cmdw-modifiche-non-salvate`).
+pub const SAVE_TEXT: &str = "Salva";
+pub const DISCARD_TEXT: &str = "Non salvare";
+pub const CANCEL_TEXT: &str = "Annulla";
+/// Le chiavi della riga che chiede e dei suoi bottoni. Solo la scheda davanti la mostra: come
+/// quelle della riga del conflitto non portano l'id della scheda, così uno script le trova.
+pub const ASK_KEY: &str = "source-ask";
+pub const SAVE_KEY: &str = "source-ask-save";
+pub const DISCARD_KEY: &str = "source-ask-discard";
+pub const CANCEL_KEY: &str = "source-ask-cancel";
+
+/// La domanda della riga alla chiusura, con il nome del file.
+pub fn ask_text(name: &str) -> String {
+    format!("Salvare le modifiche a {name}?")
+}
 
 /// Il testo del sorgente: `typography.doc-code` (mono 13,5).
 pub fn font() -> TextStyle {
@@ -141,6 +160,23 @@ fn edge_of(ev: &KeyEvent) -> Option<Edge> {
     }
 }
 
+/// Con la riga che chiede alla chiusura aperta, Invio risponde "Salva" ed Esc "Annulla", prima
+/// del campo (che andrebbe a capo). Vero se ha preso il tasto.
+pub fn ask_key(s: &mut App, id: u64, ev: &KeyEvent, tx: &mut Tx) -> bool {
+    if !s.asking(id) || ev.mods != rune::Mods::default() {
+        return false;
+    }
+    let answer = match ev.key {
+        Key::Enter => CloseAnswer::Save,
+        Key::Escape => CloseAnswer::Cancel,
+        _ => return false,
+    };
+    if !tx.key_repeat() {
+        s.answer_close_tx(id, answer, tx);
+    }
+    true
+}
+
 /// La riga di un pezzo: il suo campo, con i colori, nella colonna.
 fn piece_row(id: u64, piece: u64, edit: &rune::TextEdit, style: &Style, lines: (bool, bool)) -> El {
     let (first, last) = lines;
@@ -157,7 +193,7 @@ fn piece_row(id: u64, piece: u64, edit: &rune::TextEdit, style: &Style, lines: (
             s.source_edit(id, piece).insert("\n");
             s.source_changed(id);
         })
-        .on_input_key(move |s: &mut App, ev: &KeyEvent, tx: &mut Tx| edge_of(ev).is_some_and(|e| s.source_edge(id, piece, e, first, last, tx)));
+        .on_input_key(move |s: &mut App, ev: &KeyEvent, tx: &mut Tx| ask_key(s, id, ev, tx) || edge_of(ev).is_some_and(|e| s.source_edge(id, piece, e, first, last, tx)));
     col().w_full().px(ROW_PAD_X).child(input)
 }
 
@@ -201,20 +237,46 @@ pub fn view(s: &App, hooks: Hooks<App>, tab: &Tab, src: &SourceEdit, caret: Opti
     let page = col().w_full().pt(TOP).pb(BOTTOM).child(rows);
     let scroll = col().key("source").w_full().grow(1.0).min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(page);
     let mut view = col().key(format!("source-{id:x}")).w_full().grow(1.0).min_h(0.0);
-    if let Some(notice) = src.notice {
-        view = view.child(notice_row(s, hooks, id, notice, theme, Motion { reduced, hover }));
+    let motion = Motion { reduced, hover };
+    if src.asking {
+        view = view.child(ask_row(s, hooks, id, &tab.title(), theme, motion));
+    } else if let Some(notice) = src.notice {
+        view = view.child(notice_row(s, hooks, id, notice, theme, motion));
     }
     view.child(scroll)
 }
 
-/// La riga sopra il sorgente: il testo allineato a quello del sorgente, i bottoni a destra con il
-/// loro testo allineato al bordo destro della colonna; una linea di 0,5 in `line` sotto.
+/// La riga del conflitto o dell'errore (vedi [`alert_row`]).
 fn notice_row(s: &App, hooks: Hooks<App>, id: u64, notice: Notice, theme: &Theme, motion: Motion) -> El {
     let message = match notice {
         Notice::Conflict => CONFLICT_TEXT,
         Notice::SaveFailed => FAILED_TEXT,
     };
-    let mut line = row()
+    let mut buttons = Vec::new();
+    if notice == Notice::Conflict {
+        buttons.push(button(s, hooks, RELOAD_KEY, RELOAD_TEXT, theme, motion, move |s: &mut App, _: &mut Tx| s.reload_source(id)));
+        buttons.push(button(s, hooks, KEEP_KEY, KEEP_TEXT, theme, motion, move |s: &mut App, _: &mut Tx| s.keep_mine(id)));
+    }
+    alert_row(NOTICE_KEY, message, buttons, theme)
+}
+
+/// La riga che chiede alla chiusura con modifiche non salvate. "Salva" è il bottone di default
+/// della finestra: Invio lo preme anche quando il campo non ha il fuoco.
+fn ask_row(s: &App, hooks: Hooks<App>, id: u64, name: &str, theme: &Theme, motion: Motion) -> El {
+    let answer = |a: CloseAnswer| move |s: &mut App, tx: &mut Tx| s.answer_close_tx(id, a, tx);
+    let buttons = vec![
+        button(s, hooks, SAVE_KEY, SAVE_TEXT, theme, motion, answer(CloseAnswer::Save)).default_button(),
+        button(s, hooks, DISCARD_KEY, DISCARD_TEXT, theme, motion, answer(CloseAnswer::Discard)),
+        button(s, hooks, CANCEL_KEY, CANCEL_TEXT, theme, motion, answer(CloseAnswer::Cancel)),
+    ];
+    alert_row(ASK_KEY, &ask_text(name), buttons, theme)
+}
+
+/// Una riga sopra il sorgente, alta come la barra delle schede e annunciata come `alert`: il
+/// testo allineato a quello del sorgente, i bottoni a destra con il loro testo allineato al bordo
+/// destro della colonna; una linea di 0,5 in `line` sotto.
+fn alert_row(key: &str, message: &str, buttons: Vec<El>, theme: &Theme) -> El {
+    let line = row()
         .w_full()
         .max_w(COLUMN)
         .self_center()
@@ -223,18 +285,14 @@ fn notice_row(s: &App, hooks: Hooks<App>, id: u64, notice: Notice, theme: &Theme
         .pr(ROW_PAD_X - ROW_PAD)
         .gap(TAB_GAP)
         .center_y()
-        .child(text(message).font(sidebar::ui_font()).color(theme.fg).truncate().grow(1.0).shrink().min_w(0.0).a11y_hidden());
-    if notice == Notice::Conflict {
-        let reload = button(s, hooks, RELOAD_KEY, RELOAD_TEXT, theme, motion, move |s: &mut App| s.reload_source(id));
-        let keep = button(s, hooks, KEEP_KEY, KEEP_TEXT, theme, motion, move |s: &mut App| s.keep_mine(id));
-        line = line.child(reload).child(keep);
-    }
-    col().key(NOTICE_KEY).role("alert").label(message).w_full().child(line).child(el().w_full().h(HAIRLINE).fill(theme.line))
+        .child(text(message).font(sidebar::ui_font()).color(theme.fg).truncate().grow(1.0).shrink().min_w(0.0).a11y_hidden())
+        .children(buttons);
+    col().key(key).role("alert").label(message).w_full().child(line).child(el().w_full().h(HAIRLINE).fill(theme.line))
 }
 
 /// Un bottone della riga: come una scheda in secondo piano (alta `ROW`, `ROW_PAD` ai lati, testo
 /// `fg2`, hover `sel`, scala 0,98 premuta).
-fn button(s: &App, hooks: Hooks<App>, key: &str, label: &str, theme: &Theme, motion: Motion, on: impl Fn(&mut App) + 'static) -> El {
+fn button(s: &App, hooks: Hooks<App>, key: &str, label: &str, theme: &Theme, motion: Motion, on: impl Fn(&mut App, &mut Tx) + 'static) -> El {
     let e = row()
         .h(ROW)
         .px(ROW_PAD)
@@ -242,7 +300,7 @@ fn button(s: &App, hooks: Hooks<App>, key: &str, label: &str, theme: &Theme, mot
         .role("button")
         .label(label)
         .child(text(label).font(sidebar::ui_font()).color(theme.fg2).a11y_hidden())
-        .on_press(on);
+        .on_press_tx(on);
     sidebar::pressable(e, key.to_owned(), &s.sidebar, hooks, theme, motion, true).key(key)
 }
 
@@ -383,28 +441,155 @@ mod tests {
         assert!(source_text(&rt).as_deref().is_none(), "senza modifiche Cmd+E torna alla lettura");
     }
 
-    /// Cmd+W rifiutato su una scheda in secondo piano (clic centrale): la riga si vede quando la
-    /// scheda torna davanti.
-    #[test]
-    fn a_refused_close_shows_the_row_when_the_tab_comes_to_the_front() {
-        let dir = tempfile::tempdir().unwrap();
-        let (a, b) = (dir.path().join("a.md"), dir.path().join("b.md"));
-        std::fs::write(&a, "# a\n").unwrap();
-        std::fs::write(&b, "# b\n").unwrap();
-        let mut rt = open(&a);
+    fn esc() -> KeyEvent {
+        KeyEvent { key: Key::Escape, mods: Mods::default() }
+    }
+
+    fn element(rt: &Runtime<App>, key: &str) -> rune::ElementInfo {
+        rt.elements().into_iter().find(|e| e.key.as_deref() == Some(key)).unwrap_or_else(|| panic!("{key} non c'è"))
+    }
+
+    /// Nel sorgente con modifiche: Cmd+E, si scrive "X" all'inizio di a.md.
+    fn edited(path: &Path) -> Runtime<App> {
+        std::fs::write(path, "# a\n\nuno\n").unwrap();
+        let mut rt = open(path);
         rt.key(cmd('e'));
         rt.key(typed("X"));
         settle(&mut rt);
+        rt
+    }
+
+    /// Senza modifiche Cmd+W chiude subito, anche nel sorgente.
+    #[test]
+    fn cmd_w_without_edits_closes_at_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("a.md");
+        std::fs::write(&path, "# a\n").unwrap();
+        let mut rt = open(&path);
+        rt.key(cmd('e'));
+        settle(&mut rt);
+        rt.key(cmd('w'));
+        settle(&mut rt);
+        assert!(rt.state.tabs.is_empty());
+        assert!(!has(&rt, ASK_KEY));
+    }
+
+    /// Cmd+W con modifiche: la riga chiede, annunciata come quella del conflitto, con tre bottoni
+    /// dal nome accessibile. Un secondo Cmd+W non chiude. Esc la toglie: modifiche e cursore restano
+    /// e il campo ha ancora il fuoco.
+    #[test]
+    fn cmd_w_with_edits_asks_and_esc_cancels() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("a.md");
+        let mut rt = edited(&path);
+        rt.key(cmd('w'));
+        settle(&mut rt);
+        assert!(has(&rt, ASK_KEY), "compare la riga");
+        assert!(!has(&rt, NOTICE_KEY));
+        let question = ask_text("a.md");
+        assert_eq!(question, "Salvare le modifiche a a.md?");
+        let t = texts(&rt);
+        for want in [question.as_str(), SAVE_TEXT, DISCARD_TEXT, CANCEL_TEXT] {
+            assert!(t.iter().any(|x| x == want), "{want} in {t:?}");
+        }
+        let row = element(&rt, ASK_KEY);
+        assert_eq!((row.role, row.label.as_deref()), ("alert", Some(question.as_str())), "annunciata come il conflitto");
+        for (key, label) in [(SAVE_KEY, SAVE_TEXT), (DISCARD_KEY, DISCARD_TEXT), (CANCEL_KEY, CANCEL_TEXT)] {
+            let b = element(&rt, key);
+            assert_eq!((b.role, b.label.as_deref()), ("button", Some(label)));
+        }
+        rt.key(cmd('w'));
+        settle(&mut rt);
+        assert_eq!(rt.state.tabs.len(), 1, "il secondo Cmd+W non chiude");
+        assert!(has(&rt, ASK_KEY), "resta la riga");
+        rt.key(esc());
+        settle(&mut rt);
+        assert!(!has(&rt, ASK_KEY), "Esc toglie la riga");
+        assert_eq!(source_text(&rt).as_deref(), Some("X# a\n\nuno\n"), "modifiche intatte");
+        assert_eq!(caret(&rt), 1, "cursore intatto");
+        rt.key(typed("Y"));
+        settle(&mut rt);
+        assert_eq!(source_text(&rt).as_deref(), Some("XY# a\n\nuno\n"), "il campo ha ancora il fuoco");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "# a\n\nuno\n", "niente scritto");
+    }
+
+    /// Invio risponde "Salva": scrive e chiude.
+    #[test]
+    fn enter_saves_and_closes() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("a.md");
+        let mut rt = edited(&path);
+        rt.key(cmd('w'));
+        settle(&mut rt);
+        rt.key(key(Key::Enter));
+        settle(&mut rt);
+        assert!(rt.state.tabs.is_empty(), "chiusa");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "X# a\n\nuno\n");
+    }
+
+    /// "Salva" con il file cambiato su disco: la scheda resta, la riga diventa quella del conflitto.
+    #[test]
+    fn save_with_a_conflict_shows_the_conflict_row() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("a.md");
+        let mut rt = edited(&path);
+        rt.key(cmd('w'));
+        settle(&mut rt);
+        std::fs::write(&path, "# a\n\ndell'agente\n").unwrap();
+        tap(&mut rt, SAVE_KEY);
+        assert_eq!(rt.state.tabs.len(), 1, "non chiusa");
+        assert!(!has(&rt, ASK_KEY));
+        assert!(texts(&rt).iter().any(|x| x == CONFLICT_TEXT), "la riga del conflitto");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "# a\n\ndell'agente\n");
+    }
+
+    /// "Non salvare": chiude, il file su disco non cambia.
+    #[test]
+    fn discard_closes_without_writing() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("a.md");
+        let mut rt = edited(&path);
+        rt.key(cmd('w'));
+        settle(&mut rt);
+        tap(&mut rt, DISCARD_KEY);
+        assert!(rt.state.tabs.is_empty(), "chiusa");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "# a\n\nuno\n", "il file non cambia");
+    }
+
+    /// "Annulla": la riga sparisce, modifiche e cursore restano.
+    #[test]
+    fn cancel_keeps_the_edits() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("a.md");
+        let mut rt = edited(&path);
+        rt.key(cmd('w'));
+        settle(&mut rt);
+        tap(&mut rt, CANCEL_KEY);
+        assert_eq!(rt.state.tabs.len(), 1);
+        assert!(!has(&rt, ASK_KEY));
+        assert_eq!(source_text(&rt).as_deref(), Some("X# a\n\nuno\n"));
+        assert_eq!(caret(&rt), 1);
+    }
+
+    /// Il clic centrale su una scheda in secondo piano con modifiche: viene davanti con la riga.
+    #[test]
+    fn a_middle_click_on_a_background_tab_with_edits_asks() {
+        let dir = tempfile::tempdir().unwrap();
+        let (a, b) = (dir.path().join("a.md"), dir.path().join("b.md"));
+        std::fs::write(&b, "# b\n").unwrap();
+        let mut rt = edited(&a);
         rt.update(|s, _| s.open_paths(vec![b.clone()]));
         settle(&mut rt);
-        std::fs::write(&a, "# a\n\ndell'agente\n").unwrap();
-        rt.update(|s, _| assert!(!s.close(0), "non si chiude"));
+        assert!(!has(&rt, ASK_KEY));
+        let tab = format!("t-{:x}", rt.state.tabs[0].doc.id);
+        let (x, y) = rt.find(&tab).unwrap();
+        rt.pointer_move(x, y);
+        rt.button_down(x, y, rune::PointerButton::Middle);
+        rt.button_up(x, y, rune::PointerButton::Middle);
         settle(&mut rt);
-        assert!(!has(&rt, NOTICE_KEY), "la scheda davanti è b");
-        rt.key(cmd('1'));
-        settle(&mut rt);
-        assert!(has(&rt, NOTICE_KEY), "a davanti: la riga");
-        assert!(texts(&rt).iter().any(|x| x == CONFLICT_TEXT));
+        assert_eq!((rt.state.tabs.len(), rt.state.active), (2, 0), "a davanti, aperta");
+        assert!(has(&rt, ASK_KEY), "la riga");
+        assert_eq!(std::fs::read_to_string(&a).unwrap(), "# a\n\nuno\n");
     }
 
     /// Un errore di scrittura: la riga dice "Salvataggio non riuscito", senza i due bottoni.

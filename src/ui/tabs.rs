@@ -9,7 +9,8 @@
 //! l'altro dall'esterno. Il mockup scelto da Matteo ha schede larghe quanto il nome.
 //!
 //! Troppe schede per la barra: la riga scorre di lato. Un clic porta davanti, il clic centrale
-//! chiude, Cmd+W chiude quella davanti (`main::tab_key`).
+//! chiude, Cmd+W chiude quella davanti (`main::tab_key`); con modifiche non salvate tutti e due
+//! chiedono prima (`App::close`).
 
 use rune::{El, TextStyle, Tx, el, row, text};
 
@@ -66,8 +67,10 @@ fn tab_row(s: &App, hooks: Hooks<App>, i: usize, tab: &crate::app::Tab, theme: &
         })
         .on_middle_press(move |s: &mut App, tx: &mut Tx| {
             let Some(i) = s.tabs.iter().position(|t| t.doc.id == id) else { return };
-            let front = i == s.active;
-            if s.close(i) && front {
+            // Chiude, o con modifiche non salvate la porta davanti con la domanda (`App::close`).
+            let before = s.tab().map(|t| t.doc.id);
+            s.close(i);
+            if s.tab().map(|t| t.doc.id) != before {
                 s.restore_view(tx);
             }
         });

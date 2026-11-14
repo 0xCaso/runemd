@@ -270,6 +270,15 @@ quello attivo ha l'anello in `fg-2`, più marcato. Nel tema scuro l'anello `mark
 quello prima, in giro; la vista lo porta al centro. Esc chiude e toglie i segni. Il campo di ⌘P, quello di ⌘N e
 questo si chiudono a vicenda.
 
+**Riga di avviso (sorgente).** Sotto la barra delle schede, sopra il sorgente: alta 44 (`tab-bar`), testo UI
+13 px in `fg` allineato a quello del sorgente, bottoni a destra come schede in secondo piano (alti 28, `row-pad`
+ai lati, testo `fg-2`, hover `sel`, scala 0,98 premuta), linea di 0,5 in `line` sotto. È annunciata come avviso
+(`alert`). Dice "Il file è cambiato su disco" ("Ricarica", "Tieni il mio") o "Salvataggio non riuscito" quando un
+salvataggio non scrive. Alla chiusura (⌘W o clic centrale su una scheda con modifiche non salvate) la scheda viene
+davanti e la stessa riga chiede "Salvare le modifiche a <nome file>?" con "Salva" (anche Invio), "Non salvare" e
+"Annulla" (anche Esc); il campo tiene il fuoco. Senza modifiche ⌘W chiude subito. Chiudere la finestra o uscire
+salva tutto, senza chiedere (Rune non può annullare la chiusura). Nessun accento.
+
 **Segnali live (effetti GPU di Rune).** Ognuno ha un solo significato, e nessun altro elemento lo usa.
 
 | Effetto | Significato | Dove | Inizio | Fine |

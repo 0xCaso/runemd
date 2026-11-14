@@ -181,6 +181,17 @@ pub(crate) fn rearm(wake: &mut Option<Wake>, left: Option<Duration>, clock: f64,
     next
 }
 
+/// Le risposte alla riga "Salvare le modifiche a …?" (Cmd+W con modifiche non salvate).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CloseAnswer {
+    /// "Salva" (anche Invio): salva e chiude.
+    Save,
+    /// "Non salvare": chiude e butta le modifiche.
+    Discard,
+    /// "Annulla" (anche Esc): la riga sparisce, la scheda resta com'era.
+    Cancel,
+}
+
 pub struct App {
     pub tabs: Vec<Tab>,
     /// L'indice della scheda davanti; vale solo se `tabs` non è vuoto.
@@ -286,14 +297,62 @@ impl App {
     }
 
     /// Chiude la scheda `i` (Cmd+W per quella davanti, il clic centrale per le altre). Una scheda
-    /// nel sorgente con modifiche le salva prima, come Cmd+E; se il salvataggio non scrive (il file
-    /// è cambiato su disco, o un errore) resta aperta nel sorgente con la riga, che si vede anche
-    /// in secondo piano quando la scheda torna davanti. Vero se si è chiusa.
+    /// nel sorgente con modifiche non salvate non si chiude e non scrive: viene davanti con la
+    /// riga "Salvare le modifiche a …?" ([`SourceEdit::asking`]), a cui risponde
+    /// [`App::answer_close`]. Con la riga già aperta resta com'è. Vero se si è chiusa.
     pub fn close(&mut self, i: usize) -> bool {
         let Some(tab) = self.tabs.get_mut(i) else { return false };
-        if matches!(&tab.mode, Mode::Source(s) if s.dirty) && edit::save(tab, &mut self.live.own).is_err() {
+        if let Mode::Source(s) = &mut tab.mode
+            && s.dirty
+        {
+            s.asking = true;
+            self.select(i);
             return false;
         }
+        self.remove(i);
+        true
+    }
+
+    /// La risposta alla riga "Salvare le modifiche a …?" della scheda `id`. "Salva" chiude solo se
+    /// il salvataggio scrive; se no la riga diventa quella del conflitto o dell'errore. "Non
+    /// salvare" chiude senza scrivere; "Annulla" toglie la riga e lascia tutto com'era. Una scheda
+    /// che non chiede più (un bottone di un frame vecchio) resta com'è.
+    pub fn answer_close(&mut self, id: u64, answer: CloseAnswer) {
+        let Some(i) = self.tabs.iter().position(|t| t.doc.id == id) else { return };
+        let tab = &mut self.tabs[i];
+        let Mode::Source(s) = &mut tab.mode else { return };
+        if !s.asking {
+            return;
+        }
+        match answer {
+            CloseAnswer::Save => {
+                if edit::save(tab, &mut self.live.own).is_ok() {
+                    self.remove(i);
+                }
+            }
+            CloseAnswer::Discard => self.remove(i),
+            CloseAnswer::Cancel => s.asking = false,
+        }
+    }
+
+    /// [`App::answer_close`] da un bottone o un tasto: se viene davanti un'altra scheda, la sua
+    /// vista riparte da dove era.
+    pub fn answer_close_tx(&mut self, id: u64, answer: CloseAnswer, tx: &mut Tx) {
+        let before = self.tab().map(|t| t.doc.id);
+        self.answer_close(id, answer);
+        if self.tab().map(|t| t.doc.id) != before {
+            self.restore_view(tx);
+        }
+    }
+
+    /// La scheda `id` mostra la riga "Salvare le modifiche a …?".
+    pub fn asking(&self, id: u64) -> bool {
+        self.tabs.iter().any(|t| t.doc.id == id && matches!(&t.mode, Mode::Source(s) if s.asking))
+    }
+
+    /// Toglie la scheda `i`, senza salvare; davanti va quella che stava alla sua destra, o
+    /// l'ultima. Le radici guardate solo per quel file escono dal watcher.
+    fn remove(&mut self, i: usize) {
         let tab = self.tabs.remove(i);
         self.live.unfollow(tab.follow);
         let front = self.active == i;
@@ -306,7 +365,6 @@ impl App {
         } else if front {
             self.fronted();
         }
-        true
     }
 
     /// La finestra si chiude o l'app esce (`on_close`, `on_quit`): ogni scheda nel sorgente con
@@ -1023,19 +1081,6 @@ mod tests {
         assert!(app.live.writing_left(tab.path(), Instant::now()).is_none() && !app.ring_lit(), "nessun anello");
     }
 
-    /// Una chiusura rifiutata per conflitto lascia la riga sulla scheda, anche in secondo piano.
-    #[test]
-    fn a_refused_close_keeps_the_conflict_on_the_tab() {
-        let (_dir, p) = files(&["a.md", "b.md"]);
-        let mut app = empty_app();
-        app.open_paths(p.clone());
-        assert_eq!(app.active, 1);
-        edit_tab(&mut app, 0, "# a.md\n\nmio\n");
-        fs::write(&p[0], "# a.md\n\ndell'agente\n").unwrap();
-        assert!(!app.close(0));
-        assert!(matches!(&app.tabs[0].mode, Mode::Source(s) if s.notice == Some(edit::Notice::Conflict)));
-    }
-
     /// Mette la scheda `i` nel sorgente con il testo `text` modificato.
     fn edit_tab(app: &mut App, i: usize, text: &str) {
         let tab = &mut app.tabs[i];
@@ -1045,32 +1090,157 @@ mod tests {
         tab.mode = Mode::Source(Box::new(src));
     }
 
-    /// Chiudere una scheda con modifiche le salva prima, come Cmd+E.
+    fn asking(app: &App, i: usize) -> bool {
+        matches!(&app.tabs[i].mode, Mode::Source(s) if s.asking)
+    }
+
+    /// Un mtime nel passato: una scrittura lo porterebbe ad adesso.
+    fn age(path: &Path) -> std::time::SystemTime {
+        let old = std::time::SystemTime::now() - Duration::from_secs(3600);
+        fs::File::options().write(true).open(path).unwrap().set_modified(old).unwrap();
+        old
+    }
+
+    /// Senza modifiche (anche nel sorgente) la scheda si chiude subito, senza chiedere.
     #[test]
-    fn closing_a_tab_with_edits_saves_them() {
+    fn closing_without_edits_closes_at_once() {
+        let (_dir, p) = files(&["a.md", "b.md"]);
+        let mut app = empty_app();
+        app.open_paths(p.clone());
+        app.tabs[0].mode = Mode::Source(Box::new(edit::enter(&app.tabs[0].doc)));
+        assert!(app.close(0), "chiusa");
+        assert!(app.close_active(), "chiusa");
+        assert!(app.tabs.is_empty());
+    }
+
+    /// Con modifiche non salvate Cmd+W (o il clic centrale) non chiude e non scrive: la scheda
+    /// viene davanti con la domanda. Un secondo Cmd+W la lascia com'è.
+    #[test]
+    fn closing_a_tab_with_edits_asks() {
+        let (_dir, p) = files(&["a.md", "b.md"]);
+        let mut app = empty_app();
+        app.open_paths(p.clone());
+        let old = age(&p[0]);
+        edit_tab(&mut app, 0, "# a.md\n\nmio\n");
+        assert_eq!(app.active, 1);
+        assert!(!app.close(0), "non chiusa");
+        assert_eq!((app.tabs.len(), app.active), (2, 0), "aperta e davanti");
+        assert!(asking(&app, 0), "chiede");
+        assert!(!app.close_active(), "il secondo Cmd+W non chiude");
+        assert!(asking(&app, 0), "chiede ancora");
+        assert_eq!(fs::metadata(&p[0]).unwrap().modified().unwrap(), old, "niente scritto");
+    }
+
+    /// "Salva": scrive e chiude.
+    #[test]
+    fn save_answer_writes_and_closes() {
         let (_dir, p) = files(&["a.md", "b.md"]);
         let mut app = empty_app();
         app.open_paths(p.clone());
         edit_tab(&mut app, 0, "# a.md\n\nmio\n");
-        assert!(app.close(0), "chiusa");
+        app.close(0);
+        let id = app.tabs[0].doc.id;
+        app.answer_close(id, CloseAnswer::Save);
         assert_eq!(fs::read_to_string(&p[0]).unwrap(), "# a.md\n\nmio\n");
-        assert_eq!(app.tabs.len(), 1);
+        assert_eq!(app.tabs.len(), 1, "chiusa");
+        assert_eq!(app.tabs[0].doc.path, p[1]);
     }
 
-    /// Con il file cambiato su disco la scheda non si chiude: resta nel sorgente con le modifiche
-    /// e il file resta quello dell'agente.
+    /// "Salva" con il file cambiato su disco: niente si scrive, la scheda resta con la riga del
+    /// conflitto al posto della domanda.
     #[test]
-    fn closing_a_tab_with_a_disk_conflict_keeps_it() {
+    fn save_answer_with_a_conflict_keeps_the_tab() {
         let (_dir, p) = files(&["a.md"]);
         let mut app = empty_app();
         app.open_paths(p.clone());
         edit_tab(&mut app, 0, "# a.md\n\nmio\n");
+        app.close(0);
         fs::write(&p[0], "# a.md\n\ndell'agente\n").unwrap();
-        assert!(!app.close(0), "non chiusa");
-        app.close_active();
-        assert_eq!(app.tabs.len(), 1);
-        assert!(matches!(&app.tabs[0].mode, Mode::Source(s) if s.dirty && s.text() == "# a.md\n\nmio\n"));
+        let id = app.tabs[0].doc.id;
+        app.answer_close(id, CloseAnswer::Save);
+        assert_eq!(app.tabs.len(), 1, "non chiusa");
+        assert!(matches!(&app.tabs[0].mode, Mode::Source(s) if !s.asking && s.notice == Some(edit::Notice::Conflict) && s.dirty && s.text() == "# a.md\n\nmio\n"));
         assert_eq!(fs::read_to_string(&p[0]).unwrap(), "# a.md\n\ndell'agente\n");
+    }
+
+    /// "Salva" con un errore di scrittura: la scheda resta con "Salvataggio non riuscito".
+    #[test]
+    fn save_answer_with_a_write_error_keeps_the_tab() {
+        use std::os::unix::fs::PermissionsExt;
+        let (dir, p) = files(&["a.md"]);
+        if edit::tests::as_root(dir.path()) {
+            return;
+        }
+        let mut app = empty_app();
+        app.open_paths(p.clone());
+        edit_tab(&mut app, 0, "# a.md\n\nmio\n");
+        app.close(0);
+        let id = app.tabs[0].doc.id;
+        fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o555)).unwrap();
+        app.answer_close(id, CloseAnswer::Save);
+        fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(app.tabs.len(), 1, "non chiusa");
+        assert!(matches!(&app.tabs[0].mode, Mode::Source(s) if !s.asking && s.notice == Some(edit::Notice::SaveFailed) && s.dirty));
+    }
+
+    /// "Non salvare": chiude e butta le modifiche; il file su disco non cambia.
+    #[test]
+    fn discard_answer_closes_without_writing() {
+        let (_dir, p) = files(&["a.md", "b.md"]);
+        let mut app = empty_app();
+        app.open_paths(p.clone());
+        let before = fs::read(&p[0]).unwrap();
+        let old = age(&p[0]);
+        edit_tab(&mut app, 0, "# a.md\n\nmio\n");
+        app.close(0);
+        let id = app.tabs[0].doc.id;
+        app.answer_close(id, CloseAnswer::Discard);
+        assert_eq!(app.tabs.len(), 1, "chiusa");
+        assert_eq!(fs::read(&p[0]).unwrap(), before, "stessi byte");
+        assert_eq!(fs::metadata(&p[0]).unwrap().modified().unwrap(), old, "niente scritto");
+    }
+
+    /// "Annulla" (ed Esc): la domanda sparisce, la scheda resta con modifiche e cursore.
+    #[test]
+    fn cancel_answer_keeps_edits_and_caret() {
+        let (_dir, p) = files(&["a.md"]);
+        let mut app = empty_app();
+        app.open_paths(p.clone());
+        edit_tab(&mut app, 0, "# a.md\n\nmio\n");
+        if let Mode::Source(s) = &mut app.tabs[0].mode {
+            s.pieces.set_caret(9);
+        }
+        app.close(0);
+        let id = app.tabs[0].doc.id;
+        app.answer_close(id, CloseAnswer::Cancel);
+        assert_eq!(app.tabs.len(), 1);
+        assert!(matches!(&app.tabs[0].mode, Mode::Source(s) if !s.asking && s.dirty && s.text() == "# a.md\n\nmio\n" && s.pieces.caret() == 9));
+        assert_eq!(fs::read_to_string(&p[0]).unwrap(), "# a.md\n");
+    }
+
+    /// Una risposta per una scheda che non chiede più (il bottone di un frame vecchio) non fa niente.
+    #[test]
+    fn a_stale_answer_does_nothing() {
+        let (_dir, p) = files(&["a.md"]);
+        let mut app = empty_app();
+        app.open_paths(p.clone());
+        edit_tab(&mut app, 0, "# a.md\n\nmio\n");
+        let id = app.tabs[0].doc.id;
+        app.answer_close(id, CloseAnswer::Discard);
+        assert_eq!(app.tabs.len(), 1, "non chiedeva: resta");
+    }
+
+    /// Cmd+S con la domanda aperta: salva e la domanda sparisce (non c'è più niente da salvare).
+    #[test]
+    fn saving_while_asking_ends_the_ask() {
+        let (_dir, p) = files(&["a.md"]);
+        let mut app = empty_app();
+        app.open_paths(p.clone());
+        edit_tab(&mut app, 0, "# a.md\n\nmio\n");
+        app.close(0);
+        assert!(app.save_source());
+        assert!(!asking(&app, 0));
+        assert_eq!(app.tabs.len(), 1);
     }
 
     /// All'uscita dall'app (`on_close`, `on_quit`) le modifiche di ogni scheda si salvano.

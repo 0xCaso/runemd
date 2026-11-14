@@ -111,9 +111,10 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
         .on_window_focus(|s: &mut App, focused, _| s.window_active = focused)
 }
 
-/// I tasti delle schede: Cmd+W chiude quella davanti, Cmd+1…8 vanno alla scheda, Cmd+9
-/// all'ultima (come Safari e Finder), Ctrl+Tab e Ctrl+Shift+Tab alla dopo e alla prima. Vero se
-/// il tasto è delle schede; Cmd+W senza schede resta a Rune, che chiude la finestra.
+/// I tasti delle schede: Cmd+W chiude quella davanti (con modifiche non salvate chiede,
+/// `App::close`), Cmd+1…8 vanno alla scheda, Cmd+9 all'ultima (come Safari e Finder), Ctrl+Tab
+/// e Ctrl+Shift+Tab alla dopo e alla prima. Vero se il tasto è delle schede; Cmd+W senza schede
+/// resta a Rune, che chiude la finestra.
 fn tab_key(s: &mut App, key: &rune::KeyEvent, tx: &mut Tx) -> bool {
     let m = key.mods;
     let changed = match key.key {
@@ -121,7 +122,9 @@ fn tab_key(s: &mut App, key: &rune::KeyEvent, tx: &mut Tx) -> bool {
             if s.tabs.is_empty() {
                 return false;
             }
-            s.close_active()
+            let before = s.tab().map(|t| t.doc.id);
+            s.close_active();
+            s.tab().map(|t| t.doc.id) != before
         }
         rune::Key::Command(c @ '1'..='9') if m.cmd && !m.shift && !m.alt && !m.ctrl => {
             let n = c as usize - '1' as usize;
@@ -163,6 +166,13 @@ fn on_key(s: &mut App, key: &rune::KeyEvent, tx: &mut Tx) -> bool {
         return true;
     }
     if tab_key(s, key, tx) {
+        return true;
+    }
+    // Esc con la riga "Salvare le modifiche…?" aperta e il fuoco fuori dal campo: "Annulla" (dal
+    // campo lo prende `ui::source::ask_key`).
+    if let Some(id) = s.tab().map(|t| t.doc.id)
+        && ui::source::ask_key(s, id, key, tx)
+    {
         return true;
     }
     // Cmd+E: sorgente e ritorno alla lettura; Cmd+S: salva il sorgente. Il campo non li prende.
