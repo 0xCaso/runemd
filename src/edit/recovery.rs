@@ -56,9 +56,12 @@ pub fn write(dir: &Path, original: &Path, text: &str, stamp: &str) -> io::Result
 /// avvio dopo non le riapre.
 pub fn take_pending(dir: &Path) -> Vec<PathBuf> {
     let list = dir.join(PENDING);
-    let Ok(text) = fs::read_to_string(&list) else {
+    // Una lista con byte non validi si legge lo stesso (senza perdita per le righe buone), così
+    // si toglie e le copie dopo si riaprono. Le copie su disco non si toccano mai.
+    let Ok(bytes) = fs::read(&list) else {
         return Vec::new();
     };
+    let text = String::from_utf8_lossy(&bytes);
     let _ = fs::remove_file(&list);
     text.lines()
         .filter(|l| !l.is_empty() && !l.contains('/'))
@@ -137,5 +140,19 @@ mod tests {
         );
         assert_eq!(take_pending(dir.path()), vec![a, b]);
         assert!(take_pending(dir.path()).is_empty(), "una volta sola");
+    }
+
+    #[test]
+    fn a_list_with_invalid_bytes_is_still_read_and_removed() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = write(dir.path(), Path::new("/x/a.md"), "uno", "20261114-153007").unwrap();
+        let mut list = fs::read(dir.path().join(PENDING)).unwrap();
+        list.extend_from_slice(b"\xff\xfe broken\n");
+        fs::write(dir.path().join(PENDING), list).unwrap();
+        assert_eq!(take_pending(dir.path()), vec![a.clone()]);
+        assert!(!dir.path().join(PENDING).exists(), "la lista si toglie");
+        assert!(a.is_file(), "la copia resta");
+        let b = write(dir.path(), Path::new("/x/b.md"), "due", "20261114-153008").unwrap();
+        assert_eq!(take_pending(dir.path()), vec![b], "le copie dopo si riaprono");
     }
 }
