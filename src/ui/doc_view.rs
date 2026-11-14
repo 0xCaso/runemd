@@ -21,7 +21,9 @@ use crate::doc::ids;
 use super::theme::{CHANGED_MARK_W, CHANGED_MARK_X, COLUMN, ROW_PAD_X, ROW_PAD_Y};
 
 /// Altezza dello spazio sotto l'ultima riga: ci sta il dither "sta arrivando".
-const BOTTOM: f32 = 48.0;
+pub(super) const BOTTOM: f32 = 48.0;
+/// Spazio sopra la prima riga (anche il sorgente parte da qui).
+pub(super) const TOP: f32 = 24.0;
 
 /// I segnali live dentro la colonna, che non spostano il testo.
 pub struct Signals<S> {
@@ -92,7 +94,7 @@ pub fn view<S: 'static>(s: &S, doc_of: fn(&S) -> &Document, style: &MarkdownStyl
     if let Some(bar) = signals.tail {
         bottom = bottom.child(col().key("arriving").w_full().max_w(COLUMN).self_center().px(ROW_PAD_X).child(bar));
     }
-    let page = col().w_full().child(el().h(24.0)).child(rows).child(bottom);
+    let page = col().w_full().child(el().h(TOP)).child(rows).child(bottom);
     let scroll = col().key("doc").w_full().h_full().scroll(ScrollSpec { stick_bottom: false }).child(page);
     el().key(format!("tab-{generation:x}")).w_full().grow(1.0).min_h(0.0).child(scroll)
 }

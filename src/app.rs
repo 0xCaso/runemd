@@ -11,32 +11,36 @@ use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use rune::Tx;
+use rune::{TextEdit, Tx};
 use rune_kit::MarkdownStyle;
 
 use crate::doc::document::{Change, Document};
+use crate::edit::SourceEdit;
 use crate::live::arriving::Changed;
 use crate::live::below::Below;
 use crate::live::{Follow, Live};
-use crate::{index, probe, ui};
+use crate::{edit, index, probe, ui};
 
-/// Il sorgente in modifica (task 20, che lo sposta in `edit` con il suo `TextEdit`).
-#[derive(Debug, Default)]
-pub struct SourceEdit;
+/// Il salvataggio non ha scritto: il file è cambiato su disco (o non si scrive). La riga "Il file
+/// è cambiato su disco" con "Ricarica" e "Tieni il mio" è del task 21; intanto il sorgente resta
+/// aperto con le modifiche e lo si dice sul terminale.
+fn conflict(tab: &Tab) {
+    eprintln!("runemd: {}: il file è cambiato su disco, non salvato", tab.doc.path.display());
+}
 
-/// Come una scheda mostra il file.
+/// Come una scheda mostra il file: la lettura, o il sorgente in modifica (Cmd+E). Ogni scheda ha
+/// il suo.
 #[derive(Debug, Default)]
-#[allow(dead_code)] // `Source` lo costruisce Cmd+E (task 20)
 pub enum Mode {
     #[default]
     Read,
-    Source(SourceEdit),
+    /// In una scatola: il `TextEdit` è grande e la lettura è il caso comune.
+    Source(Box<SourceEdit>),
 }
 
 /// Un file aperto.
 pub struct Tab {
     pub doc: Document,
-    #[allow(dead_code)] // letto da Cmd+E (task 20)
     pub mode: Mode,
     /// Il fuoco: i blocchi nuovi o cambiati sotto la vista di questa scheda.
     pub below: Below,
@@ -60,7 +64,7 @@ pub struct Tab {
 }
 
 impl Tab {
-    fn new(doc: Document, follow: Follow) -> Tab {
+    pub(crate) fn new(doc: Document, follow: Follow) -> Tab {
         Tab { doc, mode: Mode::Read, below: Below::default(), changed: Changed::default(), follow, visible_last: 0, visible_first: 0, fire_since: None, fire_armed: None, mark_wake: None, dither_since: None }
     }
 
@@ -203,6 +207,8 @@ pub struct App {
     pub(crate) sidebar: ui::sidebar::Sidebar,
     /// La finestra è attiva (`on_window_focus`): senza, il fuoco resta fermo.
     pub(crate) window_active: bool,
+    /// Il campo che `source_edit` dà quando la sua scheda non è più nel sorgente.
+    spare_edit: TextEdit,
 }
 
 impl App {
@@ -219,6 +225,7 @@ impl App {
             library,
             sidebar: ui::sidebar::Sidebar::default(),
             window_active: true,
+            spare_edit: TextEdit::default(),
         }
     }
 
@@ -382,9 +389,52 @@ impl App {
     }
 
     /// Un effetto per slot è acceso (anello, fuoco o dither della scheda davanti): il compositor
-    /// scorre le istanze solo allora.
+    /// scorre le istanze solo allora. Il sorgente non mostra fuoco né dither.
     pub fn effects_lit(&self) -> bool {
-        self.ring_lit() || self.tab().is_some_and(|t| t.fire_since.is_some() || t.dither_since.is_some())
+        self.ring_lit() || self.tab().is_some_and(|t| matches!(t.mode, Mode::Read) && (t.fire_since.is_some() || t.dither_since.is_some()))
+    }
+
+    /// Cmd+E sulla scheda davanti: entra nel sorgente o, se c'è già, salva se ci sono modifiche e
+    /// torna alla lettura, dal blocco dove la lettura era rimasta. Con un conflitto (il file è
+    /// cambiato su disco) non scrive e resta nel sorgente. Vero se c'era una scheda.
+    pub fn toggle_source(&mut self, tx: &mut Tx) -> bool {
+        let Some(tab) = self.tabs.get_mut(self.active) else { return false };
+        match tab.mode {
+            Mode::Read => tab.mode = Mode::Source(Box::new(edit::enter(&tab.doc))),
+            Mode::Source(_) => match edit::leave(tab, &mut self.live.own) {
+                Ok(()) => self.restore_view(tx),
+                Err(edit::Conflict) => conflict(tab),
+            },
+        }
+        true
+    }
+
+    /// Cmd+S: salva il sorgente della scheda davanti. Vero se la scheda era nel sorgente.
+    pub fn save_source(&mut self) -> bool {
+        let Some(tab) = self.tabs.get_mut(self.active).filter(|t| matches!(t.mode, Mode::Source(_))) else { return false };
+        if edit::save(tab, &mut self.live.own).is_err() {
+            conflict(tab);
+        }
+        true
+    }
+
+    /// Il campo del sorgente della scheda `id` (`on_edit` della vista). Se la scheda non c'è più o
+    /// è tornata alla lettura, un campo di scarto: il tasto si perde, nessun altro testo cambia.
+    pub fn source_edit(&mut self, id: u64) -> &mut TextEdit {
+        match self.tabs.iter().position(|t| t.doc.id == id && matches!(t.mode, Mode::Source(_))) {
+            Some(i) => match &mut self.tabs[i].mode {
+                Mode::Source(s) => &mut s.edit,
+                Mode::Read => unreachable!(),
+            },
+            None => &mut self.spare_edit,
+        }
+    }
+
+    /// Il testo del sorgente della scheda `id` è cambiato.
+    pub fn source_changed(&mut self, id: u64) {
+        if let Some(Mode::Source(s)) = self.tab_of(id).map(|t| &mut t.mode) {
+            s.dirty = true;
+        }
     }
 
     /// L'orologio a cui si è acceso l'anello di `path`, se "sta scrivendo" (scheda e sidebar).
@@ -418,6 +468,11 @@ impl App {
         self.live.drain(&open, now);
         let (mut changed, mut wakes) = (false, Vec::new());
         for (i, tab) in self.tabs.iter_mut().enumerate() {
+            // Nel sorgente la vista non si ricarica da sola: gli eventi di questo file si perdono
+            // e `edit::leave` lo fa rileggere.
+            if matches!(tab.mode, Mode::Source(_)) {
+                continue;
+            }
             let (reloaded, recheck) = self.live.poll(&mut tab.follow, &mut tab.doc, now);
             wakes.extend(recheck);
             if let Some(r) = &reloaded {
@@ -639,6 +694,68 @@ mod tests {
         let (changed, wake) = app.ring_step(&[(b.clone(), ms(2000))], 11.0, t0 + window);
         assert!(changed && app.ring_of(&a).is_none() && app.ring_of(&b) == Some(3.0));
         assert_eq!(wake, Some(ms(2001)), "poi quello di `b`");
+    }
+
+    /// Il salvataggio del sorgente torna alla lettura con il testo salvato: la rilettura del
+    /// watcher è una scrittura dell'app, quindi niente segno dei blocchi cambiati, fuoco, dither
+    /// o "sta scrivendo" (review del task 13).
+    #[test]
+    fn saving_the_source_lights_nothing() {
+        let (_dir, p) = files(&["a.md"]);
+        let mut app = empty_app();
+        app.open_paths(p.clone());
+        app.tabs[0].visible_rows(0..1);
+        let tab = &mut app.tabs[0];
+        tab.mode = Mode::Source(Box::new(edit::enter(&tab.doc)));
+        let mine = "# a.md\n\nuno\n\ndue\n\n```rs\nfn";
+        if let Mode::Source(s) = &mut tab.mode {
+            s.edit = TextEdit::new(mine);
+            s.dirty = true;
+        }
+        assert_eq!(edit::leave(tab, &mut app.live.own), Ok(()));
+        assert_eq!(fs::read_to_string(&p[0]).unwrap(), mine);
+        let hash = crate::doc::ids::hash_str(mine);
+        assert!(app.live.own.is_own(&app.tabs[0].doc.path, hash));
+        // La rilettura chiesta da `leave` gira su un thread: si fa `poll` finché la consuma.
+        let t0 = Instant::now();
+        while app.live.own.is_own(&app.tabs[0].doc.path, hash) {
+            assert!(t0.elapsed() < Duration::from_secs(5), "rilettura mai arrivata");
+            let (changed, _) = app.poll_tabs(1.0, Instant::now());
+            assert!(!changed, "la vista non cambia per la nostra scrittura");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let tab = &app.tabs[0];
+        assert_eq!((tab.doc.file_hash, tab.doc.blocks.len()), (hash, 4), "la lettura mostra il testo salvato");
+        assert!(tab.doc.blocks.iter().all(|b| !tab.is_marked(b.id)), "nessun segno");
+        assert_eq!((tab.fire_since, tab.fire_armed, tab.below.count()), (None, None, 0), "nessun fuoco");
+        assert_eq!(tab.dither_since, None, "nessun dither");
+        assert!(app.live.writing_left(tab.path(), Instant::now()).is_none() && !app.ring_lit(), "nessun anello");
+    }
+
+    /// Nel sorgente la scheda non si ricarica; tornata alla lettura senza modifiche, rilegge e
+    /// mostra la scrittura arrivata nel frattempo. Ogni scheda ha la sua modalità.
+    #[test]
+    fn the_source_suspends_reload_and_leaving_rereads() {
+        let (_dir, p) = files(&["a.md", "b.md"]);
+        let mut app = empty_app();
+        app.open_paths(p.clone());
+        let tab = &mut app.tabs[0];
+        tab.mode = Mode::Source(Box::new(edit::enter(&tab.doc)));
+        assert!(matches!(app.tabs[1].mode, Mode::Read), "l'altra scheda resta in lettura");
+        fs::write(&p[0], "# a.md\n\ndell'agente\n").unwrap();
+        app.tabs[0].follow.reread();
+        for _ in 0..20 {
+            app.poll_tabs(1.0, Instant::now());
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert_eq!(app.tabs[0].doc.blocks.len(), 1, "sospesa nel sorgente");
+        assert_eq!(edit::leave(&mut app.tabs[0], &mut app.live.own), Ok(()));
+        let t0 = Instant::now();
+        while app.tabs[0].doc.blocks.len() != 2 {
+            assert!(t0.elapsed() < Duration::from_secs(5), "rilettura mai arrivata");
+            app.poll_tabs(1.0, Instant::now());
+            std::thread::sleep(Duration::from_millis(5));
+        }
     }
 
     fn tab_of(source: &str) -> Tab {

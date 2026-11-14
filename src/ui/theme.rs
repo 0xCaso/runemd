@@ -29,6 +29,8 @@ pub const FIRE_LABEL_BOTTOM: f32 = 10.0;
 /// Corpo del documento (DESIGN.md, `typography.doc-body`): 15,5 pt, interlinea 1,62.
 pub const BODY_TEXT: f32 = 15.5;
 pub const BODY_LEADING: f32 = 1.62;
+/// Codice e sorgente (DESIGN.md, `typography.doc-code`): mono 13,5 pt.
+pub const CODE_TEXT: f32 = 13.5;
 /// Una riga di testo del corpo, pt: l'altezza del dither "sta arrivando".
 pub const BODY_LINE: f32 = BODY_TEXT * BODY_LEADING;
 /// Margine orizzontale delle righe del documento: il testo parte da qui.

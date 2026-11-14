@@ -19,14 +19,13 @@ pub struct OwnWrites {
 }
 
 impl OwnWrites {
-    /// Da chiamare dopo che l'app ha scritto `hash` in `path` (task 20, salvataggio).
-    #[cfg_attr(not(test), allow(dead_code))] // chiamato dal salvataggio (task 20); oggi solo dai test
+    /// Da chiamare dopo che l'app ha scritto `hash` in `path` (`edit::save`).
     pub fn remember(&mut self, path: &Path, hash: u64) {
         self.map().insert(path.to_owned(), hash);
     }
 
     /// Se `hash` è l'ultima scrittura dell'app in `path` non ancora riletta. Non consuma la voce.
-    #[cfg_attr(not(test), allow(dead_code))] // letto dal salvataggio (task 20); oggi solo dai test
+    #[cfg(test)]
     pub fn is_own(&self, path: &Path, hash: u64) -> bool {
         self.map().get(path) == Some(&hash)
     }

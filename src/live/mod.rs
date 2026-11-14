@@ -90,6 +90,12 @@ impl Follow {
     pub fn path(&self) -> &Path {
         &self.watched
     }
+
+    /// Rilegge il file al prossimo `poll`: dopo la modifica (Cmd+E), che sospende la ricarica e
+    /// perde i suoi eventi.
+    pub fn reread(&mut self) {
+        self.want = Some(self.want.unwrap_or(false));
+    }
 }
 
 struct Job {

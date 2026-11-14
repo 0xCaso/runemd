@@ -18,6 +18,7 @@
 
 mod app;
 mod doc;
+mod edit;
 mod fx;
 mod index;
 mod live;
@@ -68,6 +69,7 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
     let theme = ui::theme::Theme::for_mode(dark);
     let reduced = cx.is_reduced_motion();
     let body = match s.tab() {
+        Some(tab @ app::Tab { mode: app::Mode::Source(src), .. }) => ui::source::view(tab, src, &theme),
         Some(tab) => {
             // Il dither: una barra alta una riga e larga come il testo, nello spazio sotto l'ultimo blocco.
             let tail = tab.dither_since.map(|since| fx::dither::slot(el().w_full().h(ui::theme::BODY_LINE), since, dark, reduced));
@@ -87,7 +89,7 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
     // compare. L'etichetta è una fascia sorella dopo lo slot, così Rune la dipinge sopra le
     // fiamme. Sta sulla base calda del fuoco, quasi bianca nei due temi: il testo prende un
     // grigio scuro dei token (`panel` nello scuro, `fg` nel chiaro).
-    if let Some((since, count)) = s.tab().and_then(|t| Some((t.fire_since?, t.below.count()))) {
+    if let Some((since, count)) = s.tab().filter(|t| matches!(t.mode, app::Mode::Read)).and_then(|t| Some((t.fire_since?, t.below.count()))) {
         let band = |key: &str| rune::col().key(key).pin(Some(0.0), None, Some(0.0), Some(0.0)).h(fx::fire::FIRE_H);
         panel = panel.child(fx::fire::slot(band("fire"), since, dark, reduced, s.window_active));
         let ink = if dark { theme.panel } else { theme.fg };
@@ -141,6 +143,15 @@ fn on_key(s: &mut App, key: &rune::KeyEvent, tx: &mut Tx) -> bool {
     }
     if tab_key(s, key, tx) {
         return true;
+    }
+    // Cmd+E: sorgente e ritorno alla lettura; Cmd+S: salva il sorgente. Il campo non li prende.
+    let plain = key.mods.cmd && !key.mods.shift && !key.mods.alt && !key.mods.ctrl;
+    if plain && !tx.key_repeat() {
+        match key.key {
+            rune::Key::Command('e') => return s.toggle_source(tx),
+            rune::Key::Command('s') => return s.save_source(),
+            _ => {}
+        }
     }
     if let Some(tab) = s.tab() {
         ui::doc_view::note_key(&tab.doc, key, tx.key_repeat());
