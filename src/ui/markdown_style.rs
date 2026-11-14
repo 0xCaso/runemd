@@ -38,7 +38,7 @@ pub fn diagram_tokens(theme: &Theme) -> DiagramTokens {
 }
 
 /// Lo stile in Inter (lo slot sans di `AppSpec::families`) con il corpo a `body_size` (i test).
-#[cfg_attr(not(test), allow(dead_code))]
+#[cfg(test)]
 pub fn style(theme: &Theme, body_size: f32) -> MarkdownStyle {
     style_with(theme, Typeface { family: Family::Sans, size: body_size })
 }

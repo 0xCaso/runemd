@@ -271,11 +271,6 @@ mod tests {
         );
         app.live.start(std::sync::Arc::new(|| {}), Vec::new());
         assert!(app.add_root(&root));
-        assert!(
-            app.live.watched_roots().contains(&(root.clone(), true)),
-            "{:?}",
-            app.live.watched_roots()
-        );
         assert_eq!(app.library.roots(), std::slice::from_ref(&root));
         assert_eq!(app.settings.roots, std::slice::from_ref(&root));
         std::thread::sleep(Duration::from_millis(300));

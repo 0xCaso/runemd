@@ -217,7 +217,7 @@ fn on_key(s: &mut App, key: &rune::KeyEvent, tx: &mut Tx) -> bool {
         s.sidebar.new_file.show();
         return true;
     }
-    // Cmd+F: Cerca nel file, solo in lettura (nel sorgente non fa niente, v1).
+    // Cmd+F: Cerca nel file, solo in lettura (nel sorgente non fa niente).
     if matches!(key.key, rune::Key::Command('f')) && key.mods.cmd && !key.mods.shift && !key.mods.alt && !key.mods.ctrl && !tx.key_repeat() {
         s.open_find();
         return true;
@@ -309,7 +309,7 @@ fn poll(s: &mut App, clock: f64, tx: &mut Tx) -> bool {
     if let Some(d) = wake {
         tx.wake_after(d);
     }
-    // Il file appena aperto: la sua riga dell'albero in vista (D1).
+    // Il file appena aperto: la sua riga dell'albero in vista.
     if let Some(id) = s.sidebar.take_reveal() {
         tx.scroll_into_view_in("tree", id);
         side = true;

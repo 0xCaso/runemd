@@ -1,7 +1,5 @@
 //! Id degli slot `El::effect`: un intervallo per tipo, così due tipi non si scontrano mai.
 
-// Costruiti dai task che accendono i layer (11 anelli, 12 fuoco, 13 dither).
-#[allow(dead_code)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Mark {
     TabRing(u32),

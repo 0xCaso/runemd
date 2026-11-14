@@ -8,7 +8,6 @@ use std::sync::{Mutex, PoisonError};
 use std::time::SystemTime;
 
 use crate::doc::document::{Change, Document, Prepared, Snapshot};
-use crate::doc::ids;
 
 /// Gli hash dei contenuti che l'app stessa ha scritto, per percorso: la loro rilettura non è
 /// una scrittura di un agente. Ogni voce vale una volta sola: dopo l'app scrive X, un agente Y,
@@ -50,28 +49,6 @@ impl OwnWrites {
 /// lettura nel mezzo vede il file vuoto o a metà.
 const SHORT_READ_DIVISOR: usize = 10;
 
-/// Aggiorna `doc` con il contenuto letto dal disco. `None` se non c'è niente da mostrare: stesso
-/// contenuto, una scrittura dell'app stessa, o una lettura sospetta ([`suspect`]) che il
-/// chiamante rilegge più tardi. Sincrona: l'app usa [`read`] su un altro thread e [`commit`].
-#[cfg_attr(not(test), allow(dead_code))] // l'app passa da `read` + `commit`; usata dai test
-pub fn apply(doc: &mut Document, new_source: &str, own_writes: &OwnWrites) -> Option<Change> {
-    if suspect(doc.snapshot().source_len(), new_source) {
-        return None;
-    }
-    apply_settled(doc, new_source, own_writes)
-}
-
-/// Come [`apply`], ma accetta anche una lettura corta: per la seconda lettura uguale di un
-/// contenuto sospetto, quando il file non sta più cambiando (un agente l'ha davvero accorciato).
-#[cfg_attr(not(test), allow(dead_code))]
-pub fn apply_settled(doc: &mut Document, new_source: &str, own_writes: &OwnWrites) -> Option<Change> {
-    let hash = ids::hash_str(new_source);
-    if own_writes.take(&doc.path, hash) || hash == doc.file_hash {
-        return None;
-    }
-    Some(doc.update(new_source))
-}
-
 /// La lettura è molto più corta del documento che si mostra (`before` byte di sorgente): forse
 /// il file è a metà scrittura.
 pub fn suspect(before: usize, new_source: &str) -> bool {
@@ -92,10 +69,8 @@ pub struct Read {
 /// Legge `path` e prepara l'aggiornamento di `snap`: tutto il lavoro pesante (lettura, UTF-8,
 /// hash, blocchi, diff), da fare su un altro thread.
 pub fn read(path: &Path, snap: &Snapshot) -> io::Result<Read> {
-    let bytes = std::fs::read(path)?;
+    let (source, hash, _) = crate::doc::disk::read_disk(path)?;
     let written = std::fs::metadata(path).and_then(|m| m.modified()).ok();
-    let source = String::from_utf8_lossy(&bytes);
-    let hash = ids::hash_str(&source);
     let prepared = (hash != snap.file_hash).then(|| snap.prepare(&source));
     Ok(Read { hash, suspect: suspect(snap.source_len(), &source), written, prepared })
 }
@@ -123,6 +98,35 @@ mod tests {
 
     use super::*;
     use crate::doc::ids::hash_str;
+
+    /// Una lettura già pronta di `source`, come la darebbe [`read`] sul thread di lavoro.
+    fn read_of(doc: &Document, source: &str) -> Read {
+        let snap = doc.snapshot();
+        let hash = hash_str(source);
+        Read {
+            hash,
+            suspect: suspect(snap.source_len(), source),
+            written: None,
+            prepared: (hash != snap.file_hash).then(|| snap.prepare(source)),
+        }
+    }
+
+    /// Come l'app: scarta le letture sospette, poi [`commit`].
+    fn apply(doc: &mut Document, source: &str, own: &OwnWrites) -> Option<Change> {
+        let read = read_of(doc, source);
+        if read.suspect {
+            return None;
+        }
+        apply_settled(doc, source, own)
+    }
+
+    /// La seconda lettura uguale di un contenuto sospetto: si accetta anche se corta.
+    fn apply_settled(doc: &mut Document, source: &str, own: &OwnWrites) -> Option<Change> {
+        match commit(doc, read_of(doc, source), own) {
+            Commit::Applied(change) => Some(change),
+            Commit::Skipped | Commit::Stale => None,
+        }
+    }
 
     fn ten_kb() -> String {
         (0..100).map(|n| format!("Paragrafo {n}: {}", "testo ".repeat(16))).collect::<Vec<_>>().join("\n\n")
@@ -237,8 +241,11 @@ mod cost {
         for _ in 0..40 {
             let mut doc = Document::from_source(&path, before);
             let t = Instant::now();
-            let source = String::from_utf8_lossy(&std::fs::read(&path).unwrap()).into_owned();
-            assert!(apply(&mut doc, &source, &OwnWrites::default()).is_some());
+            let r = read(&path, &doc.snapshot()).unwrap();
+            assert!(matches!(
+                commit(&mut doc, r, &OwnWrites::default()),
+                Commit::Applied(_)
+            ));
             all.push(ms(t));
 
             let mut doc = Document::from_source(&path, before);

@@ -1,4 +1,4 @@
-//! L'indice dei Markdown nelle cartelle osservate: da qui leggono Recenti (task 16) e Cmd+P (task 18).
+//! L'indice dei Markdown nelle cartelle osservate: da qui leggono Recenti e Cmd+P.
 //!
 //! All'avvio l'indice si carica dalla cache (`index.json` in Application Support), poi una
 //! scansione su un thread a parte lo sostituisce con quello che c'è su disco; da lì in avanti lo
@@ -76,7 +76,7 @@ impl Index {
 
     /// Scrive l'indice in `path` in modo atomico (file temporaneo e rename). L'app salva da
     /// `Library::save`, con una copia delle voci su un altro thread.
-    #[cfg_attr(not(test), allow(dead_code))]
+    #[cfg(test)]
     pub fn save_cache(&self, path: &Path) {
         if let Err(e) = cache::save(path, &self.entries) {
             eprintln!("runemd: {}: indice non salvato: {e}", path.display());
@@ -95,11 +95,6 @@ impl Index {
 
     pub fn len(&self) -> usize {
         self.entries.len()
-    }
-
-    #[cfg_attr(not(test), allow(dead_code))] // per Recenti vuoto (task 16); oggi solo dai test
-    pub fn is_empty(&self) -> bool {
-        self.entries.is_empty()
     }
 
     /// Un evento del watcher. Vero se l'indice è cambiato.
@@ -252,11 +247,6 @@ fn merge(a: Vec<Entry>, b: Vec<Entry>) -> Vec<Entry> {
 }
 
 /// Le cartelle osservate di default (`settings::default_roots`), o quelle di `RUNEMD_ROOTS`.
-#[cfg_attr(not(test), allow(dead_code))]
-pub fn roots() -> Vec<PathBuf> {
-    roots_from(&crate::settings::default_roots())
-}
-
 /// Le cartelle osservate: `RUNEMD_ROOTS` (separate da `:`) se c'è, altrimenti `chosen` (dalle
 /// impostazioni). Canoniche, come i percorsi che riporta FSEvents.
 pub fn roots_from(chosen: &[PathBuf]) -> Vec<PathBuf> {
@@ -545,7 +535,7 @@ mod tests {
         index.set_roots(vec![PathBuf::from("/r")]);
         assert!(!index.apply(&FsEvent::Changed(outside)));
         assert!(!index.apply(&FsEvent::GitHead(PathBuf::from("/r"))));
-        assert!(index.is_empty());
+        assert_eq!(index.len(), 0);
     }
 
     #[test]
@@ -628,9 +618,9 @@ mod tests {
     fn a_missing_or_broken_cache_loads_empty() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("index.json");
-        assert!(Index::load_cache(&path).is_empty());
+        assert_eq!(Index::load_cache(&path).len(), 0);
         fs::write(&path, "{ rotto").unwrap();
-        assert!(Index::load_cache(&path).is_empty());
+        assert_eq!(Index::load_cache(&path).len(), 0);
     }
 
     #[test]
@@ -697,7 +687,7 @@ mod tests {
     #[test]
     #[ignore]
     fn scan_pickup_cost() {
-        let roots = roots();
+        let roots = roots_from(&crate::settings::default_roots());
         let scanned = scan::scan(&roots);
         let mut index = Index::from_entries(scanned.clone());
         index.set_roots(roots.clone());
@@ -729,7 +719,7 @@ mod tests {
     #[test]
     #[ignore]
     fn scan_cost() {
-        let roots = roots();
+        let roots = roots_from(&crate::settings::default_roots());
         let dir = tempfile::tempdir().unwrap();
         let cache = dir.path().join("index.json");
         let ms = |t: Instant| t.elapsed().as_secs_f64() * 1000.0;
@@ -754,7 +744,7 @@ mod tests {
                 fs::metadata(&cache).unwrap().len() / 1024
             );
         }
-        // Quante voci stanno in cartelle nascoste diverse da `.claude` (spec: entrano).
+        // Quante voci stanno in cartelle nascoste diverse da `.claude` (entrano).
         let index = Index::from_entries(scan::scan(&roots));
         let mut hidden: std::collections::BTreeMap<String, usize> = Default::default();
         for p in index.names() {

@@ -53,17 +53,6 @@ fn dither_layer(i: &Instance, clock: f64) -> (FxLayer, bool) {
     (dither::layer(rect_pt(i), s.t, s.dark, s.reduced), s.moving())
 }
 
-impl FxCompositor {
-    /// Accende (`Some`) o spegne (`None`) il layer di uno slot.
-    #[allow(dead_code)]
-    pub fn set(&mut self, mark: Mark, layer: Option<FxLayer>) {
-        match layer {
-            Some(l) => self.layers.insert(mark.id(), l),
-            None => self.layers.remove(&mark.id()),
-        };
-    }
-}
-
 impl Compositor<App> for FxCompositor {
     fn animating(&self) -> bool {
         self.moving

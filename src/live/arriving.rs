@@ -15,8 +15,8 @@ pub const CHANGED_MARK: Duration = Duration::from_millis(8000);
 /// L'ultimo blocco di `source` (il file intero) è aperto: dentro una fence ``` o ~~~ non chiusa
 /// (qualunque a capo ci sia dopo), oppure il file non finisce con un a capo. Un solo a capo
 /// finale chiude il blocco: quasi tutti i file degli agenti finiscono così, e con la riga vuota
-/// della spec il dither si vedrebbe a ogni scrittura, non "di rado" (spec:156, decisione
-/// "Dither raro"). Un file vuoto o di soli spazi non ha blocchi: chiuso.
+/// della spec il dither si vedrebbe a ogni scrittura, non "di rado" (decisione "Dither raro").
+/// Un file vuoto o di soli spazi non ha blocchi: chiuso.
 pub fn last_block_open(source: &str) -> bool {
     let body = source.trim_end();
     if body.is_empty() {

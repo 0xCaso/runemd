@@ -2,7 +2,7 @@
 //!
 //! `Live` chiama `touch` per una ricarica esterna applicata del file aperto (mai per le scritture
 //! dell'app, le letture saltate o quelle sospette trattenute), per un `Changed` di un altro file
-//! scritto da poco (le righe di Recenti e dell'albero, task 16) e `git_head` per ogni cambio di
+//! scritto da poco (le righe di Recenti e dell'albero) e `git_head` per ogni cambio di
 //! `.git/HEAD`.
 
 use std::collections::HashMap;
@@ -49,11 +49,6 @@ impl Activity {
         self.heads.insert(repo.to_owned(), now);
     }
 
-    #[cfg_attr(not(test), allow(dead_code))] // le righe leggono `writing`; qui per i test
-    pub fn is_writing(&self, path: &Path, now: Instant) -> bool {
-        self.left(path, now).is_some()
-    }
-
     /// I file che "stanno scrivendo" a `now` e fra quanto smettono (le righe di Recenti e
     /// dell'albero).
     pub fn writing(&self, now: Instant) -> impl Iterator<Item = (&Path, Duration)> {
@@ -86,12 +81,12 @@ mod tests {
         let t0 = Instant::now();
         let p = Path::new("/r/a.md");
         let mut a = Activity::default();
-        assert!(!a.is_writing(p, t0));
+        assert!(a.left(p, t0).is_none());
         a.touch(p, t0);
-        assert!(a.is_writing(p, t0));
-        assert!(a.is_writing(p, t0 + ms(WRITING_WINDOW_MS - 100)), "9,9 s");
-        assert!(!a.is_writing(p, t0 + ms(WRITING_WINDOW_MS + 100)), "10,1 s");
-        assert!(!a.is_writing(Path::new("/r/b.md"), t0), "solo il file toccato");
+        assert!(a.left(p, t0).is_some());
+        assert!(a.left(p, t0 + ms(WRITING_WINDOW_MS - 100)).is_some(), "9,9 s");
+        assert!(a.left(p, t0 + ms(WRITING_WINDOW_MS + 100)).is_none(), "10,1 s");
+        assert!(a.left(Path::new("/r/b.md"), t0).is_none(), "solo il file toccato");
     }
 
     #[test]
@@ -101,7 +96,7 @@ mod tests {
         let mut a = Activity::default();
         a.touch(p, t0);
         a.touch(p, t0 + ms(5_000));
-        assert!(a.is_writing(p, t0 + ms(WRITING_WINDOW_MS + 100)));
+        assert!(a.left(p, t0 + ms(WRITING_WINDOW_MS + 100)).is_some());
         assert_eq!(a.left(p, t0 + ms(5_000)), Some(WRITING_WINDOW));
     }
 
@@ -112,10 +107,10 @@ mod tests {
         let mut a = Activity::default();
         a.git_head(repo, t0);
         a.touch(p, t0 + ms(1_000));
-        assert!(!a.is_writing(p, t0 + ms(1_000)));
+        assert!(a.left(p, t0 + ms(1_000)).is_none());
         // Dopo 2 s una scrittura nel repo è di nuovo di un agente.
         a.touch(p, t0 + ms(2_100));
-        assert!(a.is_writing(p, t0 + ms(2_100)));
+        assert!(a.left(p, t0 + ms(2_100)).is_some());
     }
 
     #[test]
@@ -126,7 +121,7 @@ mod tests {
         // La ricarica gira su un altro thread: può arrivare prima dell'evento di HEAD.
         a.touch(p, t0);
         a.git_head(Path::new("/r"), t0 + ms(300));
-        assert!(!a.is_writing(p, t0 + ms(300)));
+        assert!(a.left(p, t0 + ms(300)).is_none());
     }
 
     #[test]
@@ -137,6 +132,6 @@ mod tests {
         a.git_head(Path::new("/s"), t0);
         a.git_head(Path::new("/rr"), t0);
         a.touch(p, t0 + ms(100));
-        assert!(a.is_writing(p, t0 + ms(100)));
+        assert!(a.left(p, t0 + ms(100)).is_some());
     }
 }

@@ -18,6 +18,7 @@ pub mod new_file;
 pub mod recovery;
 
 use crate::app::{Mode, Tab};
+use crate::doc::disk::read_disk;
 use crate::doc::document::Document;
 use crate::doc::ids::hash_str;
 use crate::live::reload::OwnWrites;
@@ -41,7 +42,7 @@ pub struct SourceEdit {
     /// non scrive, torna la riga di `notice`.
     pub asking: bool,
     /// Il testo di partenza non era UTF-8 (letto con `from_utf8_lossy`): non si scrive mai,
-    /// nemmeno con "Tieni il mio" (review finale I1).
+    /// nemmeno con "Tieni il mio".
     pub lossy: bool,
 }
 
@@ -85,20 +86,20 @@ impl SourceEdit {
 /// Cmd+N su un nome che esiste): il sorgente lo riscriverebbe con U+FFFD al posto dei byte non
 /// validi. Un file che non si legge si lascia a [`enter`].
 pub fn editable(path: &Path) -> bool {
-    !matches!(disk(path), Ok((_, _, false)))
+    !matches!(read_disk(path), Ok((_, _, false)))
 }
 
 /// Il file su disco non ha più il contenuto `base_hash` (quello da cui parte la modifica, o del
 /// nostro ultimo salvataggio): l'ha scritto qualcun altro. Un file che non si legge non conta.
 pub fn changed_on_disk(path: &Path, base_hash: u64) -> bool {
-    disk(path).is_ok_and(|(_, h, _)| h != base_hash)
+    read_disk(path).is_ok_and(|(_, h, _)| h != base_hash)
 }
 
 /// Entra in modifica: il sorgente è il file com'è adesso su disco (il documento tiene solo i
 /// blocchi, non le righe vuote fra l'uno e l'altro), con il cursore all'inizio e il fuoco nel
 /// campo. Se il file non si legge (sparito durante un rename) si parte dai blocchi del documento.
 pub fn enter(doc: &Document) -> SourceEdit {
-    let (text, base_hash, utf8) = match disk(&doc.path) {
+    let (text, base_hash, utf8) = match read_disk(&doc.path) {
         Ok(d) => d,
         Err(_) => {
             let text = doc.blocks.iter().map(|b| &*b.source).collect::<Vec<_>>().join("\n\n") + "\n";
@@ -139,7 +140,7 @@ fn try_save(tab: &mut Tab, own: &mut OwnWrites) -> Result<(), SaveError> {
         return Err(SaveError::NotUtf8);
     }
     let target = tab.follow.path().to_owned();
-    match disk(&target) {
+    match read_disk(&target) {
         Ok((_, _, false)) => return Err(SaveError::NotUtf8),
         Ok((_, h, true)) if h == src.base_hash => {}
         Ok(_) => return Err(SaveError::Conflict),
@@ -195,7 +196,7 @@ pub fn keep_mine(tab: &mut Tab, own: &mut OwnWrites) -> io::Result<()> {
 /// niente da rileggere: le modifiche e la riga restano, e solo "Tieni il mio" lo ricrea.
 pub fn reload(tab: &mut Tab) {
     let Mode::Source(src) = &mut tab.mode else { return };
-    if disk(&tab.doc.path).is_err() {
+    if read_disk(&tab.doc.path).is_err() {
         return;
     }
     let caret = src.pieces.caret();
@@ -227,17 +228,6 @@ pub fn leave(tab: &mut Tab, own: &mut OwnWrites) -> Result<(), SaveError> {
     tab.mode = Mode::Read;
     tab.follow.reread();
     Ok(())
-}
-
-/// Il file su disco come lo legge la ricarica (`from_utf8_lossy`), il suo hash e se era UTF-8.
-fn disk(path: &Path) -> io::Result<(String, u64, bool)> {
-    let bytes = fs::read(path)?;
-    let (text, utf8) = match String::from_utf8(bytes) {
-        Ok(text) => (text, true),
-        Err(e) => (String::from_utf8_lossy(e.as_bytes()).into_owned(), false),
-    };
-    let hash = hash_str(&text);
-    Ok((text, hash, utf8))
 }
 
 /// Scrive `text` in `path` con un file accanto e un rename: chi legge (la nostra ricarica, un
@@ -371,7 +361,7 @@ pub(crate) mod tests {
     }
 
     /// Due scritture esterne durante la modifica: ogni salvataggio trova il conflitto, la riga
-    /// resta finché non si sceglie e il disco resta quello dell'agente (review focus 4).
+    /// resta finché non si sceglie e il disco resta quello dell'agente.
     #[test]
     fn two_external_writes_keep_conflict() {
         let dir = tempfile::tempdir().unwrap();
@@ -487,7 +477,7 @@ pub(crate) mod tests {
         assert_eq!(source(&mut tab).notice, None);
     }
 
-    /// I1: un file che non è UTF-8 non si salva mai (il testo del sorgente avrebbe U+FFFD al
+    /// Un file che non è UTF-8 non si salva mai (il testo del sorgente avrebbe U+FFFD al
     /// posto dei byte non validi), nemmeno con "Tieni il mio": i byte restano quelli.
     #[test]
     fn save_refuses_a_file_that_is_not_utf8() {

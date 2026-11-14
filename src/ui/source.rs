@@ -36,7 +36,7 @@ pub const CONFLICT_TEXT: &str = "Il file è cambiato su disco";
 pub const RELOAD_TEXT: &str = "Ricarica";
 pub const KEEP_TEXT: &str = "Tieni il mio";
 pub const FAILED_TEXT: &str = "Salvataggio non riuscito";
-/// Cmd+E su un file che non è UTF-8 (review finale I1, scelta del controller).
+/// Cmd+E su un file che non è UTF-8.
 pub const NOT_UTF8_TEXT: &str = "Il file non è UTF-8: modifica disattivata";
 /// Le chiavi della riga e dei suoi due bottoni.
 pub const NOTICE_KEY: &str = "source-notice";
@@ -603,7 +603,7 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&a).unwrap(), "# a\n\nuno\n");
     }
 
-    /// I1: un file che non è UTF-8 non entra nel sorgente (lo riscriverebbe con U+FFFD): Cmd+E
+    /// Un file che non è UTF-8 non entra nel sorgente (lo riscriverebbe con U+FFFD): Cmd+E
     /// lascia la lettura e una riga lo dice. Il file non cambia.
     #[test]
     fn a_file_that_is_not_utf8_stays_in_read_mode() {

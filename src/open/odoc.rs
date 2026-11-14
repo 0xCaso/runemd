@@ -17,7 +17,7 @@ use objc2_app_kit::{NSApplication, NSApplicationWillFinishLaunchingNotification}
 use objc2_foundation::{NSArray, NSNotification, NSNotificationCenter, NSURL};
 
 extern "C" fn open_urls(_: *mut AnyObject, _: Sel, _: *mut AnyObject, urls: *mut AnyObject) {
-    // SAFETY: AppKit passes an NSArray<NSURL> (or nil) valid for the duration of the call.
+    // SAFETY: AppKit passa un NSArray<NSURL> (o nil) valido per la durata della chiamata.
     let urls: Option<&NSArray<NSURL>> = unsafe { (urls as *const NSArray<NSURL>).as_ref() };
     let paths: Vec<PathBuf> = urls
         .map(|a| a.iter().filter_map(|u| u.absoluteString()).filter_map(|s| super::markdown_path_from_url(&s.to_string())).collect())
@@ -31,8 +31,8 @@ extern "C" fn open_urls(_: *mut AnyObject, _: Sel, _: *mut AnyObject, urls: *mut
 fn hook(mtm: MainThreadMarker) {
     let app = NSApplication::sharedApplication(mtm);
     let selector = sel!(application:openURLs:);
-    // SAFETY: main thread; adding a method the class lacks changes none of its other methods.
-    // `v@:@@` is void return, self, _cmd, two objects.
+    // SAFETY: thread principale; aggiungere un metodo che la classe non ha non cambia gli altri.
+    // `v@:@@`: ritorno void, self, _cmd, due oggetti.
     unsafe {
         let delegate: *mut AnyObject = msg_send![&app, delegate];
         let Some(delegate) = delegate.as_ref() else {
@@ -58,7 +58,7 @@ fn hook(mtm: MainThreadMarker) {
 pub fn install() {
     let Some(mtm) = MainThreadMarker::new() else { return };
     let block = RcBlock::new(move |_: NonNull<NSNotification>| hook(mtm));
-    // SAFETY: main thread; the observer lives for the whole process (token leaked on purpose).
+    // SAFETY: thread principale; l'osservatore vive quanto il processo (il token è perso apposta).
     unsafe {
         let center = NSNotificationCenter::defaultCenter();
         let token = center.addObserverForName_object_queue_usingBlock(Some(NSApplicationWillFinishLaunchingNotification), None, None, &block);

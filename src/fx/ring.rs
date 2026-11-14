@@ -2,7 +2,7 @@
 //! liquido di `RING_W` attorno a una riga, che entra in `ENTER` e gira una volta ogni `TURN`.
 //!
 //! `layer` è una funzione pura del rect della riga e del tempo: la stessa per la scheda, la riga
-//! in Recenti e la riga nell'albero (task 16 e 19).
+//! in Recenti e la riga nell'albero.
 
 use std::f32::consts::TAU;
 
@@ -17,20 +17,20 @@ pub const RING_W: f32 = 1.5;
 pub const ENTER: f32 = 0.22;
 /// Un giro dello studio riflesso ogni 3 s.
 pub const TURN: f32 = 3.0;
-#[cfg_attr(not(test), allow(dead_code))] // il compositor usa `layer_rounded` col raggio dello slot
 /// Raggio della riga (`theme::R_ROW`): l'anello lo allarga di `RING_W`.
+#[cfg(test)]
 pub const ROW_RADIUS: f32 = crate::ui::theme::R_ROW;
 
-#[cfg_attr(not(test), allow(dead_code))] // il compositor usa `layer_rounded` col raggio dello slot
 /// L'anello attorno a `rect` (la riga, in pt), `t` secondi dopo che si è acceso.
 /// `.border` dipinge dentro la forma (rune-fx README, "Fills"): la forma è il rect allargato di
 /// `RING_W` per lato, così la banda sta tutta fuori dalla riga. Con `reduced` è fermo e
 /// visibile da subito.
+#[cfg(test)]
 pub fn layer(rect: Rect, t: f32, reduced: bool) -> FxLayer {
     layer_rounded(rect, ROW_RADIUS, t, reduced, true)
 }
 
-/// Come [`layer`], per uno slot con raggio `radius` (le righe della sidebar; la scheda, task 19),
+/// Come [`layer`], per uno slot con raggio `radius` (le righe della sidebar e la scheda),
 /// nel tema `dark` o nel chiaro ([`metal`]).
 pub fn layer_rounded(rect: Rect, radius: f32, t: f32, reduced: bool, dark: bool) -> FxLayer {
     let t = if reduced { 0.0 } else { t.max(0.0) };
@@ -44,7 +44,7 @@ pub fn layer_rounded(rect: Rect, radius: f32, t: f32, reduced: bool, dark: bool)
 /// Il metallo dell'anello: il cromo di Rune nello scuro. Nel chiaro i riflessi più chiari del
 /// cromo sono quasi bianchi e sul pannello e sul `sel` della scheda scendono sotto 3:1: il
 /// metallo è più scuro (tinta e luci dello studio), così tiene ≥ 3:1 su tutto il perimetro
-/// (review finale I5, misura in DESIGN.md "Contrasto").
+/// (misura in DESIGN.md, "Contrasto").
 pub fn metal(dark: bool) -> LiquidMetalParams {
     let chrome = LiquidMetalParams::chrome();
     if dark {
@@ -161,7 +161,7 @@ mod tests {
         assert!((slot_time(data, since + 1.5).0 - 1.5).abs() < 1e-3);
     }
 
-    /// I5: nel tema chiaro il metallo è più scuro del cromo (tinta e luci), nello scuro è il cromo.
+    /// Nel tema chiaro il metallo è più scuro del cromo (tinta e luci), nello scuro è il cromo.
     #[test]
     fn the_light_ring_is_darker_metal() {
         let lum = |c: rune_fx::Rgb| 0.2126 * c.0[0] + 0.7152 * c.0[1] + 0.0722 * c.0[2];

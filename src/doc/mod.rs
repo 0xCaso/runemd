@@ -1,6 +1,7 @@
 //! Modello del documento: i blocchi top-level del Markdown.
 
 pub mod blocks;
+pub mod disk;
 pub mod document;
 pub mod ids;
 pub mod select_all;

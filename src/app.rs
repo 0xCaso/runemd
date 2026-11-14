@@ -779,7 +779,7 @@ impl App {
     }
 
     /// Cmd+F: la barra di Cerca si apre col fuoco, e i campi di Cmd+P e Cmd+N si chiudono. Solo
-    /// in lettura: nel sorgente (Cmd+E) e senza schede non fa niente (v1). Vero se si è aperta.
+    /// in lettura: nel sorgente (Cmd+E) e senza schede non fa niente. Vero se si è aperta.
     pub fn open_find(&mut self) -> bool {
         if !self.tab().is_some_and(|t| matches!(t.mode, Mode::Read)) {
             return false;
@@ -924,7 +924,7 @@ impl App {
                 }
                 tab.not_utf8 = false;
                 tab.mode = Mode::Source(Box::new(edit::enter(&tab.doc)));
-                // Cerca vale solo in lettura (v1).
+                // Cerca vale solo in lettura.
                 self.find.close();
             }
             Mode::Source(_) => {
@@ -1342,7 +1342,7 @@ mod tests {
 
     /// Il salvataggio del sorgente torna alla lettura con il testo salvato: la rilettura del
     /// watcher è una scrittura dell'app, quindi niente segno dei blocchi cambiati, fuoco, dither
-    /// o "sta scrivendo" (review del task 13).
+    /// o "sta scrivendo".
     #[test]
     fn saving_the_source_lights_nothing() {
         let (_dir, p) = files(&["a.md"]);
@@ -1591,7 +1591,7 @@ mod tests {
         v
     }
 
-    /// C1: uscire con un conflitto non perde le modifiche. Il testo va in una copia di recupero
+    /// Uscire con un conflitto non perde le modifiche. Il testo va in una copia di recupero
     /// (una sola, anche se `on_quit` e `on_close` arrivano tutti e due), il file su disco resta
     /// quello dell'agente, e al prossimo avvio la copia si apre in una scheda (una volta sola).
     #[test]
@@ -1626,7 +1626,7 @@ mod tests {
         assert!(later.tabs.is_empty());
     }
 
-    /// C1: anche un errore di scrittura all'uscita lascia una copia; il file resta com'era.
+    /// Anche un errore di scrittura all'uscita lascia una copia; il file resta com'era.
     #[test]
     fn quitting_with_a_write_error_keeps_a_recovery_copy() {
         use std::os::unix::fs::PermissionsExt;
@@ -1649,7 +1649,7 @@ mod tests {
         assert_eq!(fs::read_to_string(&found[0]).unwrap(), "# a.md\n\nmio\n");
     }
 
-    /// I2: un agente che scrive il file in modifica (Cmd+E) accende "sta scrivendo" come in
+    /// Un agente che scrive il file in modifica (Cmd+E) accende "sta scrivendo" come in
     /// lettura, prima che il salvataggio trovi il conflitto; il nostro salvataggio no.
     #[test]
     fn an_external_write_during_source_lights_the_ring_and_our_save_does_not() {
@@ -1680,7 +1680,7 @@ mod tests {
         assert!(matches!(&app.tabs[0].mode, Mode::Source(s) if s.text() == "# a\n\nmio\n"));
     }
 
-    /// I3, da capo a fondo con il watcher vero: la cartella del file aperto sparisce (un `git
+    /// Da capo a fondo con il watcher vero: la cartella del file aperto sparisce (un `git
     /// checkout` senza `docs/`) e ricompare con il file cambiato; la scheda si ricarica.
     #[test]
     fn a_tab_whose_folder_is_deleted_and_recreated_reloads() {

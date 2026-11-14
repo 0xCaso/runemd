@@ -1,13 +1,13 @@
 //! Lettura live: i file aperti nelle schede si ricaricano quando un agente li scrive.
 //!
-//! `Live` tiene il watcher (task 9), "sta scrivendo" e le scritture dell'app, comuni a tutte le
+//! `Live` tiene il watcher, "sta scrivendo" e le scritture dell'app, comuni a tutte le
 //! schede; ogni scheda ha un [`Follow`] con la sua rilettura. Si rilegge un file a ogni `Changed`
 //! del suo percorso e, dopo una lettura sospetta (file a metà scrittura), ancora una volta dopo
 //! `SETTLE`. La lettura e la preparazione dell'aggiornamento (blocchi, hash, diff con id stabili)
 //! girano su un thread a parte (`reload::read`); sul thread della UI resta `reload::commit`, che
 //! sostituisce i blocchi. Il thread sveglia l'app con il `Waker` quando ha finito.
 //!
-//! Il watcher guarda con le sottocartelle le cartelle osservate (`index::roots`, task 14). Per
+//! Il watcher guarda con le sottocartelle le cartelle osservate (`index::roots_from`). Per
 //! ogni file aperto si aggiungono la sua cartella, senza sottocartelle (un file in `~` non deve far
 //! guardare tutta la home), e il `.git` del suo repo, per i cambi di `.git/HEAD` che spengono
 //! "sta scrivendo" (`activity`); se stanno già sotto una cartella osservata il watcher non le
@@ -43,8 +43,8 @@ use reload::{Commit, OwnWrites, Read};
 /// (`docs/agent-writes.md`): 200 ms la coprono con margine (`ipotesi`).
 const SETTLE: Duration = Duration::from_millis(200);
 
-/// Un ricaricamento applicato. Il task 11 ("sta scrivendo") usa `at`, il 13 (segno dei blocchi
-/// cambiati) gli id in `change`.
+/// Un ricaricamento applicato: `at` per "sta scrivendo", gli id in `change` per il segno dei blocchi
+/// cambiati.
 #[derive(Debug)]
 pub struct Reloaded {
     pub at: Instant,
@@ -193,7 +193,7 @@ impl Live {
     }
 
     /// Le radici del watcher e se con le sottocartelle (vuoto prima di `start`).
-    #[cfg_attr(not(test), allow(dead_code))]
+    #[cfg(test)]
     pub fn watched_roots(&self) -> Vec<(PathBuf, bool)> {
         self.watcher.as_ref().map(Watcher::watched).unwrap_or_default()
     }
@@ -669,7 +669,7 @@ mod tests {
         assert!(live.writing_left(fa.path(), t0).is_none());
     }
 
-    /// Review Focus 1 per ogni scheda, non solo l'attiva: il file di una scheda sparisce (letto
+    /// Vale per ogni scheda, non solo l'attiva: il file di una scheda sparisce (letto
     /// fallisce, il documento resta com'era) e torna entro 2 s: la scheda si ricarica.
     #[test]
     fn a_deleted_file_that_comes_back_reloads_its_tab() {

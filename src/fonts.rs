@@ -6,7 +6,7 @@ use std::sync::{Mutex, OnceLock};
 
 use rune::Family;
 
-/// Le prime scelte, in quest'ordine (piano, task 27).
+/// Le prime scelte, in quest'ordine.
 pub const FIRST: [&str; 3] = ["Inter", "New York", "SF Pro"];
 
 /// Le famiglie installate, in ordine alfabetico, senza le famiglie nascoste di sistema (il nome

@@ -38,13 +38,6 @@ pub struct Heading {
     pub index: usize,
 }
 
-/// I titoli H1–H3 di `doc`, in ordine: livello, testo, id del blocco (l'interfaccia del piano;
-/// la vista usa [`scan`], che tiene anche la posizione).
-#[cfg_attr(not(test), allow(dead_code))]
-pub fn headings(doc: &Document) -> Vec<(u8, String, u64)> {
-    scan(doc).into_iter().map(|h| (h.level, h.text, h.id)).collect()
-}
-
 /// I titoli H1–H3 di `doc` con la posizione del blocco. Un titolo è un blocco top-level (un `#`
 /// dentro una fence sta nel blocco della fence, dentro una lista nel blocco della lista).
 pub fn scan(doc: &Document) -> Vec<Heading> {
@@ -258,17 +251,17 @@ mod tests {
     }
 
     fn levels_and_text(src: &str) -> Vec<(u8, String)> {
-        headings(&doc(src)).into_iter().map(|(l, t, _)| (l, t)).collect()
+        scan(&doc(src)).into_iter().map(|h| (h.level, h.text)).collect()
     }
 
     #[test]
     fn h1_to_h3_in_document_order_without_h4() {
         let src = "# Uno\n\ntesto\n\n## Due\n\n### Tre\n\n#### Quattro\n\n## Cinque\n";
         let d = doc(src);
-        let got = headings(&d);
-        assert_eq!(got.iter().map(|(l, t, _)| (*l, t.as_str())).collect::<Vec<_>>(), [(1, "Uno"), (2, "Due"), (3, "Tre"), (2, "Cinque")]);
+        let got = scan(&d);
+        assert_eq!(got.iter().map(|h| (h.level, h.text.as_str())).collect::<Vec<_>>(), [(1, "Uno"), (2, "Due"), (3, "Tre"), (2, "Cinque")]);
         let ids: Vec<u64> = [0, 2, 3, 5].iter().map(|&i| d.blocks[i].id).collect();
-        assert_eq!(got.iter().map(|h| h.2).collect::<Vec<_>>(), ids, "id dei blocchi dei titoli");
+        assert_eq!(got.iter().map(|h| h.id).collect::<Vec<_>>(), ids, "id dei blocchi dei titoli");
     }
 
     #[test]

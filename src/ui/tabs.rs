@@ -51,7 +51,7 @@ fn tab_row(s: &App, hooks: Hooks<App>, i: usize, tab: &crate::app::Tab, theme: &
     let title = tab.title();
     let id = tab.doc.id;
     let label = text(title.clone()).key(format!("{key}-label")).font(sidebar::ui_font()).color(if front { theme.fg } else { theme.fg2 }).truncate_middle().shrink().min_w(0.0).a11y_hidden();
-    // Al massimo `TAB_MAX_W`, il nome tagliato in mezzo (D5): una scheda lunga non spinge fuori
+    // Al massimo `TAB_MAX_W`, il nome tagliato in mezzo: una scheda lunga non spinge fuori
     // le altre.
     let mut e = row()
         .max_w(TAB_MAX_W)

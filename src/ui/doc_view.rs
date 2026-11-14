@@ -1,6 +1,6 @@
 //! La colonna del documento: un blocco top-level per riga di `virtual_rows` dentro uno scroll.
 //!
-//! Le righe hanno la chiave dell'id del blocco (task 5), non dell'indice: quando il file cambia,
+//! Le righe hanno la chiave dell'id del blocco, non dell'indice: quando il file cambia,
 //! Rune tiene ferma la riga in cima alla vista per chiave (`virtual_rows`: "inserting or
 //! prepending rows keeps the reader's row in place"); se quel blocco sparisce, l'ancora passa al
 //! primo blocco successivo che esiste ancora (`VirtualList::set_keys` → `first_visible`).
@@ -16,7 +16,6 @@ use rune_kit::MarkdownStyle;
 
 use crate::doc::document::{Block, Document};
 use crate::doc::select_all::{End, Ends, SelectAll, SelectAllFlag};
-use crate::doc::ids;
 
 use super::theme::{CHANGED_MARK_W, CHANGED_MARK_X, COLUMN, ROW_PAD_X, ROW_PAD_Y};
 
@@ -223,8 +222,8 @@ struct File {
 
 impl File {
     fn read(&self) -> Option<String> {
-        let text = String::from_utf8_lossy(&std::fs::read(&self.path).ok()?).into_owned();
-        (ids::hash_str(&text) == self.hash).then_some(text)
+        let (text, hash, _) = crate::doc::disk::read_disk(&self.path).ok()?;
+        (hash == self.hash).then_some(text)
     }
 }
 
@@ -552,7 +551,7 @@ mod tests {
         assert_eq!(super::fire_label(4), "4 paragrafi nuovi più in basso");
     }
 
-    // --- selezione e copia (task 7) ---
+    // --- selezione e copia ---
 
     use rune::{Key, KeyEvent, Mods};
 
@@ -561,7 +560,7 @@ mod tests {
         rt.frame(1.0 / 60.0);
     }
 
-    // --- schede (task 19) ---
+    // --- schede ---
 
     /// Due schede sullo stesso campione: B scorre a metà, si passa ad A (Cmd+1) e si torna a B
     /// (Ctrl+Tab). A parte dall'inizio, B torna dove era: il blocco che stava in cima torna in
@@ -798,7 +797,9 @@ mod tests {
         std::fs::write(&path, &after).unwrap();
         rt.update(|s, _| {
             let own = crate::live::reload::OwnWrites::default();
-            assert!(crate::live::reload::apply(&mut s.tab_mut().unwrap().doc, &after, &own).is_some());
+            let doc = &mut s.tab_mut().unwrap().doc;
+            let read = crate::live::reload::read(&path, &doc.snapshot()).unwrap();
+            assert!(matches!(crate::live::reload::commit(doc, read, &own), crate::live::reload::Commit::Applied(_)));
         });
         settle(&mut rt);
         cmd(&mut rt, 'c');

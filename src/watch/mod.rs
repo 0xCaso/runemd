@@ -359,7 +359,7 @@ impl Watcher {
     }
 
     /// Smette di guardare `root` se è una radice senza sottocartelle (la cartella di un file
-    /// aperto, task 19). Le cartelle osservate (ricorsive) restano: le usano l'indice e la sidebar.
+    /// aperto). Le cartelle osservate (ricorsive) restano: le usano l'indice e la sidebar.
     pub fn remove_root(&mut self, root: &Path) {
         let root = root.canonicalize().unwrap_or_else(|_| root.to_owned());
         self.dormant.retain(|r| !(r.path == root && !r.recursive));
@@ -384,7 +384,7 @@ impl Watcher {
     }
 
     /// Le radici guardate e se con le sottocartelle.
-    #[cfg_attr(not(test), allow(dead_code))]
+    #[cfg(test)]
     pub fn watched(&self) -> Vec<(PathBuf, bool)> {
         self.roots.iter().map(|r| (r.path.clone(), r.recursive)).collect()
     }
@@ -605,7 +605,7 @@ mod tests {
         assert!(w.roots.is_empty());
     }
 
-    /// I3: una radice che sparisce dà un `Rescan` (chi tiene un elenco toglie i suoi file) e
+    /// Una radice che sparisce dà un `Rescan` (chi tiene un elenco toglie i suoi file) e
     /// torna guardata quando la cartella ricompare: una scrittura dopo dà `Changed`. Mentre è
     /// sparita il waker continua a svegliare l'app, che se ne accorge in `drain`.
     #[test]
@@ -765,7 +765,7 @@ mod tests {
     #[test]
     #[ignore]
     fn rescan_ui_cost() {
-        let roots: Vec<Root> = crate::index::roots().into_iter().map(|path| Root { path, recursive: true }).collect();
+        let roots: Vec<Root> = crate::index::roots_from(&crate::settings::default_roots()).into_iter().map(|path| Root { path, recursive: true }).collect();
         let mut ms = Vec::new();
         for _ in 0..40 {
             let mut core = Core::new();

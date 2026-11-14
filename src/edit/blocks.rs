@@ -1,4 +1,4 @@
-//! Il sorgente diviso in pezzi, un `TextEdit` per pezzo (piano B del task 22): un solo campo da
+//! Il sorgente diviso in pezzi, un `TextEdit` per pezzo: un solo campo da
 //! 1 MB costa a Rune ~150 ms per tasto, un campo per pezzo dentro `virtual_rows` costa solo le
 //! righe montate.
 //!

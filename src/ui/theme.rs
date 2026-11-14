@@ -1,5 +1,4 @@
 //! Token di `DESIGN.md`: colori OKLCH per tema, misure e raggi.
-#![allow(dead_code)] // i token li usano i task 9 e seguenti
 
 use rune::{Color, oklcha};
 
@@ -39,8 +38,6 @@ pub const BODY_TEXT: f32 = 15.5;
 pub const BODY_LEADING: f32 = 1.62;
 /// Codice e sorgente (DESIGN.md, `typography.doc-code`): mono 13,5 pt.
 pub const CODE_TEXT: f32 = 13.5;
-/// Una riga di testo del corpo, pt: l'altezza del dither "sta arrivando".
-pub const BODY_LINE: f32 = BODY_TEXT * BODY_LEADING;
 /// Margine orizzontale delle righe del documento: il testo parte da qui.
 pub const ROW_PAD_X: f32 = 28.0;
 /// Margine verticale delle righe del documento.
@@ -64,7 +61,7 @@ pub const OUTLINE_LABEL_GAP: f32 = 4.0;
 /// Sotto questa larghezza della finestra l'indice si nasconde: sidebar + colonna + 200.
 pub const OUTLINE_MIN_WINDOW: f32 = SIDEBAR + COLUMN + 200.0;
 
-/// La scheda più larga (`tab-max`, D5): un nome più lungo si taglia in mezzo.
+/// La scheda più larga (`tab-max`): un nome più lungo si taglia in mezzo.
 pub const TAB_MAX_W: f32 = 240.0;
 /// Sidebar (DESIGN.md, `spacing`): spazio sopra il campo per i semafori, margini ai lati e in fondo.
 pub const SIDEBAR_TOP: f32 = 44.0;

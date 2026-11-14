@@ -1100,7 +1100,7 @@ mod tests {
         assert!(!f.pending());
     }
 
-    /// Misura (report del task 24): il costo sul thread della UI di un tasto di Cerca su
+    /// Misura: il costo sul thread della UI di un tasto di Cerca su
     /// `fixtures/big.md`, con la vista dell'app su un runtime headless. Ogni ricerca si digita
     /// lettera per lettera. Per ogni tasto: il tasto e il suo frame (campo e richiesta al thread),
     /// e, quando arrivano i risultati, `poll_find` e il frame che li disegna (segni, rivelazione);

@@ -26,11 +26,11 @@ use crate::repo::{self, Repo};
 
 /// Righe di Recenti al massimo (spec, "Sidebar": 20, ipotesi).
 pub const RECENT_MAX: usize = 20;
-/// Recenti prende al massimo questa parte dell'altezza della sidebar e poi scorre (D1).
+/// Recenti prende al massimo questa parte dell'altezza della sidebar e poi scorre.
 pub const RECENT_SHARE: f32 = 0.4;
-/// Lo spazio fra le righe di Recenti, con o senza anelli (`recent-gap`, D2).
+/// Lo spazio fra le righe di Recenti, con o senza anelli (`recent-gap`).
 pub const RECENT_GAP: f32 = 3.0;
-/// Sopra e sotto le due righe della riga del repo (nome e branch, D3).
+/// Sopra e sotto le due righe della riga del repo (nome e branch).
 const REPO_PAD_Y: f32 = 4.0;
 
 /// La linea guida del livello 0 sta sotto il centro dell'icona del repo; ogni livello ne aggiunge
@@ -118,7 +118,7 @@ pub struct Sidebar {
     pub quick_rows: Vec<RecentRow>,
     /// Cmd+N: il campo "Nuovo file" al posto di quello di Cmd+P.
     pub new_file: super::new_file::NewFile,
-    /// La riga dell'albero da portare in vista (il file appena aperto, D1); la prende `poll`.
+    /// La riga dell'albero da portare in vista (il file appena aperto); la prende `poll`.
     reveal: Option<String>,
 }
 
@@ -390,7 +390,7 @@ pub fn view<S: 'static>(s: &S, hooks: Hooks<S>, theme: &Theme, reduced: bool, ho
     }
     if !sb.recent.is_empty() {
         // Al massimo `RECENT_SHARE` dell'altezza della sidebar, poi scorre (con la barra del
-        // sistema, a scomparsa): "Repo del file" resta in vista anche con molti Recenti (D1).
+        // sistema, a scomparsa): "Repo del file" resta in vista anche con molti Recenti.
         // Lo scroll taglia ciò che esce dai suoi bordi: dentro c'è `RING_ROOM` per gli anelli, e
         // il margine negativo tiene le righe dove erano.
         let cap = rune::memo::layout_with("sidebar", |r| (r[3] * RECENT_SHARE).floor());
@@ -523,7 +523,7 @@ fn recent_row<S: 'static>(s: &S, hooks: Hooks<S>, i: usize, r: &RecentRow, label
 }
 
 /// La riga del repo: icona cartella e nome 600; sotto il nome il branch, più piccolo (12) e a
-/// peso normale, in `fg3` (D3: la riga non ha hover, e `fg3` sul vetro sta sopra 4,5:1). Alta
+/// peso normale, in `fg3` (la riga non ha hover, e `fg3` sul vetro sta sopra 4,5:1). Alta
 /// almeno `FIELD_H`. Non sta al livello dei suoi file.
 fn repo_row(repo: &Repo, theme: &Theme) -> El {
     let name = row()
@@ -964,7 +964,7 @@ mod tests {
         assert!(!sb.is_pressed("recent-a"));
     }
 
-    /// Misura (report del task 16): il costo sul thread della UI di `Sidebar::refresh` per un
+    /// Misura: il costo sul thread della UI di `Sidebar::refresh` per un
     /// cambio dell'indice, con l'indice vero delle cartelle osservate e `big.md` aperto.
     /// `cargo test --profile perf sidebar_refresh_cost -- --ignored --nocapture`. Ogni giro
     /// prepara (fuori misura) un indice con una scrittura e misura solo `refresh`.
@@ -972,7 +972,7 @@ mod tests {
     #[ignore]
     fn sidebar_refresh_cost() {
         use std::time::Instant;
-        let roots = crate::index::roots();
+        let roots = crate::index::roots_from(&crate::settings::default_roots());
         let scanned = crate::index::scan::scan(&roots);
         let big = roots[0].join("rune-md-spike/fixtures/big.md").canonicalize().expect("big.md");
         let base = Index::from_entries(scanned.clone());
@@ -1007,7 +1007,7 @@ mod tests {
         case("file nuovo nel repo aperto (albero ricostruito)", &in_repo, true);
     }
 
-    /// Misura (report del task 18): il costo sul thread della UI di un tasto di Cmd+P, con
+    /// Misura: il costo sul thread della UI di un tasto di Cmd+P, con
     /// l'indice vero (`RUNEMD_ROOTS` non impostata, scansione delle cartelle osservate). Ogni ricerca
     /// si digita lettera per lettera; ogni tasto chiama `requery` (rank + qualificatori).
     /// `cargo test --profile perf quick_open_cost -- --ignored --nocapture`.
@@ -1016,7 +1016,9 @@ mod tests {
     fn quick_open_cost() {
         use std::time::Instant;
         // Nessuna cache su questa macchina: si scandiscono le cartelle osservate, come fa l'app.
-        let index = &Index::from_entries(crate::index::scan::scan(&crate::index::roots()));
+        let index = &Index::from_entries(crate::index::scan::scan(&crate::index::roots_from(
+            &crate::settings::default_roots(),
+        )));
         eprintln!("quick_open_cost indice {} voci", index.len());
         let mut sb = Sidebar::default();
         let mut ms = Vec::new();

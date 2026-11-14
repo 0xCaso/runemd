@@ -46,8 +46,8 @@ pub struct Document {
 impl Document {
     /// Legge il file; i byte non UTF-8 diventano U+FFFD.
     pub fn load(path: &Path) -> io::Result<Document> {
-        let bytes = std::fs::read(path)?;
-        Ok(Self::from_source(path, &String::from_utf8_lossy(&bytes)))
+        let (source, _) = super::disk::read_lossy(path)?;
+        Ok(Self::from_source(path, &source))
     }
 
     pub fn from_source(path: &Path, source: &str) -> Document {
