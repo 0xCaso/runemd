@@ -104,6 +104,8 @@ pub struct Sidebar {
     pub tree_version: u64,
     /// La riga premuta adesso (la sua chiave): scala a 0,98 finché il puntatore non si alza.
     pressed: Option<String>,
+    /// macOS nega la lettura di una cartella osservata (Desktop): la sidebar lo dice.
+    pub no_access: bool,
 }
 
 impl Sidebar {
@@ -301,6 +303,9 @@ pub fn view<S: 'static>(s: &S, hooks: Hooks<S>, theme: &Theme, reduced: bool, ho
     let sb = (hooks.get)(s);
     let motion = Motion { reduced, hover };
     let mut side = col().key("sidebar").w(SIDEBAR).h_full().pt(SIDEBAR_TOP).px(SIDEBAR_PAD).pb(SIDEBAR_BOTTOM).child(field(theme));
+    if sb.no_access {
+        side = side.child(no_access(sb, hooks, theme, motion));
+    }
     if !sb.recent.is_empty() {
         side = side.child(section("Recenti", theme));
         for (i, r) in sb.recent.iter().enumerate() {
@@ -332,6 +337,31 @@ fn field(theme: &Theme) -> El {
         .child(text("Apri file").font(ui_font()).color(theme.fg2))
         .child(el().grow(1.0))
         .child(kbd)
+}
+
+/// Dove macOS tiene il permesso "File e cartelle".
+const PRIVACY_URL: &str = "x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders";
+
+/// L'avviso sotto il campo: il testo in `fg`, e sotto una riga premibile in `fg3` che apre le
+/// Impostazioni di Sistema. Solo token di DESIGN.md: niente accento, niente pillola.
+fn no_access<S: 'static>(sb: &Sidebar, hooks: Hooks<S>, theme: &Theme, motion: Motion) -> El {
+    let link = row()
+        .w_full()
+        .h(ROW)
+        .px(ROW_PAD)
+        .center_y()
+        .child(text("Apri Impostazioni di Sistema").font(small_font()).color(theme.fg3).truncate().shrink().min_w(0.0))
+        .on_press_tx(|_: &mut S, _: &mut Tx| {
+            if let Err(e) = std::process::Command::new("open").arg(PRIVACY_URL).spawn() {
+                eprintln!("runemd: Impostazioni di Sistema non aperte: {e}");
+            }
+        });
+    let link = pressable(link, "no-access-link".into(), sb, hooks, theme, motion, true).key("no-access-link");
+    col()
+        .key("no-access")
+        .w_full()
+        .child(text("Nessun accesso a Desktop").font(ui_font()).color(theme.fg).px(ROW_PAD).pt(SECTION_PAD_BOTTOM).pb(SECTION_PAD_BOTTOM))
+        .child(link)
 }
 
 /// Un'etichetta di sezione: 12/500 in `fg3` (`section-pad`).

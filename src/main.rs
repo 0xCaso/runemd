@@ -349,6 +349,9 @@ fn poll(s: &mut Doc, clock: f64, tx: &mut Tx) -> bool {
     if s.library.scanned && !was_scanned {
         probe::index_scanned(s.library.index.len());
     }
+    if indexed {
+        s.sidebar.no_access = matches!(s.library.access, index::Access::Denied(_));
+    }
     let wall = SystemTime::now();
     let t_side = Instant::now();
     let mut side = if indexed {

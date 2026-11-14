@@ -23,7 +23,7 @@ use rune::Waker;
 
 use crate::watch::FsEvent;
 
-pub use scan::scan_in_background;
+pub use scan::{Access, scan_in_background};
 
 /// Le cartelle osservate finché non arrivano le impostazioni (task 27), relative alla home.
 pub const DEFAULT_ROOTS: [&str; 1] = ["Desktop/GitHub"];
@@ -280,12 +280,14 @@ pub struct Library {
     roots: Vec<PathBuf>,
     cache: Option<PathBuf>,
     /// La scansione in corso e le cartelle che copre.
-    scan: Option<(Vec<PathBuf>, Receiver<Vec<Entry>>)>,
+    scan: Option<(Vec<PathBuf>, Receiver<scan::Scanned>)>,
     /// Cartelle da scandire appena finisce quella in corso (cartelle spostate, eventi persi).
     queued: Vec<PathBuf>,
     waker: Option<Waker>,
     /// La prima scansione è finita: l'indice è quello del disco (non solo della cache).
     pub scanned: bool,
+    /// L'esito dei permessi dell'ultima scansione finita.
+    pub access: Access,
     /// Le cartelle della scansione raccolta nell'ultimo `poll` (vuoto se nessuna): cambi
     /// dell'indice senza un evento per file (l'albero del repo le guarda).
     pub landed: Vec<PathBuf>,
@@ -300,7 +302,7 @@ impl Library {
     pub fn load(roots: Vec<PathBuf>, cache: Option<PathBuf>) -> Library {
         let mut index = cache.as_deref().map(Index::load_cache).unwrap_or_default();
         index.set_roots(roots.clone());
-        Library { index, roots, cache, scan: None, queued: Vec::new(), waker: None, scanned: false, landed: Vec::new(), dirty: false, saved_at: None, saving: None }
+        Library { index, roots, cache, scan: None, queued: Vec::new(), waker: None, scanned: false, access: Access::Ok, landed: Vec::new(), dirty: false, saved_at: None, saving: None }
     }
 
     /// Le cartelle osservate.
@@ -357,7 +359,8 @@ impl Library {
             };
         }
         match self.scan.as_ref().map(|(_, rx)| rx.try_recv()) {
-            Some(Ok(entries)) => {
+            Some(Ok((entries, access))) => {
+                self.access = access;
                 let (under, _) = self.scan.take().expect("scansione in corso");
                 self.index.finish_scan(&under, entries);
                 self.landed = under;
@@ -537,7 +540,8 @@ mod tests {
         fs::write(root.join("a.md"), "x").unwrap();
         let (tx, woke) = std::sync::mpsc::channel();
         let rx = scan_in_background(vec![root.clone()], Arc::new(move || { let _ = tx.send(()); }));
-        let entries = rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        let (entries, access) = rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert_eq!(access, Access::Ok);
         assert_eq!(entries.iter().map(|e| &e.path).collect::<Vec<_>>(), [&root.join("a.md")]);
         woke.recv_timeout(Duration::from_secs(5)).expect("sveglia");
     }
