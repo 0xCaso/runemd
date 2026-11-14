@@ -4,11 +4,12 @@ Lettore Markdown per Mac, scritto in Rust con [Rune](https://github.com/anomalyc
 
 ## Stato: v1
 
-La v1 (piano in `docs/plan.md`, task 1–28) è completa, solo in locale, tranne due cose:
+La v1 (piano in `docs/plan.md`, task 1–28) è completa, tranne due cose:
 
 - scroll: i refresh persi superano la soglia del 3 % (misurati con load average 7–19, da rimisurare a macchina
   scarica; `docs/perf.md`, sezione "v1");
-- la riga meta sotto il titolo di `DESIGN.md` (cartella, stato, parole) non c'è: decisione di Matteo in sospeso.
+- la riga meta sotto il titolo di `DESIGN.md` non c'è: dopo la v1, solo "ultima modifica" e fuori dal documento
+  (`docs/decisions/2026-11-14-sidebar-schede-nomi-lunghi.md`, D6).
 
 Cosa c'è:
 
