@@ -14,6 +14,7 @@ use std::io::{self, Write};
 use std::path::Path;
 
 pub mod blocks;
+pub mod new_file;
 
 use crate::app::{Mode, Tab};
 use crate::doc::document::Document;

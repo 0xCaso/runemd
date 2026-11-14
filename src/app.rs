@@ -376,6 +376,49 @@ impl App {
         }
     }
 
+    /// La cartella di Cmd+N: quella del file davanti, senza schede la prima cartella osservata.
+    pub fn new_file_dir(&self) -> Option<PathBuf> {
+        let beside = self.tab().and_then(|t| t.doc.path.parent()).filter(|d| !d.as_os_str().is_empty());
+        beside.map(Path::to_path_buf).or_else(|| self.library.roots().first().cloned())
+    }
+
+    /// Cmd+N, Invio: crea `name` (vuoto, mai sovrascritto) e lo porta davanti già nel sorgente; un
+    /// nome che esiste apre quel file (o la sua scheda), anch'esso nel sorgente. `None` se non si è
+    /// creato né aperto niente (nome non valido, nessuna cartella, errore): il campo resta aperto.
+    /// `Some(true)` se è venuta davanti un'altra scheda.
+    pub fn create_file(&mut self, name: &str) -> Option<bool> {
+        edit::new_file::normalize(name)?;
+        let dir = self.new_file_dir()?;
+        let path = match edit::new_file::create(&dir, name) {
+            Ok(p) => p,
+            Err(e) => {
+                eprintln!("runemd: {}: {e}", dir.display());
+                return None;
+            }
+        };
+        let before = self.tab().map(|t| t.doc.id);
+        self.open_paths(vec![path.clone()]);
+        let tab = self.tabs.get_mut(self.active).filter(|t| t.doc.path == path || t.path() == path.canonicalize().unwrap_or_else(|_| path.clone()))?;
+        if matches!(tab.mode, Mode::Read) {
+            tab.mode = Mode::Source(Box::new(edit::enter(&tab.doc)));
+        }
+        Some(self.tab().map(|t| t.doc.id) != before)
+    }
+
+    /// Cmd+N, Invio dal campo: come `create_file`, e se è venuta davanti un'altra scheda ne
+    /// ripristina la vista. Vero se il campo si chiude.
+    pub fn create_from_sidebar(&mut self, name: String, tx: &mut Tx) -> bool {
+        match self.create_file(&name) {
+            Some(fronted) => {
+                if fronted {
+                    self.restore_view(tx);
+                }
+                true
+            }
+            None => false,
+        }
+    }
+
     /// La ricerca di Cmd+P è cambiata.
     pub fn requery_sidebar(&mut self) {
         self.sidebar.requery(&self.library.index);
@@ -557,6 +600,75 @@ mod tests {
             p
         }).collect();
         (dir, paths)
+    }
+
+    fn app_with_root(root: &Path) -> App {
+        App::new(index::Library::load(vec![root.to_path_buf()], None), true)
+    }
+
+    #[test]
+    fn new_file_without_tabs_goes_to_the_first_root_in_source() {
+        let root = tempfile::tempdir().unwrap();
+        let mut app = app_with_root(root.path());
+        assert_eq!(app.create_file("prova"), Some(true));
+        let path = root.path().join("prova.md");
+        assert_eq!(fs::read_to_string(&path).unwrap(), "");
+        assert_eq!(app.tabs.len(), 1);
+        assert_eq!(app.tabs[0].title(), "prova.md");
+        assert!(matches!(app.tabs[0].mode, Mode::Source(_)));
+    }
+
+    #[test]
+    fn new_file_goes_beside_the_open_file() {
+        let (dir, p) = files(&["a.md"]);
+        let root = tempfile::tempdir().unwrap();
+        let mut app = app_with_root(root.path());
+        app.open_paths(vec![p[0].clone()]);
+        assert_eq!(app.create_file("b.md"), Some(true));
+        assert!(dir.path().join("b.md").exists() && !root.path().join("b.md").exists());
+        assert_eq!(app.tabs.len(), 2);
+        assert!(matches!(app.tabs[0].mode, Mode::Read), "l'altra scheda non cambia");
+        assert!(matches!(app.tabs[1].mode, Mode::Source(_)));
+    }
+
+    #[test]
+    fn an_existing_name_opens_that_file_in_source_without_touching_it() {
+        let (dir, p) = files(&["a.md", "b.md"]);
+        let mut app = empty_app();
+        app.open_paths(vec![p[0].clone(), p[1].clone()]);
+        // Già aperto in una scheda dietro: si porta davanti, nel sorgente, senza una scheda nuova.
+        assert_eq!(app.create_file("a"), Some(true));
+        assert_eq!(app.tabs.len(), 2);
+        assert_eq!(app.active, 0);
+        assert!(matches!(app.tabs[0].mode, Mode::Source(_)));
+        assert_eq!(fs::read_to_string(dir.path().join("a.md")).unwrap(), "# a.md\n");
+        // Non aperto: una scheda nuova, nel sorgente.
+        fs::write(dir.path().join("c.md"), "# c\n").unwrap();
+        assert_eq!(app.create_file("c.md"), Some(true));
+        assert_eq!(app.tabs.len(), 3);
+        assert!(matches!(app.tabs[2].mode, Mode::Source(_)));
+        assert_eq!(fs::read_to_string(dir.path().join("c.md")).unwrap(), "# c\n");
+    }
+
+    #[test]
+    fn invalid_names_create_and_open_nothing() {
+        let root = tempfile::tempdir().unwrap();
+        let mut app = app_with_root(root.path());
+        for bad in ["", "  ", "a/b", ".x"] {
+            assert_eq!(app.create_file(bad), None, "{bad:?}");
+        }
+        assert!(app.tabs.is_empty() && fs::read_dir(root.path()).unwrap().count() == 0);
+        // Senza cartella osservata né scheda non c'è dove creare.
+        assert_eq!(empty_app().create_file("prova"), None);
+    }
+
+    #[test]
+    fn creating_a_file_lights_no_ring() {
+        let root = tempfile::tempdir().unwrap();
+        let mut app = app_with_root(root.path());
+        app.create_file("prova");
+        assert!(!app.ring_lit() && !app.effects_lit());
+        assert!(app.live.writing(Instant::now()).is_empty(), "niente \"sta scrivendo\"");
     }
 
     #[test]

@@ -1,0 +1,92 @@
+//! Nuovo file (Cmd+N): il file nasce vuoto nella cartella data. Un nome già usato non si tocca.
+
+use std::fs::OpenOptions;
+use std::io::{self, ErrorKind};
+use std::path::{Path, PathBuf};
+
+/// Il nome da creare: senza spazi ai capi, `.md` in coda se manca. `None` se non è un nome
+/// valido: vuoto, con "/" o che inizia con "." (niente sottocartelle, niente file nascosti).
+pub fn normalize(name: &str) -> Option<String> {
+    let name = name.trim();
+    if name.is_empty() || name.contains('/') || name.starts_with('.') {
+        return None;
+    }
+    let has_md = Path::new(name)
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("md"));
+    Some(if has_md {
+        name.to_owned()
+    } else {
+        format!("{name}.md")
+    })
+}
+
+/// Crea `dir/name` vuoto e ne dà il percorso. Con `create_new` (O_EXCL) un file già lì non si
+/// tronca mai, nemmeno in una corsa: `AlreadyExists` dà quel percorso, contenuto invariato.
+pub fn create(dir: &Path, name: &str) -> io::Result<PathBuf> {
+    let name = normalize(name)
+        .ok_or_else(|| io::Error::new(ErrorKind::InvalidInput, "nome non valido"))?;
+    let path = dir.join(name);
+    match OpenOptions::new().write(true).create_new(true).open(&path) {
+        Ok(_) => Ok(path),
+        Err(e) if e.kind() == ErrorKind::AlreadyExists => Ok(path),
+        Err(e) => Err(e),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn adds_md_and_creates_an_empty_file() {
+        let d = tempfile::tempdir().unwrap();
+        let p = create(d.path(), "note").unwrap();
+        assert_eq!(p, d.path().join("note.md"));
+        assert_eq!(fs::read_to_string(&p).unwrap(), "");
+    }
+
+    #[test]
+    fn keeps_an_existing_md_extension() {
+        let d = tempfile::tempdir().unwrap();
+        assert_eq!(create(d.path(), "a.md").unwrap(), d.path().join("a.md"));
+        assert!(!d.path().join("a.md.md").exists());
+        assert_eq!(create(d.path(), "B.MD").unwrap(), d.path().join("B.MD"));
+    }
+
+    #[test]
+    fn an_existing_name_is_returned_untouched() {
+        let d = tempfile::tempdir().unwrap();
+        fs::write(d.path().join("a.md"), "# mio\n").unwrap();
+        assert_eq!(create(d.path(), "a").unwrap(), d.path().join("a.md"));
+        assert_eq!(create(d.path(), "a.md").unwrap(), d.path().join("a.md"));
+        assert_eq!(
+            fs::read_to_string(d.path().join("a.md")).unwrap(),
+            "# mio\n"
+        );
+    }
+
+    #[test]
+    fn trims_the_name() {
+        let d = tempfile::tempdir().unwrap();
+        assert_eq!(
+            create(d.path(), "  prova \n").unwrap(),
+            d.path().join("prova.md")
+        );
+    }
+
+    #[test]
+    fn invalid_names_create_nothing() {
+        let d = tempfile::tempdir().unwrap();
+        for bad in ["", "   ", "a/b", "/abs", ".hidden", " .env", "../x"] {
+            assert!(normalize(bad).is_none(), "{bad:?}");
+            assert_eq!(
+                create(d.path(), bad).unwrap_err().kind(),
+                ErrorKind::InvalidInput,
+                "{bad:?}"
+            );
+        }
+        assert_eq!(fs::read_dir(d.path()).unwrap().count(), 0);
+    }
+}

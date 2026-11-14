@@ -173,7 +173,7 @@ fn row_key(path: &Path) -> String {
 /// Il campo "Apri file ⌘P": un campo di testo vero. ⌘P gli dà il fuoco; frecce, Invio ed Esc
 /// lavorano sulla lista sotto.
 pub(super) fn field<S: 'static>(sb: &super::sidebar::Sidebar, hooks: Hooks<S>, theme: &Theme) -> El {
-    let kbd = el().key("kbd").border(HAIRLINE, theme.line).radius(R_KBD).px(KBD_PAD_X).py(KBD_PAD_Y).child(text("⌘P").font(TextStyle::new(KBD_TEXT, KBD_WEIGHT)).color(theme.fg2));
+    let kbd = kbd("⌘P", theme);
     let input = text_input(&sb.quick.edit, ui_font())
         .single_line()
         .key("quick-input")
@@ -187,6 +187,11 @@ pub(super) fn field<S: 'static>(sb: &super::sidebar::Sidebar, hooks: Hooks<S>, t
         .on_edit(move |s: &mut S| &mut (hooks.get_mut)(s).quick.edit)
         .on_input_change(move |s: &mut S, _: &mut Tx| (hooks.query)(s))
         .on_input_key(move |s: &mut S, ev: &KeyEvent, tx: &mut Tx| on_key(s, hooks, ev, tx));
+    field_row(icon(&glyphs::SEARCH, ICON).color(theme.fg2), input, kbd, theme)
+}
+
+/// La riga del campo della sidebar (Cmd+P e Cmd+N): icona, campo di testo e il tasto a destra.
+pub(super) fn field_row(lead: El, input: El, kbd: El, theme: &Theme) -> El {
     row()
         .key("open-file")
         .h(FIELD_H)
@@ -198,9 +203,14 @@ pub(super) fn field<S: 'static>(sb: &super::sidebar::Sidebar, hooks: Hooks<S>, t
         .radius(R_FIELD)
         .fill(theme.field)
         .border(HAIRLINE, theme.line)
-        .child(icon(&glyphs::SEARCH, ICON).color(theme.fg2))
+        .child(lead)
         .child(input)
         .child(kbd)
+}
+
+/// Il tasto scorciatoia a destra del campo ("⌘P").
+pub(super) fn kbd(label: &'static str, theme: &Theme) -> El {
+    el().key("kbd").border(HAIRLINE, theme.line).radius(R_KBD).px(KBD_PAD_X).py(KBD_PAD_Y).child(text(label).font(TextStyle::new(KBD_TEXT, KBD_WEIGHT)).color(theme.fg2))
 }
 
 /// I tasti del campo prima dell'editor. Vero se li prende.

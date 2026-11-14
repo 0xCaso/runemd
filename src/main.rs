@@ -68,7 +68,7 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
     let dark = dark_mode();
     let theme = ui::theme::Theme::for_mode(dark);
     let reduced = cx.is_reduced_motion();
-    let hooks = ui::sidebar::Hooks { get: |s: &App| &s.sidebar, get_mut: |s: &mut App| &mut s.sidebar, open: App::open_from_sidebar, ring: App::ring_of, query: App::requery_sidebar };
+    let hooks = ui::sidebar::Hooks { get: |s: &App| &s.sidebar, get_mut: |s: &mut App| &mut s.sidebar, open: App::open_from_sidebar, ring: App::ring_of, query: App::requery_sidebar, create: App::create_from_sidebar };
     let body = match s.tab() {
         Some(tab @ app::Tab { mode: app::Mode::Source(src), .. }) => {
             let caret = ui::source::caret_lines(cx, tab, src);
@@ -140,7 +140,15 @@ fn tab_key(s: &mut App, key: &rune::KeyEvent, tx: &mut Tx) -> bool {
 fn on_key(s: &mut App, key: &rune::KeyEvent, tx: &mut Tx) -> bool {
     // Cmd+P: il fuoco nel campo "Apri file" della sidebar.
     if matches!(key.key, rune::Key::Command('p')) && key.mods.cmd && !key.mods.shift && !key.mods.alt && !tx.key_repeat() {
+        s.sidebar.new_file.close();
         s.sidebar.quick.focus();
+        return true;
+    }
+    // Cmd+N: il campo "Nuovo file" prende il posto di "Apri file".
+    if matches!(key.key, rune::Key::Command('n')) && key.mods.cmd && !key.mods.shift && !key.mods.alt && !key.mods.ctrl && !tx.key_repeat() {
+        s.sidebar.quick.close();
+        s.sidebar.quick_rows.clear();
+        s.sidebar.new_file.show();
         return true;
     }
     if tab_key(s, key, tx) {

@@ -2,6 +2,7 @@
 
 pub mod doc_view;
 pub mod markdown_style;
+pub mod new_file;
 pub mod quick_open;
 pub mod relative_time;
 pub mod sidebar;

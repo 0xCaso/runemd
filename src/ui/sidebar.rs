@@ -110,6 +110,8 @@ pub struct Sidebar {
     /// Cmd+P: il campo e i risultati; le righe dei risultati hanno il qualificatore dei nomi doppi.
     pub quick: QuickOpen,
     pub quick_rows: Vec<RecentRow>,
+    /// Cmd+N: il campo "Nuovo file" al posto di quello di Cmd+P.
+    pub new_file: super::new_file::NewFile,
 }
 
 impl Sidebar {
@@ -200,6 +202,9 @@ impl Sidebar {
     /// non restano morti su una lista vecchia. Non durante un clic su una riga: il fuoco lascia il
     /// campo alla pressione, e il clic parte al rilascio. Vero se la lista si è chiusa.
     pub fn blur_close(&mut self) -> bool {
+        if self.new_file.blur_close() {
+            return true;
+        }
         if self.quick.active() && !self.quick.edit.focused && self.pressed.is_none() {
             self.quick.close();
             self.quick_rows.clear();
@@ -335,6 +340,8 @@ pub struct Hooks<S> {
     pub ring: fn(&S, &Path) -> Option<f64>,
     /// La ricerca di Cmd+P è cambiata: ricalcola i risultati dall'indice.
     pub query: fn(&mut S),
+    /// Cmd+N, Invio: crea il file e lo apre nel sorgente. Vero se il campo si chiude.
+    pub create: fn(&mut S, String, &mut Tx) -> bool,
 }
 
 impl<S> Clone for Hooks<S> {
@@ -358,7 +365,7 @@ pub(super) fn small_font() -> TextStyle {
 pub fn view<S: 'static>(s: &S, hooks: Hooks<S>, theme: &Theme, reduced: bool, hover: bool) -> El {
     let sb = (hooks.get)(s);
     let motion = Motion { reduced, hover };
-    let mut side = col().key("sidebar").w(SIDEBAR).h_full().pt(SIDEBAR_TOP).px(SIDEBAR_PAD).pb(SIDEBAR_BOTTOM).child(quick_open::field(sb, hooks, theme));
+    let mut side = col().key("sidebar").w(SIDEBAR).h_full().pt(SIDEBAR_TOP).px(SIDEBAR_PAD).pb(SIDEBAR_BOTTOM).child(if sb.new_file.open { super::new_file::field(sb, hooks, theme) } else { quick_open::field(sb, hooks, theme) });
     if sb.no_access {
         side = side.child(no_access(sb, hooks, theme, motion));
     }
