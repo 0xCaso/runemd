@@ -102,6 +102,19 @@ pub const R_ROW: f32 = 6.0;
 pub const R_FIELD: f32 = 7.0;
 pub const R_PANEL: f32 = 10.0;
 
+/// `fg` composto su `bg` (opaco) in sRGB codificato, come lo compone la finestra (`srgb_blend`).
+/// Serve dove rune-kit vuole un colore opaco (riempimenti dei diagrammi) e per misurare il contrasto.
+pub fn flatten(fg: Color, bg: Color) -> Color {
+    fn encode(c: f32) -> f32 {
+        if c <= 0.003_130_8 { 12.92 * c } else { 1.055 * c.powf(1.0 / 2.4) - 0.055 }
+    }
+    fn decode(c: f32) -> f32 {
+        if c <= 0.040_45 { c / 12.92 } else { ((c + 0.055) / 1.055).powf(2.4) }
+    }
+    let mix = |f: f32, b: f32| decode(encode(f) * fg.a + encode(b) * (1.0 - fg.a));
+    Color { r: mix(fg.r, bg.r), g: mix(fg.g, bg.g), b: mix(fg.b, bg.b), a: 1.0 }
+}
+
 /// Il colore del fuoco della tastiera (`Cx::focus_ring`), dal colore del sistema `system`
 /// (`Cx::focus_color`, che AppKit dà al 50 %), pieno in tutti e due i temi: al 50 % sul vetro
 /// resta sotto 3:1 (DESIGN.md, "Contrasto"). Nel tema chiaro è anche scurito del 20 % verso il

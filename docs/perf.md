@@ -194,3 +194,15 @@ UI alla prima vista che la chiede.
 | big.md ripetuto, 16 MB | 48 656 | 6960 | 1,81 ms | 2,34 ms |
 
 Prima del filtro setext dal fondo e del caso ATX senza parser la scansione dei 16 MB costava 4,7 ms (p50).
+
+## Mermaid (task 26)
+
+La feature `mermaid` di rune-kit era già in `Cargo.toml` dal task 1 (binario `perf` 33,26 MB con e senza il task 26: 33 264 560 contro 33 264 032 byte). Il task cambia lo stile (colori dei diagrammi dai token) e non aggiunge codice di rune-mermaid al binario. `normal.md` e `big.md` non hanno blocchi mermaid: il diagramma costa solo dove c'è.
+
+| prova | risultato |
+|---|---|
+| avvio warm, 5 giri, load average 25 (`bench/startup.sh /tmp/runemd-bench 5 warm`) | normal min 244, p50 266, max 958 (un giro fuori scala per il carico); big min 238, p50 249, max 266. Soglia 350 sul p50: rispettata |
+| memoria a riposo, 3 giri (`bench/memory.sh`) | normal 91 MB, big 96–97 MB. Soglia big 100 MB: rispettata, con 3 MB di margine |
+| refresh persi in scroll | non ripetuto: macchina sotto carico (vedi sopra, la misura non sarebbe valida) e i file di prova non hanno diagrammi |
+| un flowchart di 141 nodi e 140 archi (1934 byte) | disegnato in 15 ms al primo frame (`broken_and_huge_mermaid_never_panic`) |
+| oltre 400 elementi (rune-mermaid `MAX_ITEMS`) | resta il blocco di codice, 5–20 ms, anche con 3000 nodi (52 KB) |

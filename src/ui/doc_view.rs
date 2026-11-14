@@ -879,4 +879,76 @@ mod tests {
         rt.frame(1.0 / 60.0);
         assert_eq!(drag_copy(&mut rt, 2, 3), blocks[2..=3].join("\n\n"));
     }
+
+    /// Il lettore con lo stile vero dell'app (`markdown_style::style`), nel tema `dark`.
+    fn open_themed(source: &str, dark: bool) -> Runtime<Doc> {
+        let mut state = Doc::new(crate::index::Library::load(Vec::new(), None), dark);
+        state.style = crate::ui::markdown_style::style(&crate::ui::theme::Theme::for_mode(dark), crate::ui::theme::BODY_TEXT);
+        state.push_tab(Document::from_source(Path::new("t.md"), source));
+        let mut rt = Runtime::new(state, crate::view, VIEWPORT, Env::new(dark, 2.0));
+        rt.frame(0.0);
+        settle(&mut rt);
+        rt
+    }
+
+    fn figures(rt: &Runtime<Doc>) -> Vec<String> {
+        rt.elements().into_iter().filter(|e| e.role == "figure").filter_map(|e| e.label).collect()
+    }
+
+    fn has_source_block(rt: &Runtime<Doc>) -> bool {
+        rt.elements().iter().any(|e| e.key.as_deref() == Some("source"))
+    }
+
+    /// I blocchi ```mermaid di `fixtures/mermaid.md` si disegnano (un flowchart e un
+    /// sequence, in tutti e due i temi); quello non valido resta un blocco di codice.
+    #[test]
+    fn mermaid_fences_draw_as_diagrams_and_an_unknown_one_stays_code() {
+        let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/mermaid.md")).unwrap();
+        for dark in [true, false] {
+            let rt = open_themed(&src, dark);
+            assert_eq!(figures(&rt), ["Flowchart", "Sequence diagram"], "dark={dark}");
+            assert!(has_source_block(&rt), "il blocco non valido resta codice, dark={dark}");
+        }
+    }
+
+    /// Sorgenti vuote, spezzate o enormi non vanno in panic e non bloccano la vista: o si
+    /// disegnano, o restano il blocco di codice com'erano.
+    #[test]
+    fn broken_and_huge_mermaid_never_panic() {
+        let huge_graph = format!("flowchart TD\n{}", (0..3000).map(|i| format!("  N{i} --> N{}\n", i + 1)).collect::<String>());
+        let big_but_drawable = format!("flowchart TD\n{}", (0..70).map(|i| format!("  N{i} --> N{}\n  N{i} --> M{i}\n", i + 1)).collect::<String>());
+        let sources = [
+            String::new(),
+            big_but_drawable,
+            "graph".to_owned(),
+            "flowchart TD\n  A -->".to_owned(),
+            "sequenceDiagram\n  A->>".to_owned(),
+            "pie\n  \"a\" : x".to_owned(),
+            "flowchart LR\n  A[\n".to_owned(),
+            "\u{0}\u{1f600}".to_owned(),
+            huge_graph,
+        ];
+        for body in sources {
+            let doc = format!("# t\n\n```mermaid\n{body}\n```\n\nfine\n");
+            let t = std::time::Instant::now();
+            let rt = open_themed(&doc, true);
+            let drawn = !figures(&rt).is_empty();
+            assert!(drawn || has_source_block(&rt), "né disegno né codice per {:?}", body.chars().take(30).collect::<String>());
+            println!("mermaid {:>6} byte: {} in {:?}", body.len(), if drawn { "disegnato" } else { "codice" }, t.elapsed());
+        }
+    }
+
+    /// Due schede con lo stesso diagramma non si pestano: ognuna ha il suo, e cambiando scheda
+    /// il diagramma resta quello della scheda.
+    #[test]
+    fn the_same_diagram_in_two_tabs_draws_in_each() {
+        let one = "```mermaid\nflowchart LR\n  A --> B\n```\n";
+        let mut rt = open_themed(one, true);
+        rt.update(|s, _| s.push_tab(Document::from_source(Path::new("b.md"), one)));
+        settle(&mut rt);
+        assert_eq!(figures(&rt), ["Flowchart"]);
+        cmd(&mut rt, 'w');
+        settle(&mut rt);
+        assert_eq!(figures(&rt), ["Flowchart"]);
+    }
 }

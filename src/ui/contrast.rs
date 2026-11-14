@@ -10,19 +10,9 @@ use rune::Color;
 
 use super::theme::{Theme, focus_ring};
 
-/// Da lineare a sRGB codificato e ritorno (IEC 61966-2-1).
-fn encode(c: f32) -> f32 {
-    if c <= 0.003_130_8 { 12.92 * c } else { 1.055 * c.powf(1.0 / 2.4) - 0.055 }
-}
-
-fn decode(c: f32) -> f32 {
-    if c <= 0.040_45 { c / 12.92 } else { ((c + 0.055) / 1.055).powf(2.4) }
-}
-
 /// `fg` composto su `bg` (opaco) in sRGB codificato.
 pub fn over(fg: Color, bg: Color) -> Color {
-    let mix = |f: f32, b: f32| decode(encode(f) * fg.a + encode(b) * (1.0 - fg.a));
-    Color { r: mix(fg.r, bg.r), g: mix(fg.g, bg.g), b: mix(fg.b, bg.b), a: 1.0 }
+    super::theme::flatten(fg, bg)
 }
 
 /// Rapporto di contrasto WCAG 2 fra `fg` composto su `bg` e `bg`.
