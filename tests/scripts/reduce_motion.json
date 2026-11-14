@@ -1,0 +1,5 @@
+[
+ {"t": 1.0, "type": "mark", "name": "ready"},
+ {"t": 2.2, "type": "mark", "name": "lit"},
+ {"t": 3.0, "type": "mark", "name": "later"}
+]

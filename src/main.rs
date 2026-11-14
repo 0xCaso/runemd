@@ -16,7 +16,8 @@
 //! Le impostazioni (Cmd+,) stanno in `~/Library/Application Support/RuneMD/prefs.json`
 //! (`settings`). `RUNEMD_ROOTS=dir1:dir2` sostituisce le cartelle osservate e fa girare l'app con
 //! impostazioni in memoria, che non si leggono né si salvano (prove e misure);
-//! `RUNEMD_THEME=light|dark` vince sul tema scelto; `RUNE_DIRS_ROOT` sposta la cache dell'indice
+//! `RUNEMD_THEME=light|dark` vince sul tema scelto; `RUNEMD_REDUCE_MOTION=1|0` vince su "riduci
+//! movimento" di sistema (headless Rune non la legge); `RUNE_DIRS_ROOT` sposta la cache dell'indice
 //! e le impostazioni.
 
 mod app;
@@ -72,7 +73,10 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
     // Il tema delle impostazioni (Sistema, Chiaro, Scuro): cambia dal vivo, la vista rigira.
     let dark = s.dark(cx.system_dark());
     let theme = ui::theme::Theme::for_mode(dark);
-    let reduced = cx.is_reduced_motion();
+    // "Riduci movimento": la preferenza di macOS, o `RUNEMD_REDUCE_MOTION`. L'override va anche a
+    // Rune, così le sue transizioni (hover, scala premuta, scroll) seguono gli effetti.
+    let reduced = s.reduced_motion(cx.system_reduced_motion());
+    cx.reduced_motion(reduced);
     // Il fuoco della tastiera come quello di Rune (3 pt, attaccato al bordo), ma pieno
     // (e un po' più scuro nel tema chiaro).
     let focus = ui::theme::focus_ring(cx.focus_color(), dark);

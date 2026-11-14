@@ -303,6 +303,9 @@ pub struct App {
     pub(crate) settings_panel: ui::settings::Panel,
     /// `RUNEMD_THEME` (`light` o `dark`), letto una volta all'avvio: vince sul tema scelto.
     theme_env: Option<bool>,
+    /// `RUNEMD_REDUCE_MOTION` (`1` o `0`), letto una volta all'avvio: vince sulla preferenza di
+    /// sistema "riduci movimento".
+    motion_env: Option<bool>,
     pub(crate) scroll: Option<probe::ScrollRun>,
     /// Watcher, "sta scrivendo" e scritture dell'app, per tutte le schede.
     pub(crate) live: Live,
@@ -339,6 +342,7 @@ impl App {
                 Ok("dark") => Some(true),
                 _ => None,
             },
+            motion_env: crate::fx::reduce_motion_env(std::env::var("RUNEMD_REDUCE_MOTION").ok().as_deref()),
             scroll: None,
             live: Live::default(),
             rings: BTreeMap::new(),
@@ -373,6 +377,11 @@ impl App {
     /// e le prove) vince sulle impostazioni, che vincono sul sistema.
     pub fn dark(&self, system_dark: bool) -> bool {
         self.theme_env.unwrap_or_else(|| self.settings.theme.dark(system_dark))
+    }
+
+    /// "Riduci movimento" di adesso, data la preferenza di sistema: `RUNEMD_REDUCE_MOTION` vince.
+    pub fn reduced_motion(&self, system: bool) -> bool {
+        crate::fx::reduce_motion(self.motion_env, system)
     }
 
     /// Salva le impostazioni; un errore si dice sul terminale e il valore resta per questa sessione.
@@ -1028,6 +1037,18 @@ mod tests {
 
     fn app_with_root(root: &Path) -> App {
         App::bare(index::Library::load(vec![root.to_path_buf()], None))
+    }
+
+    /// "Riduci movimento": la preferenza di sistema, salvo `RUNEMD_REDUCE_MOTION`.
+    #[test]
+    fn reduced_motion_follows_the_system_unless_the_env_says_otherwise() {
+        let mut app = empty_app();
+        app.motion_env = None;
+        assert!(app.reduced_motion(true) && !app.reduced_motion(false));
+        app.motion_env = Some(true);
+        assert!(app.reduced_motion(false), "RUNEMD_REDUCE_MOTION=1");
+        app.motion_env = Some(false);
+        assert!(!app.reduced_motion(true), "RUNEMD_REDUCE_MOTION=0");
     }
 
     #[test]
