@@ -213,6 +213,8 @@ disegna ogni frame con `FxRenderer`, più `El::effect(mark)` sugli elementi.
 
 - **Cerca (Cmd+F)**: `markdown::find`, Invio e Maiusc+Invio tra i risultati.
 - **Apri veloce (Cmd+P)**: fuzzy di `rune-kit/src/combobox.rs` sui nomi dell'indice.
+- **Frontmatter YAML** (v1.1): al byte 0, chiuso da `---` o `...`, è un blocco di metadati quieto in lettura,
+  fuori dall'indice; il sorgente non cambia (DESIGN.md, "Frontmatter").
 - **Indice dei titoli**: H1–H3 a destra; evidenziato il titolo della sezione visibile; un clic scorre.
 - **Font**: famiglia e dimensione del corpo. Prima Inter, New York, SF Pro; poi l'elenco dei font installati via
   CoreText (Rune non lo espone).

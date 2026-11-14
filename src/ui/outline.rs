@@ -44,7 +44,8 @@ pub fn scan(doc: &Document) -> Vec<Heading> {
     doc.blocks
         .iter()
         .enumerate()
-        .filter(|(_, b)| maybe_heading(&b.source))
+        // Il frontmatter (solo il primo blocco) non è un titolo, anche se finisce con `---`.
+        .filter(|(i, b)| maybe_heading(&b.source) && !(*i == 0 && crate::doc::frontmatter::is_block(&b.source)))
         .filter_map(|(index, b)| {
             let (level, text) = heading(&b.source)?;
             (level <= DEEPEST).then_some(Heading { level, text, id: b.id, index })
@@ -268,6 +269,12 @@ mod tests {
     fn a_hash_inside_a_fence_is_not_a_heading() {
         let src = "# Vero\n\n```sh\n# commento\n## altro\n```\n\n~~~\n# anche\n~~~\n";
         assert_eq!(levels_and_text(src), [(1, "Vero".to_owned())]);
+    }
+
+    #[test]
+    fn frontmatter_is_not_a_heading() {
+        let src = "---\ntitle: Il mio file\ndescription: Una riga\n---\n\n# Titolo vero\n";
+        assert_eq!(levels_and_text(src), [(1, "Titolo vero".to_owned())]);
     }
 
     #[test]

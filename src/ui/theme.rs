@@ -142,6 +142,11 @@ pub struct Theme {
 }
 
 impl Theme {
+    /// Il blocco del frontmatter YAML: testo `fg2` su `sel` a metà (più quieto del codice).
+    pub fn meta(&self) -> crate::ui::doc_view::Meta {
+        crate::ui::doc_view::Meta { text: self.fg2, fill: self.sel.alpha(self.sel.a * 0.5) }
+    }
+
     pub fn for_mode(dark: bool) -> Theme {
         if dark {
             Theme {

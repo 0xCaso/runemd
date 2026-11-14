@@ -208,6 +208,7 @@ linee solo decorative e i riempimenti. I test falliscono se un minimo non è ris
 | Impostazioni: riga del fuoco (`fg-2`) su panel + `sel` (hover) | — | 8,30 | — | 9,38 | 4,5 |
 | Impostazioni: "Già osservata" (`fg-2`) su panel | — | 11,19 | — | 10,71 | 4,5 |
 | Etichetta del fuoco spento (`fg-2`) su panel | — | 11,19 | — | 10,71 | 4,5 |
+| Frontmatter (`fg-2`) su panel + `sel` a metà | — | 9,89 | — | 10,03 | 4,5 |
 | `line` su panel (linee decorative) | 1,19 | 1,44 | 1,22 | 1,22 | — |
 | `line` su vetro (bordo dei campi) | 1,28 | 1,55 | 1,21 | 1,21 | — |
 | `sel` su panel | 1,23 | 1,35 | 1,14 | 1,14 | — |
@@ -338,6 +339,12 @@ evidenziato anche se non arriva in cima, finché si vede e non si scorre a mano.
 l'ultimo titolo che si vede: le sezioni corte in fondo non arrivano mai in cima. Se l'indice è più alto
 della finestra scorre da solo e l'evidenziato resta in vista. Un file senza titoli non ha la colonna. Nel sorgente
 (⌘E) l'indice non c'è: i blocchi a cui porta non esistono lì e i titoli cambiano mentre si scrive.
+
+**Frontmatter.** Un file che comincia al byte 0 con una riga `---` e ha una riga di chiusura `---` o `...`
+(`doc::frontmatter`) mostra in lettura il YAML fra le due righe come un solo blocco di metadati: mono 12 (UI
+piccola), testo `fg-2`, riempimento `sel` a metà, raggio 6, margine interno 12 × 10, nella colonna come un
+blocco di codice ma più quieto. L'indice dei titoli non lo elenca; il sorgente (⌘E) resta il file com'è. Senza
+riga di chiusura è Markdown normale (riga orizzontale, paragrafi).
 
 **Riga di avviso (sorgente).** Sotto la barra delle schede, sopra il sorgente: alta 44 (`tab-bar`), testo UI
 13 px in `fg` allineato a quello del sorgente, bottoni a destra come schede in secondo piano (alti 28, `row-pad`

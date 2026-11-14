@@ -3,5 +3,6 @@
 pub mod blocks;
 pub mod disk;
 pub mod document;
+pub mod frontmatter;
 pub mod ids;
 pub mod select_all;

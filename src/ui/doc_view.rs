@@ -11,13 +11,13 @@ use std::ops::Range;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use rune::{Color, El, GrowthSpec, Key, KeyEvent, ScrollSpec, SelectedText, TextSelection, col, el};
+use rune::{Color, El, Family, GrowthSpec, Key, KeyEvent, ScrollSpec, SelectedText, TextSelection, TextStyle, col, el};
 use rune_kit::MarkdownStyle;
 
 use crate::doc::document::{Block, Document};
 use crate::doc::select_all::{End, Ends, SelectAll, SelectAllFlag};
 
-use super::theme::{CHANGED_MARK_W, CHANGED_MARK_X, COLUMN, ROW_PAD_X, ROW_PAD_Y};
+use super::theme::{CHANGED_MARK_W, CHANGED_MARK_X, COLUMN, R_ROW, ROW_PAD_X, ROW_PAD_Y, UI_SMALL, UI_WEIGHT};
 
 /// Altezza dello spazio sotto l'ultima riga: ci sta il dither "sta arrivando".
 pub(super) const BOTTOM: f32 = 48.0;
@@ -38,6 +38,16 @@ pub struct Signals<S> {
     /// Dove sono la vista e la pagina del documento `id` (ognuna dal suo `on_layout`): servono a
     /// sapere se lo scroll è in fondo. Vero se la vista deve rigirare.
     pub edge: fn(&mut S, u64, Edge) -> bool,
+    /// I colori del blocco del frontmatter YAML: testo (`fg2`) e riempimento.
+    pub meta: Meta,
+}
+
+/// Il blocco del frontmatter YAML in lettura (DESIGN.md, "Frontmatter"): monospaziato, piccolo,
+/// testo `text` su `fill`, come un blocco di codice ma più quieto.
+#[derive(Clone, Copy, Debug)]
+pub struct Meta {
+    pub text: Color,
+    pub fill: Color,
 }
 
 /// Un rettangolo della vista del documento, in punti della finestra.
@@ -97,6 +107,7 @@ pub fn view<S: 'static>(s: &S, doc_of: fn(&S) -> &Document, style: &MarkdownStyl
             60.0,
             move |s: &S, i| Cow::Owned(row_key(i, doc_of(s))),
             move |s: &S, i| match doc_of(s).blocks.get(i) {
+                Some(b) if i == 0 && crate::doc::frontmatter::is_block(&b.source) => frontmatter_row(&b.source, signals.meta),
                 Some(b) => {
                     let hits = (signals.hits)(s, b, &row_key(i, doc_of(s)));
                     block_row(&b.source, &style, (signals.marked)(s, b.id).then_some(signals.mark), hits)
@@ -232,6 +243,21 @@ fn row_id(path: &str, generation: u64) -> Option<u64> {
     let prefix = format!("{generation:x}-");
     path.split('/').find_map(|seg| u64::from_str_radix(seg.strip_prefix(&prefix)?, 16).ok())
 }
+
+/// Il frontmatter YAML: il testo fra le due righe `---`, così com'è, in un blocco di metadati
+/// (`UI_SMALL` mono in `meta.text` su `meta.fill`, raggio `R_ROW`). Selezionabile come il resto:
+/// la copia dà il sorgente del blocco, `---` compresi.
+fn frontmatter_row(source: &str, meta: Meta) -> El {
+    let body = source.split_once('\n').map_or("", |(_, rest)| rest);
+    let body = body.rsplit_once('\n').map_or("", |(yaml, _)| yaml);
+    let text = rune::text(body.to_owned()).font(TextStyle::new(UI_SMALL, UI_WEIGHT).family(Family::Mono)).color(meta.text).wrap().w_full().selectable(true);
+    let block = col().key("frontmatter").w_full().fill(meta.fill).radius(R_ROW).px(FRONTMATTER_PAD_X).py(FRONTMATTER_PAD_Y).child(text);
+    col().w_full().px(ROW_PAD_X).py(ROW_PAD_Y).child(block)
+}
+
+/// Il margine interno del blocco del frontmatter.
+const FRONTMATTER_PAD_X: f32 = 12.0;
+const FRONTMATTER_PAD_Y: f32 = 10.0;
 
 /// Una riga del documento, con i segni di Cerca `hits`; con `mark` ha il segno "cosa è cambiato"
 /// nel margine sinistro, fuori dal flusso (il testo non si sposta), alto quanto il testo del blocco.
@@ -582,6 +608,21 @@ mod tests {
         assert_eq!(mark[0][2], crate::ui::theme::CHANGED_MARK_W);
         assert!(mark[0][0] > row[0] && mark[0][0] + mark[0][2] < row[0] + crate::ui::theme::ROW_PAD_X, "nel margine sinistro");
         assert!(mark[0][1] > row[1] && mark[0][1] + mark[0][3] < row[1] + row[3], "dentro la riga");
+    }
+
+    /// Il frontmatter YAML in lettura: un blocco di metadati (chiave `frontmatter`) col testo così
+    /// com'è, in `fg2`; senza chiusura resta Markdown.
+    #[test]
+    fn frontmatter_reads_as_one_muted_metadata_block() {
+        let rt = open("---\nname: RuneMD\ndescription: Lettore\n---\n\n# Titolo\n\nTesto.\n");
+        let els = rt.elements();
+        let meta: Vec<_> = els.iter().filter(|e| e.key.as_deref() == Some("frontmatter") && !e.exiting).collect();
+        assert_eq!(meta.len(), 1, "un blocco di metadati");
+        let theme = crate::ui::theme::Theme::for_mode(true);
+        let text = els.iter().find(|e| e.text.as_deref() == Some("name: RuneMD\ndescription: Lettore")).expect("il YAML così com'è, senza i ---");
+        assert_eq!(text.text_color, Some(theme.fg2));
+        let rt = open("---\nname: RuneMD\n\nTesto.\n");
+        assert!(!rt.elements().iter().any(|e| e.key.as_deref() == Some("frontmatter")), "senza chiusura: Markdown");
     }
 
     #[test]
