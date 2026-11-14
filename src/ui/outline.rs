@@ -139,6 +139,12 @@ pub struct Cache {
 type Version = (u64, u64, u64);
 
 impl Cache {
+    /// Se i titoli sono già stati calcolati (i test: con l'indice nascosto non si calcolano).
+    #[cfg(test)]
+    pub fn scanned(&self) -> bool {
+        self.cell.borrow().is_some()
+    }
+
     pub fn get(&self, doc: &Document) -> Rc<[Heading]> {
         let version = super::doc_view::rows_version(doc);
         let mut cell = self.cell.borrow_mut();
@@ -190,8 +196,8 @@ pub fn view(tab: &Tab, hooks: Hooks<App>, theme: &Theme, reduced: bool, hover: b
             },
         )
         .virtual_rows_version(super::doc_view::rows_version(&tab.doc));
-    let label = text(LABEL).key("outline-label").font(sidebar::small_font()).color(theme.fg3).px(OUTLINE_ROW_PAD).pb(OUTLINE_LABEL_GAP);
-    let list = col().key(format!("outline-{doc:x}")).w_full().grow(1.0).min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(rows);
+    let label = text(LABEL).key(format!("outline-label-{doc:x}")).font(sidebar::small_font()).color(theme.fg3).px(OUTLINE_ROW_PAD).pb(OUTLINE_LABEL_GAP);
+    let list = col().key(format!("outline-list-{doc:x}")).w_full().grow(1.0).min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(rows);
     let column = col()
         .w(OUTLINE_W - HAIRLINE)
         .h_full()
@@ -202,7 +208,8 @@ pub fn view(tab: &Tab, hooks: Hooks<App>, theme: &Theme, reduced: bool, hover: b
         .label(LABEL)
         .child(label)
         .child(list);
-    let mut outline = row().key("outline").h_full().child(el().key("outline-line").w(HAIRLINE).h_full().fill(theme.line)).child(column);
+    let mut outline =
+        row().key(format!("outline-{doc:x}")).h_full().child(el().key(format!("outline-line-{doc:x}")).w(HAIRLINE).h_full().fill(theme.line)).child(column);
     // In un indice più alto della finestra l'evidenziato non deve uscire dalla vista. Le righe
     // virtuali di Rune non hanno `reveal_selected` (vale solo per `virtualize` con i figli): un
     // segnaposto vuoto con la chiave del titolo evidenziato nasce a ogni cambio, e il suo primo
@@ -210,7 +217,7 @@ pub fn view(tab: &Tab, hooks: Hooks<App>, theme: &Theme, reduced: bool, hover: b
     // riga virtuale non costruita).
     if let Some(h) = on.and_then(|i| keys.get(i)) {
         let target = row_key(doc, h.id);
-        let scope = format!("outline-{doc:x}");
+        let scope = format!("outline-list-{doc:x}");
         let marker = el().key(format!("outline-reveal-{doc:x}-{:x}", h.id)).pin(Some(0.0), Some(0.0), None, None).w(0.0).h(0.0).a11y_hidden();
         outline = outline.child(marker.on_layout_tx(move |_: &mut App, _, tx: &mut Tx| tx.scroll_into_view_in(scope.clone(), target.clone())));
     }
@@ -372,6 +379,11 @@ mod tests {
         rt
     }
 
+    /// La chiave di un elemento dell'indice della scheda davanti: `outline`, `outline-line`...
+    fn ok(rt: &Runtime<App>, name: &str) -> String {
+        format!("{name}-{:x}", rt.state.tab().unwrap().doc.id)
+    }
+
     fn keyed(rt: &Runtime<App>, key: &str) -> Option<[f32; 4]> {
         rt.elements().into_iter().find(|e| !e.exiting && e.key.as_deref() == Some(key)).map(|e| e.rect)
     }
@@ -403,9 +415,9 @@ mod tests {
     #[test]
     fn a_wide_window_shows_the_outline_beside_the_document() {
         let rt = open_at(&sample(), WIDE);
-        let outline = keyed(&rt, "outline").expect("indice");
+        let outline = keyed(&rt, &ok(&rt, "outline")).expect("indice");
         assert_eq!(outline[2], OUTLINE_W);
-        let line = keyed(&rt, "outline-line").unwrap();
+        let line = keyed(&rt, &ok(&rt, "outline-line")).unwrap();
         assert_eq!((line[0], line[2]), (outline[0], HAIRLINE));
         let doc = keyed(&rt, "doc").unwrap();
         assert!((doc[0] + doc[2] - outline[0]).abs() < 0.5, "a destra del documento: {doc:?} {outline:?}");
@@ -419,15 +431,15 @@ mod tests {
         let w = super::super::theme::OUTLINE_MIN_WINDOW;
         assert_eq!(w, 248.0 + 680.0 + 200.0);
         let rt = open_at(&sample(), (w - 1.0, 800.0));
-        assert!(keyed(&rt, "outline").is_none());
+        assert!(keyed(&rt, &ok(&rt, "outline")).is_none());
         let rt = open_at(&sample(), (w, 800.0));
-        assert!(keyed(&rt, "outline").is_some());
+        assert!(keyed(&rt, &ok(&rt, "outline")).is_some());
     }
 
     #[test]
     fn a_file_without_headings_has_no_outline() {
         let rt = open_at("solo testo\n\naltro testo\n", WIDE);
-        assert!(keyed(&rt, "outline").is_none());
+        assert!(keyed(&rt, &ok(&rt, "outline")).is_none());
     }
 
     /// Un clic su un titolo lontano (riga non montata) lo porta in cima alla vista e lo evidenzia.
@@ -457,8 +469,10 @@ mod tests {
             assert_eq!(h.len(), 1, "un solo titolo evidenziato: {h:?}");
             let tab = rt.state.tab().unwrap();
             let items = tab.outline.get(&tab.doc);
-            let first = tab.doc.blocks.iter().position(|b| b.id == tab.visible_first).unwrap();
-            let want = &items[active(&items, first).unwrap()].text;
+            // In fondo vale l'ultimo titolo che si vede, altrimenti la sezione in cima.
+            let shown = if tab.at_bottom { tab.visible_last } else { tab.visible_first };
+            let i = tab.doc.blocks.iter().position(|b| b.id == shown).unwrap();
+            let want = &items[active(&items, i).unwrap()].text;
             assert_eq!(&h[0], want, "allo scroll {step}");
             if seen.last() != Some(want) {
                 seen.push(want.clone());
@@ -494,7 +508,7 @@ mod tests {
         rt.key(KeyEvent { key: Key::Command('e'), mods: Mods { cmd: true, logo: true, ..Mods::default() } });
         settle(&mut rt);
         assert!(matches!(rt.state.tab().unwrap().mode, crate::app::Mode::Source(_)));
-        assert!(keyed(&rt, "outline").is_none());
+        assert!(keyed(&rt, &ok(&rt, "outline")).is_none());
     }
 
     /// I rientri: H1 a sinistra, H2 rientrato di `OUTLINE_INDENT`, H3 del doppio.
@@ -518,7 +532,7 @@ mod tests {
         let els = rt.elements();
         let on = els.iter().find(|e| !e.exiting && e.path.contains("outline-rows-") && e.text_color == Some(fg)).expect("evidenziato montato");
         let doc = rt.state.tab().unwrap().doc.id;
-        let list = keyed(&rt, &format!("outline-{doc:x}")).unwrap();
+        let list = keyed(&rt, &format!("outline-list-{doc:x}")).unwrap();
         assert!(on.rect[1] >= list[1] - 0.5 && on.rect[1] + on.rect[3] <= list[1] + list[3] + 0.5, "{:?} fuori da {list:?}", on.rect);
     }
 
@@ -541,5 +555,94 @@ mod tests {
             ms.sort_by(f64::total_cmp);
             eprintln!("{name}: {} byte, {} blocchi, {} titoli, scan p50 {:.2} ms, max {:.2} ms", src.len(), d.blocks.len(), scan(&d).len(), ms[10], ms[19]);
         }
+    }
+
+    /// Il primo blocco visibile (id) e il suo scarto dal bordo alto della vista del documento.
+    fn anchor(rt: &Runtime<App>) -> (u64, f32) {
+        let tab = rt.state.tab().unwrap();
+        let i = tab.doc.blocks.iter().position(|b| b.id == tab.visible_first).unwrap();
+        let row = keyed(rt, &crate::ui::doc_view::row_key(i, &tab.doc)).unwrap();
+        (tab.visible_first, row[1] - keyed(rt, "doc").unwrap()[1])
+    }
+
+    fn resize(rt: &mut Runtime<App>, w: f32) {
+        rt.set_viewport((w, WIDE.1), 2.0);
+        settle(rt);
+    }
+
+    /// La finestra passa sotto e sopra 1128 pt: l'indice sparisce e torna, il documento resta
+    /// dov'era (stesso primo blocco, stesso scarto) e così lo stato della sua vista.
+    #[test]
+    fn resizing_across_the_threshold_keeps_the_document_in_place() {
+        let mut rt = open_at(&sample(), WIDE);
+        rt.update(|_, tx| tx.scroll_to_instant("doc", 0.0, 3000.0));
+        settle(&mut rt);
+        let before = anchor(&rt);
+        assert!(before.1 < -1.0, "il bordo taglia il primo blocco: {before:?}");
+        let min = super::super::theme::OUTLINE_MIN_WINDOW;
+        for (w, shown) in [(min - 30.0, false), (min + 150.0, true), (min - 1.0, false), (WIDE.0, true)] {
+            resize(&mut rt, w);
+            assert_eq!(keyed(&rt, &ok(&rt, "outline")).is_some(), shown, "indice a {w}");
+            let now = anchor(&rt);
+            assert_eq!(now.0, before.0, "a {w}: primo blocco");
+            assert!((now.1 - before.1).abs() <= 1.0, "a {w}: scarto {} → {}", before.1, now.1);
+        }
+    }
+
+    /// Un file che finisce con sezioni corte: in fondo lo scroll non può portarle in cima.
+    fn short_tail() -> String {
+        format!("{}\n\n## Penultima\n\nbreve\n\n## Ultima\n\nbreve\n", sample().trim_end())
+    }
+
+    /// Con lo scroll in fondo è evidenziato l'ultimo titolo che si vede.
+    #[test]
+    fn at_the_bottom_the_last_visible_heading_is_highlighted() {
+        let mut rt = open_at(&short_tail(), WIDE);
+        rt.update(|_, tx| tx.scroll_to_instant("doc", 0.0, 1.0e9));
+        settle(&mut rt);
+        assert_eq!(highlighted(&rt), ["Ultima"]);
+        // Più su (non più in fondo) torna la regola della sezione in cima.
+        rt.update(|_, tx| tx.scroll_to_instant("doc", 0.0, 3000.0));
+        settle(&mut rt);
+        assert_ne!(highlighted(&rt), ["Ultima"]);
+    }
+
+    /// Un file che sta tutto nella finestra non è "in fondo": resta evidenziato il primo titolo.
+    #[test]
+    fn a_file_that_fits_highlights_its_first_heading() {
+        let rt = open_at("# Uno\n\nbreve\n\n## Due\n\nbreve\n", WIDE);
+        assert_eq!(highlighted(&rt), ["Uno"]);
+    }
+
+    /// Un clic su un titolo che non può arrivare in cima: è evidenziato quello cliccato, finché
+    /// non si scorre a mano.
+    #[test]
+    fn a_clicked_heading_is_highlighted_even_if_it_cannot_reach_the_top() {
+        let mut rt = open_at(&short_tail(), WIDE);
+        let (key, _) = heading_key(&rt, "Penultima");
+        // la riga dell'indice va in vista prima del clic
+        let doc = rt.state.tab().unwrap().doc.id;
+        rt.update(|_, tx| tx.scroll_into_view_in(format!("outline-list-{doc:x}"), key.clone()));
+        settle(&mut rt);
+        click(&mut rt, &key);
+        assert_eq!(highlighted(&rt), ["Penultima"]);
+        rt.update(|_, tx| tx.scroll_to_instant("doc", 0.0, 2000.0));
+        settle(&mut rt);
+        assert_ne!(highlighted(&rt), ["Penultima"], "uno scroll a mano torna alla regola");
+    }
+
+    /// Con l'indice nascosto (finestra stretta) lo scroll non calcola i titoli.
+    #[test]
+    fn a_hidden_outline_costs_nothing_while_scrolling() {
+        let mut rt = open_at(&short_tail(), (1000.0, 800.0));
+        for step in 1..20 {
+            rt.update(|_, tx| tx.scroll_to_instant("doc", 0.0, step as f32 * 400.0));
+            settle(&mut rt);
+        }
+        rt.update(|_, tx| tx.scroll_to_instant("doc", 0.0, 1.0e9));
+        settle(&mut rt);
+        assert!(!rt.state.tab().unwrap().outline.scanned(), "titoli calcolati con l'indice nascosto");
+        resize(&mut rt, WIDE.0);
+        assert_eq!(highlighted(&rt), ["Ultima"], "e quando l'indice compare è già giusto");
     }
 }

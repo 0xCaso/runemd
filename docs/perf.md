@@ -169,6 +169,19 @@ la colonna senza righe il costo torna al "prima" (p50 0,43–0,45, p95 2,45–2,
 senza hover e pressione cambiano il numero, e nemmeno togliere il segnaposto che tiene in vista l'evidenziato.
 Il frame resta sotto 3 ms al p95 (budget 8,3 ms a 120 Hz). Con la finestra stretta non cambia niente.
 
+Fix round 1 (albero stabile attraverso la soglia, "in fondo" da `on_layout` della pagina con `live_only`,
+titoli calcolati solo con l'indice visibile), stesso comando, load average 17–21:
+
+| finestra | build | p50 | p95 | max |
+|---|---|---|---|---|
+| 1280×800 | prima (3 corse) | 0,43–0,44 | 2,39–2,51 | 3,38–3,57 |
+| 1280×800 | dopo il fix (3 corse) | 0,60–0,64 | 2,80–3,00 | 4,21–5,12 |
+| 900×800 | prima (2 corse) | 0,42 | 2,32–2,36 | 3,55–3,74 |
+| 900×800 | dopo il fix (2 corse) | 0,42–0,43 | 2,40–2,43 | 3,71–3,89 |
+
+Come prima del fix: il costo resta quello delle righe montate dell'indice; il gestore della pagina, chiamato a
+ogni frame di scroll, non si vede nei numeri.
+
 ## Titoli all'apertura e a ogni ricarica
 
 `cargo test --profile perf outline_cost -- --ignored --nocapture` (`src/ui/outline.rs`, 20 giri): la scansione

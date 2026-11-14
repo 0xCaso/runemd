@@ -36,6 +36,18 @@ pub struct Signals<S> {
     pub tail: Option<El>,
     /// I segni di Cerca del blocco, la cui riga ha la chiave data (`ui::find`).
     pub hits: fn(&S, &Block, &str) -> super::find::Marks,
+    /// Dove sono la vista e la pagina del documento `id` (ognuna dal suo `on_layout`): servono a
+    /// sapere se lo scroll è in fondo. Vero se la vista deve rigirare.
+    pub edge: fn(&mut S, u64, Edge) -> bool,
+}
+
+/// Un rettangolo della vista del documento, in punti della finestra.
+#[derive(Clone, Copy, Debug)]
+pub enum Edge {
+    /// La vista che scorre (`doc`): cambia solo con la finestra.
+    Viewport([f32; 4]),
+    /// La pagina dentro la vista: si muove a ogni frame di scroll.
+    Page([f32; 4]),
 }
 
 /// Chiave della riga `i`: id del documento + id del blocco. Gli id dei blocchi ripartono da 1 a
@@ -99,8 +111,19 @@ pub fn view<S: 'static>(s: &S, doc_of: fn(&S) -> &Document, style: &MarkdownStyl
     if let Some(bar) = signals.tail {
         bottom = bottom.child(col().key("arriving").w_full().max_w(COLUMN).self_center().px(ROW_PAD_X).child(bar));
     }
-    let page = col().w_full().child(el().h(TOP)).child(rows).child(bottom);
-    let scroll = col().key("doc").w_full().h_full().scroll(ScrollSpec { stick_bottom: false }).child(page);
+    let edge = signals.edge;
+    // Gli `on_layout` dicono solo dove sono vista e pagina: la vista rigira solo se cambia ciò
+    // che mostra (`live_only` altrimenti), non a ogni frame di scroll.
+    let page = col().w_full().child(el().h(TOP)).child(rows).child(bottom).on_layout_tx(move |s: &mut S, r, tx: &mut rune::Tx| {
+        if !edge(s, generation, Edge::Page(r)) {
+            tx.live_only();
+        }
+    });
+    let scroll = col().key("doc").w_full().h_full().scroll(ScrollSpec { stick_bottom: false }).child(page).on_layout_tx(move |s: &mut S, r, tx: &mut rune::Tx| {
+        if !edge(s, generation, Edge::Viewport(r)) {
+            tx.live_only();
+        }
+    });
     el().key(format!("tab-{generation:x}")).w_full().grow(1.0).min_h(0.0).child(scroll)
 }
 

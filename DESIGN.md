@@ -186,8 +186,8 @@ linee solo decorative e i riempimenti. I test falliscono se un minimo non è ris
 | `fg-3` su vetro | 4,26 | 4,76 | 4,89 | 4,89 | 4,5 |
 | `fg-2` su vetro | 6,32 | 6,77 | 7,13 | 7,13 | 4,5 |
 | Nome doppio della riga scelta su vetro + `sel` (`fg-3` prima, `fg-2` dopo) | 3,22 | 4,66 | 4,30 | 6,28 | 4,5 |
-| Titolo evidenziato dell'indice (`fg`) su panel + `sel` (hover) | 13,75 | 12,53 | 14,94 | 14,94 | 4,5 |
-| Titoli dell'indice (`fg-2`) su panel + `sel` (hover) | 8,52 | 8,30 | 9,38 | 9,38 | 4,5 |
+| Titolo evidenziato dell'indice (`fg`) su panel + `sel` (hover) | — | 12,53 | — | 14,94 | 4,5 |
+| Titoli dell'indice (`fg-2`) su panel + `sel` (hover) | — | 8,30 | — | 9,38 | 4,5 |
 | `mark` su panel (anello dei risultati di Cerca, segno "cambiato") | 1,19 | 3,89 | 1,22 | 3,52 | 3 |
 | `mark` su `sel` (anello di Cerca, lato interno) | 1,27 | 3,34 | 1,22 | 3,27 | 3 |
 | Anello del risultato attivo su `sel` (`fg-3` prima, `fg-2` dopo) | 5,73 | 8,30 | 6,42 | 9,38 | 3 |
@@ -298,7 +298,9 @@ margine della colonna più 6 dentro la riga, `outline-row-pad`, che lascia spazi
 più alto del file rientra di 10 (`outline-indent`). Il titolo della sezione che si legge (l'ultimo sopra il primo
 blocco visibile) è in `fg` e peso 600: colore e peso insieme, perché `fg` e `fg-2` da soli si distinguono poco nel
 tema scuro. Nessun segno né accento. Hover `sel`, scala 0,98 premuta, come le righe della sidebar. Un clic porta il
-titolo in cima alla vista, senza planata (come Cerca: la riga può non essere montata). Se l'indice è più alto
+titolo in cima alla vista, senza planata (come Cerca: la riga può non essere montata), e quel titolo resta
+evidenziato anche se non arriva in cima, finché si vede e non si scorre a mano. Con lo scroll in fondo è evidenziato
+l'ultimo titolo che si vede: le sezioni corte in fondo non arrivano mai in cima. Se l'indice è più alto
 della finestra scorre da solo e l'evidenziato resta in vista. Un file senza titoli non ha la colonna. Nel sorgente
 (⌘E) l'indice non c'è: i blocchi a cui porta non esistono lì e i titoli cambiano mentre si scrive.
 

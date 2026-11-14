@@ -82,15 +82,17 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
         Some(tab) => {
             // Il dither: una barra alta una riga e larga come il testo, nello spazio sotto l'ultimo blocco.
             let tail = tab.dither_since.map(|since| fx::dither::slot(el().w_full().h(ui::theme::BODY_LINE), since, dark, reduced));
-            let signals = ui::doc_view::Signals { marked: App::is_marked, mark: theme.mark, tail, hits: App::find_hits };
+            let signals = ui::doc_view::Signals { marked: App::is_marked, mark: theme.mark, tail, hits: App::find_hits, edge: App::doc_edge };
             let doc = ui::doc_view::view(s, App::active_document, &s.style, App::visible_rows, signals);
             // L'indice dei titoli a destra, solo se la finestra è larga almeno sidebar + colonna
-            // + 200 (prima del primo layout la larghezza non si sa: niente indice).
+            // + 200 (prima del primo layout non si sa: niente indice). La vista la legge da Rune,
+            // che la rigira quando la soglia si attraversa; `App::wide` ne è la copia per i
+            // gestori, che non hanno `Cx`. Il contenitore è sempre lo stesso, con o senza indice:
+            // attraversando la soglia il documento non cambia posto nell'albero e tiene scroll e
+            // stato.
             let wide = cx.layout_with("app", |r| r[2] >= ui::theme::OUTLINE_MIN_WINDOW).unwrap_or(false);
-            match wide.then(|| ui::outline::view(tab, hooks, &theme, reduced, !cx.hover_none())).flatten() {
-                Some(outline) => rune::row().w_full().grow(1.0).min_h(0.0).child(el().grow(1.0).min_w(0.0).h_full().child(doc)).child(outline),
-                None => doc,
-            }
+            let outline = if wide { ui::outline::view(tab, hooks, &theme, reduced, !cx.hover_none()) } else { None };
+            rune::row().key("doc-pane").w_full().grow(1.0).min_h(0.0).child(el().grow(1.0).min_w(0.0).h_full().child(doc)).children(outline)
         }
         None => el().grow(1.0),
     };
@@ -115,7 +117,13 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
     // Recenti e nell'albero.
     let sidebar = ui::sidebar::view(s, hooks, &theme, reduced, !cx.hover_none());
     let main = el().key("main").grow(1.0).min_w(0.0).h_full().pt(ui::theme::FRAME).pr(ui::theme::FRAME).pb(ui::theme::FRAME).child(panel);
-    rune::row().key("app").w_full().h_full().system_material(rune::SystemMaterial::Glass).fill(theme.glass).child(sidebar).child(main)
+    // La larghezza della finestra per i gestori (`App::wide`: l'indice dei titoli si vede); la
+    // vista la legge da `cx`. Si aggiorna senza far rigirare la vista.
+    let width = |s: &mut App, r: [f32; 4], tx: &mut Tx| {
+        s.set_window_width(r[2]);
+        tx.live_only();
+    };
+    rune::row().key("app").on_layout_tx(width).w_full().h_full().system_material(rune::SystemMaterial::Glass).fill(theme.glass).child(sidebar).child(main)
         .on_window_focus(|s: &mut App, focused, _| s.window_active = focused)
 }
 

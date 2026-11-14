@@ -8,7 +8,12 @@
 # SIZE=900x800 misura la finestra stretta, dove l'indice non c'è (controllo saltato anche lì).
 set -eu
 cd "$(dirname "$0")/.."
-W=${1:-$(mktemp -d)}; mkdir -p "$W"
+# Senza WORKDIR la cartella temporanea si cancella all'uscita.
+if [ -n "${1:-}" ]; then
+  W=$1; mkdir -p "$W"
+else
+  W=$(mktemp -d); trap 'rm -rf "$W"' EXIT
+fi
 B=${2:-target/perf/runemd}
 [ "$B" = target/perf/runemd ] && cargo build --profile perf -q
 cp fixtures/big.md "$W/big.md"
