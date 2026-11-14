@@ -34,30 +34,39 @@ pub struct Signals<S> {
     pub tail: Option<El>,
 }
 
-/// Chiave della riga `i`: generazione del file aperto + id del blocco. Gli id ripartono da 1 a
-/// ogni `Document`, la generazione no: senza, un file nuovo erediterebbe le altezze misurate
-/// del precedente.
-pub fn row_key(generation: u64, i: usize, doc: &Document) -> String {
-    format!("{generation:x}-{:x}", doc.blocks[i].id)
+/// Chiave della riga `i`: id del documento + id del blocco. Gli id dei blocchi ripartono da 1 a
+/// ogni `Document`, l'id del documento no ed è unico nell'app: senza, una scheda o un file
+/// riaperto erediterebbe le altezze misurate di un altro.
+pub fn row_key(i: usize, doc: &Document) -> String {
+    match doc.blocks.get(i) {
+        Some(b) => format!("{:x}-{:x}", doc.id, b.id),
+        // Le closure di `virtual_rows` girano con lo stato di adesso: se il documento è cambiato
+        // dopo l'ultima vista, una chiave unica qualsiasi finché la vista non rigira.
+        None => format!("{:x}-i{i:x}", doc.id),
+    }
 }
 
-/// Ciò che dice a Rune se le chiavi delle righe sono cambiate: un altro file aperto
-/// (`generation`, anche se è lo stesso file invariato), un update (`revision`), un altro
-/// contenuto a parità di revisione (`file_hash`).
-pub fn rows_version(generation: u64, doc: &Document) -> (u64, u64, u64) {
-    (generation, doc.revision, doc.file_hash)
+/// Ciò che dice a Rune se le chiavi delle righe sono cambiate: un altro documento (`id`, anche
+/// se è lo stesso file invariato), un update (`revision`), un altro contenuto a parità di
+/// revisione (`file_hash`).
+pub fn rows_version(doc: &Document) -> (u64, u64, u64) {
+    (doc.id, doc.revision, doc.file_hash)
 }
 
-/// La vista scorrevole del documento `doc_of(s)`, con le chiavi di `generation`. Le closure di
-/// `virtual_rows` non possono tenere prestiti: a layout ricevono lo stato della finestra e
-/// ritrovano il documento con lo stesso `doc_of`, così numero di righe, versione, chiavi e
-/// contenuto vengono tutti dallo stesso documento.
+/// La vista scorrevole del documento `doc_of(s)`. Le closure di `virtual_rows` non possono
+/// tenere prestiti: a layout ricevono lo stato della finestra e ritrovano il documento con lo
+/// stesso `doc_of`, così numero di righe, versione, chiavi e contenuto vengono tutti dallo stesso
+/// documento.
 ///
-/// `on_rows` riceve gli indici delle righe visibili (`on_visible_rows` di Rune: `start..end`,
-/// righe anche solo in parte nella vista) dopo il primo layout e a ogni loro cambio; ritorna
-/// vero se ha cambiato stato che la vista legge.
-pub fn view<S: 'static>(s: &S, doc_of: fn(&S) -> &Document, generation: u64, style: &MarkdownStyle, on_rows: fn(&mut S, Range<usize>) -> bool, signals: Signals<S>) -> El {
+/// Ogni documento ha un elemento suo (chiave `tab-<id>` attorno allo scroll `doc`): una scheda
+/// che torna davanti parte da uno scroll nuovo, non da quello della scheda di prima.
+///
+/// `on_rows` riceve l'id del documento e gli indici delle righe visibili (`on_visible_rows` di
+/// Rune: `start..end`, righe anche solo in parte nella vista) dopo il primo layout e a ogni loro
+/// cambio; ritorna vero se ha cambiato stato che la vista legge.
+pub fn view<S: 'static>(s: &S, doc_of: fn(&S) -> &Document, style: &MarkdownStyle, on_rows: fn(&mut S, u64, Range<usize>) -> bool, signals: Signals<S>) -> El {
     let doc = doc_of(s);
+    let generation = doc.id;
     let style = style.clone();
     let blocks: Arc<[(u64, Arc<str>)]> = doc.blocks.iter().map(|b| (b.id, b.source.clone())).collect();
     let file = File { path: doc.path.clone(), hash: doc.file_hash };
@@ -71,20 +80,21 @@ pub fn view<S: 'static>(s: &S, doc_of: fn(&S) -> &Document, generation: u64, sty
         .virtual_rows(
             doc.blocks.len(),
             60.0,
-            move |s: &S, i| Cow::Owned(row_key(generation, i, doc_of(s))),
-            move |s: &S, i| {
-                let b = &doc_of(s).blocks[i];
-                block_row(&b.source, &style, (signals.marked)(s, b.id).then_some(signals.mark))
+            move |s: &S, i| Cow::Owned(row_key(i, doc_of(s))),
+            move |s: &S, i| match doc_of(s).blocks.get(i) {
+                Some(b) => block_row(&b.source, &style, (signals.marked)(s, b.id).then_some(signals.mark)),
+                None => el(),
             },
         )
-        .virtual_rows_version(rows_version(generation, doc))
-        .on_visible_rows(on_rows);
+        .virtual_rows_version(rows_version(doc))
+        .on_visible_rows(move |s: &mut S, rows| on_rows(s, generation, rows));
     let mut bottom = col().w_full().h(BOTTOM);
     if let Some(bar) = signals.tail {
         bottom = bottom.child(col().key("arriving").w_full().max_w(COLUMN).self_center().px(ROW_PAD_X).child(bar));
     }
     let page = col().w_full().child(el().h(24.0)).child(rows).child(bottom);
-    col().key("doc").w_full().h_full().scroll(ScrollSpec { stick_bottom: false }).child(page)
+    let scroll = col().key("doc").w_full().h_full().scroll(ScrollSpec { stick_bottom: false }).child(page);
+    el().key(format!("tab-{generation:x}")).w_full().grow(1.0).min_h(0.0).child(scroll)
 }
 
 /// L'etichetta del fuoco: quanti blocchi nuovi ci sono sotto la vista (testo approvato, spec).
@@ -188,7 +198,7 @@ impl File {
     }
 }
 
-/// L'id del blocco nel percorso di un testo: il segmento `<generazione>-<id>` della sua riga.
+/// L'id del blocco nel percorso di un testo: il segmento `<id documento>-<id>` della sua riga.
 fn row_id(path: &str, generation: u64) -> Option<u64> {
     let prefix = format!("{generation:x}-");
     path.split('/').find_map(|seg| u64::from_str_radix(seg.strip_prefix(&prefix)?, 16).ok())
@@ -219,7 +229,7 @@ mod tests {
     use rune_kit::MarkdownStyle;
 
     use super::row_key;
-    use crate::Doc;
+    use crate::app::App as Doc;
     use crate::doc::document::Document;
 
     const VIEWPORT: (f32, f32) = (900.0, 1000.0);
@@ -250,7 +260,9 @@ mod tests {
     }
 
     fn open_doc(document: Document) -> Runtime<Doc> {
-        let state = Doc { document: Some(document), style: MarkdownStyle::neutral(true), scroll: None, generation: 1, live: crate::live::Live::default(), library: crate::index::Library::load(Vec::new(), None), sidebar: crate::ui::sidebar::Sidebar::default(), rings: Default::default(), ring_wake: None, below: crate::live::below::Below::default(), visible_last: 0, fire_since: None, fire_armed: None, window_active: true, changed: crate::live::arriving::Changed::default(), mark_wake: None, dither_since: None };
+        let mut state = Doc::new(crate::index::Library::load(Vec::new(), None), true);
+        state.style = MarkdownStyle::neutral(true);
+        state.push_tab(document);
         let mut rt = Runtime::new(state, crate::view, VIEWPORT, Env::new(true, 2.0));
         rt.on_key = Some(crate::on_key);
         rt.frame(0.0);
@@ -268,32 +280,32 @@ mod tests {
         let els = rt.elements();
         let top = els.iter().find(|e| e.key.as_deref() == Some("doc")).expect("vista doc").rect[1];
         let s = &rt.state;
-        let doc = s.document.as_ref().unwrap();
+        let doc = s.active_document();
         let (key, y) = els.iter()
             .filter(|e| !e.exiting && e.rect[1] + e.rect[3] > top + 0.5)
             .filter_map(|e| { let k = e.key.as_deref()?; e.path.ends_with(&format!("rows/{k}")).then_some((k, e.rect[1])) })
             .min_by(|a, b| a.1.total_cmp(&b.1))
             .expect("nessuna riga visibile");
-        let i = (0..doc.blocks.len()).find(|&i| row_key(s.generation, i, doc) == key).expect("chiave senza blocco");
+        let i = (0..doc.blocks.len()).find(|&i| row_key(i, doc) == key).expect("chiave senza blocco");
         (doc.blocks[i].id, y - top)
     }
 
     fn source(rt: &Runtime<Doc>) -> Vec<String> {
-        rt.state.document.as_ref().unwrap().blocks.iter().map(|b| b.source.to_string()).collect()
+        rt.state.active_document().blocks.iter().map(|b| b.source.to_string()).collect()
     }
 
     fn index_of(rt: &Runtime<Doc>, id: u64) -> usize {
-        rt.state.document.as_ref().unwrap().blocks.iter().position(|b| b.id == id).unwrap()
+        rt.state.active_document().blocks.iter().position(|b| b.id == id).unwrap()
     }
 
     fn height(rt: &Runtime<Doc>, id: u64) -> f32 {
-        let key = row_key(rt.state.generation, index_of(rt, id), rt.state.document.as_ref().unwrap());
+        let key = row_key(index_of(rt, id), rt.state.active_document());
         rt.elements().into_iter().find(|e| e.key.as_deref() == Some(key.as_str())).unwrap().rect[3]
     }
 
     fn edit(rt: &mut Runtime<Doc>, blocks: &[String]) {
         let src = join(blocks);
-        rt.update(|s, _| { s.document.as_mut().unwrap().update(&src); });
+        rt.update(|s, _| { s.tab_mut().unwrap().doc.update(&src); });
         settle(rt);
     }
 
@@ -330,7 +342,7 @@ mod tests {
         let h0 = height(&rt, before.0);
         edit(&mut rt, &blocks);
         assert!(height(&rt, before.0) > h0 + 40.0, "il blocco si allunga: {h0} → {}", height(&rt, before.0));
-        assert_eq!(rt.state.document.as_ref().unwrap().blocks[i].id, before.0, "modifica sul posto: stesso id");
+        assert_eq!(rt.state.active_document().blocks[i].id, before.0, "modifica sul posto: stesso id");
         assert_still("allunga il blocco in cima", before, anchor(&rt));
     }
 
@@ -350,17 +362,17 @@ mod tests {
         let (mut rt, before) = reading();
         let mut blocks = source(&rt);
         let i = index_of(&rt, before.0);
-        let next = rt.state.document.as_ref().unwrap().blocks[i + 1].id;
+        let next = rt.state.active_document().blocks[i + 1].id;
         let rows = rt.elements();
         let top = rows.iter().find(|e| e.key.as_deref() == Some("doc")).unwrap().rect[1];
-        let next_key = row_key(rt.state.generation, i + 1, rt.state.document.as_ref().unwrap());
+        let next_key = row_key(i + 1, rt.state.active_document());
         let next_y = rows.iter().find(|e| e.key.as_deref() == Some(next_key.as_str())).unwrap().rect[1] - top;
         blocks.splice(i..=i, [format!("Diviso A {}", paragraph(5)), format!("Diviso B {}", paragraph(6))]);
         edit(&mut rt, &blocks);
-        let doc = rt.state.document.as_ref().unwrap();
+        let doc = rt.state.active_document();
         assert!(doc.blocks.iter().all(|b| b.id != before.0), "il blocco in cima non c'è più");
         let j = index_of(&rt, next);
-        let key = row_key(rt.state.generation, j, doc);
+        let key = row_key(j, doc);
         let els = rt.elements();
         let top = els.iter().find(|e| e.key.as_deref() == Some("doc")).unwrap().rect[1];
         let y = els.iter().find(|e| e.key.as_deref() == Some(key.as_str())).unwrap().rect[1] - top;
@@ -371,7 +383,7 @@ mod tests {
     #[test]
     fn an_empty_file_opens() {
         let mut rt = open("");
-        assert!(rt.state.document.as_ref().unwrap().blocks.is_empty());
+        assert!(rt.state.active_document().blocks.is_empty());
         edit(&mut rt, &["# Ora c'è".to_owned()]);
         assert_eq!(anchor(&rt).1.round(), 24.0, "il primo blocco sotto il margine alto");
     }
@@ -384,7 +396,7 @@ mod tests {
         let big = line.repeat(500 * 1024 / line.len());
         assert!(big.len() >= 500 * 1000 && !big.contains("\n\n"));
         let mut rt = open(&big);
-        assert_eq!(rt.state.document.as_ref().unwrap().blocks.len(), 1);
+        assert_eq!(rt.state.active_document().blocks.len(), 1);
         scroll_to(&mut rt, 20000.0);
         let before = anchor(&rt);
         assert!(before.1 < -1000.0, "dentro il blocco: {before:?}");
@@ -398,21 +410,21 @@ mod tests {
     #[test]
     fn appended_blocks_light_the_fire_until_scrolled_into_view() {
         let mut rt = open(&join(&sample()));
-        assert!(rt.state.visible_last != 0, "la vista ha riportato l'ultima riga visibile");
+        assert!(rt.state.tab().unwrap().visible_last != 0, "la vista ha riportato l'ultima riga visibile");
         let mut blocks = sample();
         blocks.extend((0..3).map(|n| format!("Nuovo in fondo {n}: {}", paragraph(n))));
         let src = join(&blocks);
         rt.update(|s, _| {
-            let change = s.document.as_mut().unwrap().update(&src);
-            s.note_reload(&change, 1.0);
+            let change = s.tab_mut().unwrap().doc.update(&src);
+            s.tab_mut().unwrap().note_reload(&change, 1.0);
         });
         settle(&mut rt);
-        assert_eq!(rt.state.below.count(), 3);
-        assert_eq!(rt.state.fire_since, Some(1.0));
+        assert_eq!(rt.state.tab().unwrap().below.count(), 3);
+        assert_eq!(rt.state.tab().unwrap().fire_since, Some(1.0));
         assert!(rt.elements().iter().any(|e| e.key.as_deref() == Some("fire")), "slot del fuoco");
         scroll_to(&mut rt, 1.0e9);
-        assert_eq!(rt.state.below.count(), 0);
-        assert_eq!(rt.state.fire_since, None);
+        assert_eq!(rt.state.tab().unwrap().below.count(), 0);
+        assert_eq!(rt.state.tab().unwrap().fire_since, None);
         assert!(!rt.elements().iter().any(|e| e.key.as_deref() == Some("fire") && !e.exiting), "fuoco spento");
     }
 
@@ -427,20 +439,20 @@ mod tests {
     fn a_block_appended_in_view_never_draws_the_fire() {
         let blocks: Vec<String> = (0..3).map(|n| format!("Breve {n}")).collect();
         let mut rt = open(&join(&blocks));
-        assert!(rt.state.visible_last != 0);
+        assert!(rt.state.tab().unwrap().visible_last != 0);
         let mut more = blocks.clone();
         more.push("Nuovo in fondo, già in vista".to_owned());
         let src = join(&more);
         rt.update(|s, _| {
-            let change = s.document.as_mut().unwrap().update(&src);
-            s.note_reload(&change, 1.0);
+            let change = s.tab_mut().unwrap().doc.update(&src);
+            s.tab_mut().unwrap().note_reload(&change, 1.0);
         });
         for f in 0..30 {
             assert!(!fire_drawn(&rt), "fuoco disegnato al frame {f}");
-            assert_eq!(rt.state.fire_since, None, "fuoco acceso al frame {f}");
+            assert_eq!(rt.state.tab().unwrap().fire_since, None, "fuoco acceso al frame {f}");
             rt.frame(1.0 / 60.0);
         }
-        assert_eq!(rt.state.below.count(), 0);
+        assert_eq!(rt.state.tab().unwrap().below.count(), 0);
     }
 
     /// Un blocco cambiato sotto la vista (stessa chiave, niente righe nuove) accende il fuoco.
@@ -452,20 +464,20 @@ mod tests {
         blocks[last] = format!("{} cambiato", blocks[last]);
         let src = join(&blocks);
         rt.update(|s, _| {
-            let change = s.document.as_mut().unwrap().update(&src);
+            let change = s.tab_mut().unwrap().doc.update(&src);
             assert_eq!(change.changed.len(), 1);
-            s.note_reload(&change, 1.0);
+            s.tab_mut().unwrap().note_reload(&change, 1.0);
         });
         settle(&mut rt);
-        assert_eq!(rt.state.below.count(), 1);
-        assert_eq!(rt.state.fire_since, Some(1.0));
+        assert_eq!(rt.state.tab().unwrap().below.count(), 1);
+        assert_eq!(rt.state.tab().unwrap().fire_since, Some(1.0));
         assert!(fire_drawn(&rt));
     }
 
     /// I rect delle righe del documento (chiave → rect), in ordine.
     fn row_rects(rt: &Runtime<Doc>) -> Vec<(String, [f32; 4])> {
-        let doc = rt.state.document.as_ref().unwrap();
-        let keys: Vec<String> = (0..doc.blocks.len()).map(|i| row_key(rt.state.generation, i, doc)).collect();
+        let doc = rt.state.active_document();
+        let keys: Vec<String> = (0..doc.blocks.len()).map(|i| row_key(i, doc)).collect();
         rt.elements().iter().filter(|e| !e.exiting).filter_map(|e| { let k = e.key.as_deref()?; keys.iter().any(|x| x == k).then(|| (k.to_owned(), e.rect)) }).collect()
     }
 
@@ -483,10 +495,10 @@ mod tests {
         let before = row_rects(&rt);
         assert_eq!(before.len(), 3);
         assert!(keyed(&rt, "arriving").is_empty() && keyed(&rt, "changed").is_empty());
-        let marked = rt.state.document.as_ref().unwrap().blocks[1].id;
+        let marked = rt.state.active_document().blocks[1].id;
         rt.update(|s, _| {
-            s.dither_since = Some(0.0);
-            s.changed.mark(&[marked], std::time::Instant::now());
+            s.tab_mut().unwrap().dither_since = Some(0.0);
+            s.tab_mut().unwrap().changed.mark(&[marked], std::time::Instant::now());
         });
         settle(&mut rt);
         assert_eq!(row_rects(&rt), before, "niente sopra si sposta");
@@ -517,6 +529,59 @@ mod tests {
     fn cmd(rt: &mut Runtime<Doc>, c: char) {
         rt.key(KeyEvent { key: Key::Command(c), mods: Mods { cmd: true, logo: true, ..Mods::default() } });
         rt.frame(1.0 / 60.0);
+    }
+
+    // --- schede (task 19) ---
+
+    /// Due schede sullo stesso campione: B scorre a metà, si passa ad A (Cmd+1) e si torna a B
+    /// (Ctrl+Tab). A parte dall'inizio, B torna dove era: il blocco che stava in cima torna in
+    /// cima (`App::restore_view`), senza la parte tagliata dal bordo.
+    #[test]
+    fn each_tab_keeps_its_place() {
+        let mut rt = open(&join(&sample()));
+        rt.update(|s, _| s.push_tab(Document::from_source(Path::new("b.md"), &join(&sample()))));
+        settle(&mut rt);
+        scroll_to(&mut rt, 6000.0);
+        let b = anchor(&rt);
+        cmd(&mut rt, '1');
+        settle(&mut rt);
+        assert_eq!(rt.state.active, 0);
+        assert_eq!(anchor(&rt).1.round(), 24.0, "A dall'inizio");
+        rt.key(KeyEvent { key: Key::Tab, mods: Mods { ctrl: true, ..Mods::default() } });
+        settle(&mut rt);
+        assert_eq!(rt.state.active, 1, "Ctrl+Tab");
+        // Il secondo passo lo fa `poll`, che qui non gira.
+        rt.update(|s, tx| s.take_restore(tx));
+        settle(&mut rt);
+        let back = anchor(&rt);
+        eprintln!("scheda B: prima {b:?}, dopo {back:?}");
+        assert_eq!(back.0, b.0, "B riparte dal suo primo blocco visibile");
+        assert!(back.1.abs() <= 1.0, "in cima alla vista: {back:?}");
+    }
+
+    /// La barra mostra una scheda per file, quella davanti con riempimento `sel`, e "⌘E
+    /// sorgente"; Cmd+W chiude la scheda davanti, e senza schede lascia il tasto a Rune.
+    #[test]
+    fn the_tab_bar_shows_the_files_and_cmd_w_closes() {
+        let mut rt = open("# a\n");
+        rt.update(|s, _| s.push_tab(Document::from_source(Path::new("b.md"), "# b\n")));
+        settle(&mut rt);
+        let ids: Vec<String> = rt.state.tabs.iter().map(|t| format!("t-{:x}", t.doc.id)).collect();
+        let els = rt.elements();
+        for id in &ids {
+            assert!(els.iter().any(|e| e.key.as_deref() == Some(id.as_str())), "scheda {id}");
+        }
+        assert!(els.iter().any(|e| e.key.as_deref() == Some("source-key")), "⌘E sorgente");
+        assert!(els.iter().any(|e| e.text.as_deref() == Some(crate::ui::tabs::SOURCE_KEY)));
+        cmd(&mut rt, 'w');
+        settle(&mut rt);
+        assert_eq!(rt.state.tabs.len(), 1);
+        cmd(&mut rt, 'w');
+        settle(&mut rt);
+        assert!(rt.state.tabs.is_empty(), "nessuna scheda, nessun panic");
+        let mut tx = rune::Tx::default();
+        let key = KeyEvent { key: Key::Command('w'), mods: Mods { cmd: true, logo: true, ..Mods::default() } };
+        assert!(!crate::on_key(&mut rt.state, &key, &mut tx), "Cmd+W senza schede resta a Rune");
     }
 
     /// Cmd+A poi Cmd+C su un runtime con clipboard di prova; ritorna il testo copiato.
@@ -559,7 +624,7 @@ mod tests {
         let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/big.md")).unwrap();
         let path = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/big.md"));
         let mut rt = open_doc(Document::load(path).unwrap());
-        let blocks = rt.state.document.as_ref().unwrap().blocks.len();
+        let blocks = rt.state.active_document().blocks.len();
         let copied = copy_all(&mut rt);
         eprintln!("big.md: {blocks} blocchi, {} byte copiati su {}", copied.len(), src.len());
         assert_eq!(copied.trim_end(), src.trim_end());
@@ -585,9 +650,9 @@ mod tests {
     fn drag_copy(rt: &mut Runtime<Doc>, from: usize, to: usize) -> String {
         let clipboard = rune::clipboard::memory();
         rt.use_clipboard(&clipboard);
-        let doc = rt.state.document.as_ref().unwrap();
+        let doc = rt.state.active_document();
         let rect = |i: usize| {
-            let key = row_key(rt.state.generation, i, doc);
+            let key = row_key(i, doc);
             rt.elements().into_iter().find(|e| e.key.as_deref() == Some(key.as_str())).unwrap().rect
         };
         let (a, c) = (rect(from), rect(to));
@@ -664,7 +729,7 @@ mod tests {
         std::fs::write(&path, &after).unwrap();
         rt.update(|s, _| {
             let own = crate::live::reload::OwnWrites::default();
-            assert!(crate::live::reload::apply(s.document.as_mut().unwrap(), &after, &own).is_some());
+            assert!(crate::live::reload::apply(&mut s.tab_mut().unwrap().doc, &after, &own).is_some());
         });
         settle(&mut rt);
         cmd(&mut rt, 'c');
@@ -675,7 +740,7 @@ mod tests {
     /// Cmd+A, scroll in fondo, Shift+clic nel penultimo blocco (pressione e rilascio nello
     /// stesso frame, come un clic veloce: la selezione non arriva mai `dragging`), Cmd+C.
     fn cmd_a_then_shift_click_second_to_last(rt: &mut Runtime<Doc>) -> String {
-        let n = rt.state.document.as_ref().unwrap().blocks.len();
+        let n = rt.state.active_document().blocks.len();
         let clipboard = rune::clipboard::memory();
         rt.use_clipboard(&clipboard);
         let doc = rt.elements().into_iter().find(|e| e.key.as_deref() == Some("doc")).unwrap();
@@ -686,7 +751,7 @@ mod tests {
         rt.frame(1.0 / 60.0);
         cmd(rt, 'a');
         scroll_to(rt, 1.0e9);
-        let key = row_key(rt.state.generation, n - 2, rt.state.document.as_ref().unwrap());
+        let key = row_key(n - 2, rt.state.active_document());
         let r = rt.elements().into_iter().find(|e| e.key.as_deref() == Some(key.as_str())).expect("penultimo blocco in vista").rect;
         let (x, y) = (r[0] + 80.0, r[1] + r[3] / 2.0);
         rt.physical_input(rune::PhysicalInput::Modifiers(Mods { shift: true, ..Mods::default() }));

@@ -338,6 +338,17 @@ impl Watcher {
         }
     }
 
+    /// Smette di guardare `root` se è una radice senza sottocartelle (la cartella di un file
+    /// aperto, task 19). Le cartelle osservate (ricorsive) restano: le usano l'indice e la sidebar.
+    pub fn remove_root(&mut self, root: &Path) {
+        let root = root.canonicalize().unwrap_or_else(|_| root.to_owned());
+        let Some(i) = self.roots.iter().position(|r| r.path == root && !r.recursive) else { return };
+        if let Some(notify) = self.notify.as_mut() {
+            let _ = notify.unwatch(&root);
+        }
+        self.roots.remove(i);
+    }
+
     fn drop_missing_roots(&mut self) {
         let Some(notify) = self.notify.as_mut() else { return };
         self.roots.retain(|root| {
@@ -769,6 +780,21 @@ mod tests {
         let other = tempfile::tempdir().unwrap();
         w.add_root(other.path().to_path_buf(), false);
         assert_eq!(w.roots.len(), 2);
+    }
+
+    /// Una radice senza sottocartelle si toglie; una ricorsiva (cartella osservata) resta.
+    #[test]
+    fn remove_root_drops_only_non_recursive_roots() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        let other = tempfile::tempdir().unwrap();
+        let other = other.path().canonicalize().unwrap();
+        let mut w = Watcher::start(vec![root.clone()], waker());
+        w.add_root(other.clone(), false);
+        assert_eq!(w.roots.len(), 2);
+        w.remove_root(&root);
+        w.remove_root(&other);
+        assert_eq!(w.roots, vec![Root { path: root, recursive: true }]);
     }
 
     #[test]

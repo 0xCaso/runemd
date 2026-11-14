@@ -6,7 +6,7 @@ use rune_fx::{FxFrame, FxLayer, FxOptions, FxRenderer, FxSlot, Rect};
 
 use super::marks::Mark;
 use super::{dither, fire, ring};
-use crate::Doc;
+use crate::App;
 
 /// Un solo compositor per la finestra. A riposo (nessun layer, nessun anello acceso) il frame è
 /// quello di default di Rune e `animating()` è falso: niente frame, niente costo.
@@ -64,7 +64,7 @@ impl FxCompositor {
     }
 }
 
-impl Compositor<Doc> for FxCompositor {
+impl Compositor<App> for FxCompositor {
     fn animating(&self) -> bool {
         self.moving
     }
@@ -73,7 +73,7 @@ impl Compositor<Doc> for FxCompositor {
         self.drew
     }
 
-    fn render(&mut self, f: &mut Frame<'_, Doc>) {
+    fn render(&mut self, f: &mut Frame<'_, App>) {
         let (device, queue, size) = (f.device, f.queue, f.size);
         // Il renderer nasce al primo frame; le pipeline si compilano solo quando un layer le usa.
         let fx = self.fx.get_or_insert_with(|| FxRenderer::new(device, f.format, FxOptions { dither: true }));
