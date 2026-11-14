@@ -1,4 +1,4 @@
-//! Sonde di misura: primo frame con contenuto e intervalli tra frame durante uno scroll.
+//! Sonde di misura: primo frame con contenuto, intervalli tra frame durante uno scroll, indice.
 
 use std::cell::RefCell;
 use std::io::Write;
@@ -79,6 +79,16 @@ pub fn reloaded(r: &crate::live::Reloaded) {
     let Some(written) = r.written.and_then(|w| w.duration_since(UNIX_EPOCH).ok()) else { return };
     let blocks = r.change.added.len() + r.change.changed.len() + r.change.removed.len();
     FRAMES.with_borrow_mut(|fr| fr.reload = Some((written.as_secs_f64() * 1000.0, epoch_ms(r.at), blocks)));
+}
+
+/// La cache dell'indice letta (prima del primo frame): quanto è costata e quante voci.
+pub fn index_cached(took: std::time::Duration, entries: usize) {
+    log(&format!("index_cache_ms={:.2} entries={entries}", took.as_secs_f64() * 1000.0));
+}
+
+/// La scansione dell'indice è finita (nel `poll` che la raccoglie).
+pub fn index_scanned(entries: usize) {
+    log(&format!("index_scan_epoch_ms={:.1} entries={entries}", epoch_ms(Instant::now())));
 }
 
 /// Uno scroll a velocità costante, passo dopo passo da `poll`.

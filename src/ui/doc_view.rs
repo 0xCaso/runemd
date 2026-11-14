@@ -250,7 +250,7 @@ mod tests {
     }
 
     fn open_doc(document: Document) -> Runtime<Doc> {
-        let state = Doc { document: Some(document), style: MarkdownStyle::neutral(true), scroll: None, generation: 1, live: crate::live::Live::default(), ring_since: None, ring_wake: None, below: crate::live::below::Below::default(), visible_last: 0, fire_since: None, fire_armed: None, window_active: true, changed: crate::live::arriving::Changed::default(), mark_wake: None, dither_since: None };
+        let state = Doc { document: Some(document), style: MarkdownStyle::neutral(true), scroll: None, generation: 1, live: crate::live::Live::default(), library: crate::index::Library::load(Vec::new(), None), ring_since: None, ring_wake: None, below: crate::live::below::Below::default(), visible_last: 0, fire_since: None, fire_armed: None, window_active: true, changed: crate::live::arriving::Changed::default(), mark_wake: None, dither_since: None };
         let mut rt = Runtime::new(state, crate::view, VIEWPORT, Env::new(true, 2.0));
         rt.on_key = Some(crate::on_key);
         rt.frame(0.0);

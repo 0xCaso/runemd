@@ -150,7 +150,7 @@ impl Core {
 
 /// I file `wanted` in `dir`, e sotto se `recursive`; errori di lettura ignorati. Non entra nelle
 /// cartelle saltate né nei link simbolici a cartelle (un ciclo non finirebbe mai).
-fn walk(dir: &Path, recursive: bool, out: &mut Vec<PathBuf>) {
+pub(crate) fn walk(dir: &Path, recursive: bool, out: &mut Vec<PathBuf>) {
     let Ok(entries) = std::fs::read_dir(dir) else { return };
     for entry in entries.flatten() {
         let path = entry.path();
@@ -258,11 +258,16 @@ impl Watcher {
 
     /// Guarda `root`, con le sottocartelle se `recursive`, altrimenti solo i suoi figli diretti
     /// (notify scarta gli eventi più in basso). Una radice già guardata senza sottocartelle
-    /// diventa ricorsiva se lo si chiede. Le radici sono canoniche: FSEvents riporta percorsi reali.
+    /// diventa ricorsiva se lo si chiede. Una radice non ricorsiva sotto una ricorsiva già
+    /// guardata non si aggiunge: i suoi eventi arrivano già, e un secondo percorso sullo stesso
+    /// stream li farebbe arrivare due volte. Le radici sono canoniche: FSEvents riporta percorsi reali.
     pub fn add_root(&mut self, root: PathBuf, recursive: bool) {
         let root = root.canonicalize().unwrap_or(root);
         let old = self.roots.iter().position(|r| r.path == root);
         if old.is_some_and(|i| self.roots[i].recursive || !recursive) {
+            return;
+        }
+        if !recursive && self.roots.iter().any(|r| r.recursive && root.starts_with(&r.path)) {
             return;
         }
         let Some(notify) = self.notify.as_mut() else { return };
@@ -621,6 +626,22 @@ mod tests {
         assert!(events.contains(&FsEvent::Changed(root.join("top.md"))), "{events:?}");
         let rest = collect(&mut w, Duration::from_millis(300), |_| false);
         assert!(!events.iter().chain(&rest).any(|e| matches!(e, FsEvent::Changed(p) if p.starts_with(root.join("sub")))), "{events:?} {rest:?}");
+    }
+
+    /// La cartella del file aperto dentro una radice ricorsiva non diventa una seconda radice.
+    #[test]
+    fn a_non_recursive_root_under_a_recursive_one_is_not_added() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        fs::create_dir_all(root.join("repo/.git")).unwrap();
+        let mut w = Watcher::start(vec![root.clone()], waker());
+        w.add_root(root.join("repo"), false);
+        w.add_root(root.join("repo/.git"), false);
+        assert_eq!(w.roots, vec![Root { path: root.clone(), recursive: true }]);
+        // Fuori dalla radice ricorsiva sì.
+        let other = tempfile::tempdir().unwrap();
+        w.add_root(other.path().to_path_buf(), false);
+        assert_eq!(w.roots.len(), 2);
     }
 
     #[test]

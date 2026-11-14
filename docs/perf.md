@@ -48,3 +48,39 @@ blocchi se la revisione è ancora quella dello snapshot (altrimenti si rilegge).
 
 13/11 23:48, schermo sbloccato, `MDSPIKE_LATENCY`, 25 append a big.md ogni 200 ms (24 campioni): p50 **91,6 ms**,
 p95 106,7 ms, max 106,7 ms. Soglia ≤ 150 ms rispettata (stesso carico della misura scroll).
+
+# Indice dei Markdown (task 14)
+
+14/11 01:05, Mac con altre sessioni attive: **load average 95–110** (`uptime` prima e dopo). `~/Desktop/GitHub`:
+37 voci, 29 con `.git`.
+
+## Scansione e cache
+
+`cargo test --profile perf scan_cost -- --ignored --nocapture` (`src/index/mod.rs`, 5 giri, cache in una cartella
+temporanea).
+
+| giro | voci | scansione | salvataggio cache | ricarica cache | `recent(20)` |
+|---|---|---|---|---|---|
+| 1 (il più vicino a freddo: page cache del disco non tutta calda) | 6916 | 2801 ms | 11,2 ms | 4,4 ms | 0,04 ms |
+| 2–5 | 6916 | 574–624 ms | 6,0–9,8 ms | 2,2–3,1 ms | 0,02 ms |
+
+Cache: 1059 KB di JSON. "Fredda" qui vuol dire senza cache dell'indice; la cache del disco non si svuota senza
+`sudo purge`. Le voci in cartelle nascoste (entrano, spec "Osservare i file"): `.worktrees` 1299, `.claude` 587,
+`.superpowers` 483, `.repos` 388, `.agents` 27, `.build` 26, `.venv` 16, altre ≤ 4.
+
+## Indice pronto rispetto al primo frame (app vera)
+
+`RUNE_DIRS_ROOT=<tmp>/dirs MDSPIKE_LOG=<tmp>/runN.log build/RuneMD.app/Contents/MacOS/runemd fixtures/normal.md`
+lanciato da terminale (stessi permessi TCC), ucciso dopo 5 s; 4 giri, il primo senza cache.
+
+| giro | cache letta prima del primo frame | voci dalla cache | scansione finita dopo il primo frame |
+|---|---|---|---|
+| 1 (senza cache) | 0,14 ms | 0 | 1710 ms |
+| 2 | 3,13 ms | 6916 | 1668 ms |
+| 3 | 3,22 ms | 6916 | 1548 ms |
+| 4 | 3,01 ms | 6916 | 1579 ms |
+
+Con la cache l'indice è pieno già al primo frame (la cache si legge in `init`, 3 ms): soglia "sidebar riempita ≤ 1 s
+dopo il primo frame con l'indice salvato" rispettata per i dati; la sidebar che li mostra arriva col task 16. Senza
+cache l'indice arriva con la scansione, 1,5–1,7 s dopo il primo frame a questo carico (non è la soglia, che vale con
+l'indice salvato). Avvio al primo frame (`bench/startup.sh`) non rimisurato: a load average 100 il numero non vale.

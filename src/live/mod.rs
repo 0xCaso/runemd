@@ -6,9 +6,14 @@
 //! girano su un thread a parte (`reload::read`); sul thread della UI resta `reload::commit`, che
 //! sostituisce i blocchi. Il thread sveglia l'app con il `Waker` quando ha finito.
 //!
-//! Fino al task 14 si guarda solo la cartella del file aperto, senza sottocartelle: un file in
-//! `~` non deve far guardare tutta la home. Si guarda anche il `.git` del suo repo, per i cambi
-//! di `.git/HEAD` che spengono "sta scrivendo" (`activity`).
+//! Il watcher guarda con le sottocartelle le cartelle osservate (`index::roots`, task 14). Per
+//! il file aperto si aggiungono la sua cartella, senza sottocartelle (un file in `~` non deve far
+//! guardare tutta la home), e il `.git` del suo repo, per i cambi di `.git/HEAD` che spengono
+//! "sta scrivendo" (`activity`); se stanno già sotto una cartella osservata il watcher non le
+//! aggiunge (`Watcher::add_root`), e ogni evento arriva una volta sola.
+//!
+//! `Live` svuota il watcher a ogni `poll`; gli eventi di quel risveglio restano in `drained` per
+//! chi altro li legge (l'indice).
 
 pub mod activity;
 pub mod arriving;
@@ -59,6 +64,8 @@ pub struct Live {
     /// La lettura in corso sul thread a parte.
     job: Option<Job>,
     waker: Option<Waker>,
+    /// Gli eventi dell'ultimo `poll`, per l'indice.
+    drained: Vec<FsEvent>,
     /// Nei test la lettura si aspetta subito, così l'orologio finto decide da solo.
     #[cfg(test)]
     sync: bool,
@@ -91,9 +98,10 @@ fn root_of(path: &Path) -> Option<PathBuf> {
 }
 
 impl Live {
-    /// Avvia il watcher (da `AppSpec::setup`, che ha il waker) e guarda il file già aperto.
-    pub fn start(&mut self, waker: Waker) {
-        let mut watcher = Watcher::start(Vec::new(), waker.clone());
+    /// Avvia il watcher (da `AppSpec::setup`, che ha il waker) sulle cartelle osservate `roots`,
+    /// con le sottocartelle, e guarda il file già aperto.
+    pub fn start(&mut self, waker: Waker, roots: Vec<PathBuf>) {
+        let mut watcher = Watcher::start(roots, waker.clone());
         if let Some(path) = self.watched.as_deref() {
             watch_roots(&mut watcher, path);
         }
@@ -122,7 +130,13 @@ impl Live {
         let events = self.watcher.as_mut().map(|w| w.drain(now)).unwrap_or_default();
         let changed = events.iter().any(|e| matches!(e, FsEvent::Changed(p) if self.watched.as_ref() == Some(p)));
         self.note(&events, now);
+        self.drained = events;
         self.step(doc, changed, now)
+    }
+
+    /// Gli eventi del watcher svuotati dall'ultimo `poll`.
+    pub fn drained(&self) -> &[FsEvent] {
+        &self.drained
     }
 
     /// Fra quanto il file aperto smette di essere "sta scrivendo"; `None` se non lo è.
@@ -251,7 +265,7 @@ mod tests {
     fn started(path: &Path) -> (Live, Document) {
         let mut live = Live::default();
         live.watch(path);
-        live.start(Arc::new(|| {}));
+        live.start(Arc::new(|| {}), Vec::new());
         let doc = Document::load(path).unwrap();
         // FSEvents parte in modo asincrono: una prima scrittura uguale fa da sentinella.
         thread::sleep(Duration::from_millis(300));
@@ -271,6 +285,36 @@ mod tests {
         assert_eq!(doc.blocks.len(), 3);
         assert_eq!(doc.blocks[0].id, first, "id stabili");
         assert!(r.written.is_some());
+    }
+
+    /// Il file aperto sta in una sottocartella di una cartella osservata (ricorsiva): una
+    /// scrittura lo ricarica una volta sola, e l'evento resta in `drained` per l'indice.
+    #[test]
+    fn a_file_under_a_watched_root_reloads_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        fs::create_dir_all(root.join("repo/docs")).unwrap();
+        let path = root.join("repo/docs/a.md");
+        fs::write(&path, "# a\n").unwrap();
+        let mut live = Live::default();
+        live.watch(&path);
+        live.start(Arc::new(|| {}), vec![root.clone()]);
+        let mut doc = Document::load(&path).unwrap();
+        thread::sleep(Duration::from_millis(300));
+        fs::write(&path, "# a\n\nb\n").unwrap();
+        let mut seen = Vec::new();
+        let mut reloads = 0;
+        let deadline = Instant::now() + Duration::from_secs(4);
+        while Instant::now() < deadline {
+            if live.poll(Some(&mut doc), Instant::now()).0.is_some() {
+                reloads += 1;
+            }
+            seen.extend(live.drained().iter().cloned());
+            thread::sleep(Duration::from_millis(16));
+        }
+        assert_eq!(reloads, 1, "{seen:?}");
+        assert_eq!(doc.blocks.len(), 2);
+        assert!(seen.contains(&FsEvent::Changed(path)), "{seen:?}");
     }
 
     #[test]

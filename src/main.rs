@@ -10,9 +10,15 @@
 //!   velocità costante e scrive gli intervalli tra frame presentati in `MDSPIKE_LOG`, poi esce.
 //! - `MDSPIKE_LATENCY=path`: a ogni ricaricamento scrive, al primo frame che lo mostra, i ms da
 //!   scrittura del file (mtime) a ricarica e a frame.
+//! - Con `MDSPIKE_LOG` si scrivono anche il costo della cache dell'indice (`index_cache_ms`) e
+//!   quando la scansione finisce (`index_scan_epoch_ms`).
+//!
+//! `RUNEMD_ROOTS=dir1:dir2` sostituisce le cartelle osservate (default `~/Desktop/GitHub`);
+//! `RUNE_DIRS_ROOT` sposta la cache dell'indice.
 
 mod doc;
 mod fx;
+mod index;
 mod live;
 mod open;
 mod probe;
@@ -39,6 +45,8 @@ pub struct Doc {
     /// L'orologio di Rune (`poll`) a cui si è acceso l'anello "sta scrivendo" del file aperto;
     /// `None` quando è spento.
     ring_since: Option<f64>,
+    /// L'indice dei Markdown nelle cartelle osservate (Recenti, Cmd+P).
+    library: index::Library,
     /// Il risveglio armato per spegnere l'anello: uno per finestra, non uno a frame.
     ring_wake: Option<Wake>,
     /// Il fuoco: i blocchi nuovi o cambiati sotto la vista.
@@ -235,14 +243,20 @@ fn init() -> Doc {
     if paths.is_empty() {
         paths.extend(std::env::var("MDSPIKE_FILE").ok().map(PathBuf::from));
     }
-    let mut doc = Doc { document: None, style: ui::markdown_style::style(&ui::theme::Theme::for_mode(dark_mode()), 15.5), scroll: probe::ScrollRun::from_env(), generation: 0, live: live::Live::default(), ring_since: None, ring_wake: None, below: live::below::Below::default(), visible_last: 0, fire_since: None, fire_armed: None, window_active: true, changed: live::arriving::Changed::default(), mark_wake: None, dither_since: None };
+    // La cache dell'indice si legge prima del primo frame (costo in `docs/perf.md`); la
+    // scansione parte in `setup`, su un thread a parte.
+    let t = Instant::now();
+    let library = index::Library::load(index::roots(), index::cache_path());
+    probe::index_cached(t.elapsed(), library.index.len());
+    let mut doc = Doc { document: None, style: ui::markdown_style::style(&ui::theme::Theme::for_mode(dark_mode()), 15.5), scroll: probe::ScrollRun::from_env(), generation: 0, live: live::Live::default(), library, ring_since: None, ring_wake: None, below: live::below::Below::default(), visible_last: 0, fire_since: None, fire_armed: None, window_active: true, changed: live::arriving::Changed::default(), mark_wake: None, dither_since: None };
     doc.open_paths(paths);
     doc
 }
 
 fn setup(s: &mut Doc, waker: Waker) {
     open::queue::set_waker(waker.clone());
-    s.live.start(waker);
+    s.live.start(waker.clone(), s.library.roots().to_vec());
+    s.library.start(waker);
 }
 
 /// Il documento aperto; `view` chiama la vista del documento solo quando c'è.
@@ -312,6 +326,13 @@ fn poll(s: &mut Doc, clock: f64, tx: &mut Tx) -> bool {
     if let Some(r) = &reloaded {
         probe::reloaded(r);
     }
+    // L'indice legge gli stessi eventi. Nessuna vista lo mostra ancora (task 16): un suo cambio
+    // non chiede un frame.
+    let was_scanned = s.library.scanned;
+    s.library.poll(s.live.drained(), Instant::now());
+    if s.library.scanned && !was_scanned {
+        probe::index_scanned(s.library.index.len());
+    }
     let fire = reloaded.as_ref().is_some_and(|r| s.note_reload(&r.change, clock));
     // Il fuoco si accende dopo una ricarica che porta testo sotto la vista (`note_reload`, o il
     // primo `visible_rows` del layout nuovo) e si spegne quando l'ultimo di quei blocchi entra
@@ -360,7 +381,7 @@ mod tests {
     use super::*;
 
     fn empty_doc() -> Doc {
-        Doc { document: None, style: ui::markdown_style::style(&ui::theme::Theme::for_mode(true), 15.5), scroll: None, generation: 0, live: live::Live::default(), ring_since: None, ring_wake: None, below: live::below::Below::default(), visible_last: 0, fire_since: None, fire_armed: None, window_active: true, changed: live::arriving::Changed::default(), mark_wake: None, dither_since: None }
+        Doc { document: None, style: ui::markdown_style::style(&ui::theme::Theme::for_mode(true), 15.5), scroll: None, generation: 0, live: live::Live::default(), library: index::Library::load(Vec::new(), None), ring_since: None, ring_wake: None, below: live::below::Below::default(), visible_last: 0, fire_since: None, fire_armed: None, window_active: true, changed: live::arriving::Changed::default(), mark_wake: None, dither_since: None }
     }
 
     /// Con "riduci movimento" non passa nessun frame: `poll` gira solo ai risvegli. Rune misura
@@ -456,7 +477,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let f = dir.join("a.md");
         std::fs::write(&f, "# a\n\nb\n").unwrap();
-        let mut doc = Doc { document: None, style: ui::markdown_style::style(&ui::theme::Theme::for_mode(true), 15.5), scroll: None, generation: 0, live: live::Live::default(), ring_since: None, ring_wake: None, below: live::below::Below::default(), visible_last: 0, fire_since: None, fire_armed: None, window_active: true, changed: live::arriving::Changed::default(), mark_wake: None, dither_since: None };
+        let mut doc = Doc { document: None, style: ui::markdown_style::style(&ui::theme::Theme::for_mode(true), 15.5), scroll: None, generation: 0, live: live::Live::default(), library: index::Library::load(Vec::new(), None), ring_since: None, ring_wake: None, below: live::below::Below::default(), visible_last: 0, fire_since: None, fire_armed: None, window_active: true, changed: live::arriving::Changed::default(), mark_wake: None, dither_since: None };
         doc.open_paths(vec![f.clone()]);
         // Rune rilegge le chiavi solo se la versione cambia: anche lo stesso file invariato,
         // riaperto, deve cambiare versione e chiavi.

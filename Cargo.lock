@@ -2837,6 +2837,8 @@ dependencies = [
  "rune",
  "rune-fx",
  "rune-kit",
+ "serde",
+ "serde_json",
  "similar",
  "tempfile",
  "wgpu",
