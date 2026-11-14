@@ -140,7 +140,9 @@ aperto. Le cartelle osservate sono `~/Desktop/GitHub` (28 repo oggi), più altre
 - Rilettura con debounce (ipotesi: 50 ms). Una lettura vuota o molto più corta della precedente mentre il file
   cambia si scarta e si rilegge dopo il debounce.
 - **Scritture che non sono di un agente.** RuneMD ricorda l'hash di quello che salva e ignora l'evento uguale. Un
-  cambio di `.git/HEAD` nello stesso repo negli ultimi 2 s (checkout, pull) non accende l'anello [mia scelta].
+  cambio di `.git/HEAD`, `.git/ORIG_HEAD` o `.git/FETCH_HEAD` nello stesso repo negli ultimi 2 s non accende
+  l'anello [mia scelta]: checkout scrive `HEAD`, pull e `reset --hard` spostano solo i ref ma scrivono `ORIG_HEAD`
+  e `FETCH_HEAD`; in un worktree si guarda l'`HEAD` in `.git/worktrees/<nome>/` (`watch::git_head_root`).
 - Primo task del piano: registrare con `fs_usage` come scrivono davvero Claude Code e Codex una spec lunga
   (riscrittura intera, rename, append) e tarare debounce e soglie su quei dati.
 
