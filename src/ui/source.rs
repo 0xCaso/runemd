@@ -10,6 +10,11 @@
 //! che la vista legge da `Cx::caret`: [`caret_lines`]). Una selezione resta dentro un pezzo.
 //! Cmd+S e Cmd+E stanno in `main::on_key`: il campo non li prende.
 //!
+//! Quando un salvataggio non scrive, sopra il sorgente compare una riga alta come la barra delle
+//! schede, con una linea sotto: "Il file è cambiato su disco" con "Ricarica" e "Tieni il mio"
+//! (righe premibili come le schede, testo `fg2`, hover `sel`), o "Salvataggio non riuscito" da
+//! sola. Testo UI in `fg`, nessun accento.
+
 use std::borrow::Cow;
 
 use rune::{Cx, El, Family, GrowthSpec, Key, KeyEvent, ScrollSpec, Span, TextStyle, Tx, col, el, memo, row, text, text_input};
@@ -189,7 +194,7 @@ pub fn view(s: &App, hooks: Hooks<App>, tab: &Tab, src: &SourceEdit, caret: Opti
             move |s: &App, i| {
                 let Some(p) = pieces_of(s, id).and_then(|p| p.get(i)) else { return el() };
                 let lines = caret.filter(|c| c.piece == p.id).map_or((false, false), |c| (c.first, c.last));
-                memo(format!("piece-{:x}", p.id), (&p.edit, lines, &style), || piece_row(id, p.id, &p.edit, &style, lines))
+                memo(format!("piece-{id:x}-{:x}", p.id), (&p.edit, lines, &style), || piece_row(id, p.id, &p.edit, &style, lines))
             },
         )
         .virtual_rows_version((id, src.pieces.version));
@@ -249,7 +254,6 @@ mod tests {
     use rune::{Env, Key, KeyEvent, Mods, Runtime};
 
     use super::*;
-
 
     fn cmd(c: char) -> KeyEvent {
         KeyEvent { key: Key::Command(c), mods: Mods { cmd: true, ..Mods::default() } }
@@ -569,6 +573,130 @@ mod tests {
         settle(&mut rt);
         let Mode::Source(s) = &rt.state.tab().unwrap().mode else { panic!() };
         assert_eq!(s.text().as_bytes()[s.pieces.caret() - 1], b'Z', "si scrive al cursore");
+    }
+
+    /// Due schede sullo stesso nome e testo (un README in un repo e nel suo worktree): scrivere
+    /// nella seconda cambia solo la seconda.
+    #[test]
+    fn two_tabs_with_the_same_file_keep_their_own_pieces() {
+        let dir = tempfile::tempdir().unwrap();
+        let (a, b) = (dir.path().join("a/README.md"), dir.path().join("b/README.md"));
+        for p in [&a, &b] {
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(p, "# uguale\n\ntesto\n").unwrap();
+        }
+        let mut rt = open(&a);
+        rt.key(cmd('e'));
+        settle(&mut rt);
+        rt.update(|s, _| s.open_paths(vec![b.clone()]));
+        settle(&mut rt);
+        rt.key(cmd('e'));
+        settle(&mut rt);
+        rt.key(cmd('1'));
+        settle(&mut rt);
+        // Nessun campo a fuoco (un clic fuori): i due pezzi hanno lo stesso stato.
+        rt.update(|s, _| {
+            for t in &mut s.tabs {
+                if let Mode::Source(src) = &mut t.mode {
+                    src.pieces.current().focused = false;
+                }
+            }
+        });
+        settle(&mut rt);
+        rt.key(cmd('2'));
+        settle(&mut rt);
+        let piece = rt.elements().into_iter().filter_map(|e| e.key).find(|k| k.starts_with("src-")).unwrap();
+        tap(&mut rt, &piece);
+        rt.key(KeyEvent { key: Key::Home, mods: Mods::default() });
+        rt.key(typed("B"));
+        settle(&mut rt);
+        let text = |rt: &Runtime<App>, i: usize| match &rt.state.tabs[i].mode {
+            Mode::Source(s) => s.text(),
+            Mode::Read => panic!("non nel sorgente"),
+        };
+        assert_eq!(text(&rt, 0), "# uguale\n\ntesto\n", "a non cambia");
+        assert_eq!(text(&rt, 1), "B# uguale\n\ntesto\n", "b ha il testo");
+        rt.update(|s, _| s.save_all());
+        assert_eq!(std::fs::read_to_string(&a).unwrap(), "# uguale\n\ntesto\n");
+        assert_eq!(std::fs::read_to_string(&b).unwrap(), "B# uguale\n\ntesto\n");
+    }
+
+    /// "Ricarica" toglie il fuoco al campo (il clic è sul bottone) ma il cursore resta dov'era.
+    #[test]
+    fn reload_keeps_the_caret() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("a.md");
+        std::fs::write(&path, "# a\n\nuno\n\ndue\n").unwrap();
+        let mut rt = open(&path);
+        rt.key(cmd('e'));
+        settle(&mut rt);
+        for k in [Key::Down, Key::Down, Key::Right, Key::Right] {
+            rt.key(key(k));
+            settle(&mut rt);
+        }
+        rt.key(typed("X"));
+        settle(&mut rt);
+        let before = caret(&rt);
+        assert_eq!(before, 8);
+        std::fs::write(&path, "# a\n\nuno\n\ndue, dell'agente\n").unwrap();
+        rt.key(cmd('s'));
+        settle(&mut rt);
+        tap(&mut rt, RELOAD_KEY);
+        assert_eq!(source_text(&rt).as_deref(), Some("# a\n\nuno\n\ndue, dell'agente\n"));
+        assert_eq!(caret(&rt), before, "il cursore resta dov'era");
+        // Anche con il cursore messo da un clic su un altro pezzo.
+        let last = rt.elements().into_iter().filter_map(|e| e.key).rfind(|k| k.starts_with("src-")).unwrap();
+        tap(&mut rt, &last);
+        let clicked = caret(&rt);
+        assert!(clicked > 5, "il clic è nell'ultimo pezzo: {clicked}");
+        rt.key(typed("Y"));
+        settle(&mut rt);
+        std::fs::write(&path, "# a\n\nuno\n\ndue, dell'agente, ancora\n").unwrap();
+        rt.key(cmd('s'));
+        settle(&mut rt);
+        tap(&mut rt, RELOAD_KEY);
+        assert_eq!(caret(&rt), clicked + 1);
+    }
+
+    /// Backspace all'inizio di un pezzo e un carattere nello stesso giro di tasti (nessun frame
+    /// in mezzo): il carattere va nel pezzo unito, non si perde.
+    #[test]
+    fn a_key_right_after_a_join_lands_in_the_joined_piece() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("a.md");
+        std::fs::write(&path, "# a\n\nuno\n").unwrap();
+        let mut rt = open(&path);
+        rt.key(cmd('e'));
+        settle(&mut rt);
+        if let Mode::Source(s) = &mut rt.state.tabs[0].mode {
+            s.pieces.set_caret(5);
+        }
+        rt.invalidate();
+        settle(&mut rt);
+        rt.key(key(Key::Backspace));
+        rt.key(typed("Q"));
+        settle(&mut rt);
+        assert_eq!(source_text(&rt).as_deref(), Some("# a\nQuno\n"));
+        // E dopo una freccia che passa al pezzo vicino, o Canc alla fine.
+        let path = dir.path().join("b.md");
+        std::fs::write(&path, "a\n\nb\n\nc\n").unwrap();
+        let mut rt = open(&path);
+        rt.key(cmd('e'));
+        settle(&mut rt);
+        assert_eq!(source_text(&rt).as_deref(), Some("a\n\nb\n\nc\n"));
+        if let Mode::Source(s) = &mut rt.state.tabs[0].mode {
+            s.pieces.set_caret(6);
+        }
+        rt.invalidate();
+        settle(&mut rt);
+        rt.key(key(Key::Up));
+        rt.key(typed("W"));
+        settle(&mut rt);
+        assert_eq!(source_text(&rt).as_deref(), Some("a\n\nb\nW\nc\n"), "su: nel pezzo prima");
+        rt.key(key(Key::Delete));
+        rt.key(typed("V"));
+        settle(&mut rt);
+        assert_eq!(source_text(&rt).as_deref(), Some("a\n\nb\nWVc\n"), "Canc: nel pezzo unito");
     }
 
     /// Il sorgente virtualizzato (un campo per pezzo): riunire i pezzi ridà il file identico,

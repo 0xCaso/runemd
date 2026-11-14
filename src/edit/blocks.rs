@@ -84,6 +84,9 @@ pub struct Pieces {
     next_id: u64,
     /// Cambia quando i pezzi si uniscono o si ridividono: le chiavi delle righe cambiano.
     pub version: u64,
+    /// L'ultimo pezzo che ha avuto il fuoco o una modifica: il suo cursore vale anche quando il
+    /// fuoco è altrove (un clic su "Ricarica").
+    last: u64,
 }
 
 /// Cosa fa un tasto ai bordi di un pezzo.
@@ -147,9 +150,15 @@ impl Pieces {
         self.pieces.iter()
     }
 
-    /// Il campo del pezzo `id`, se c'è ancora.
+    /// Il campo del pezzo `id`, se c'è ancora (`on_edit`). Rune passa da qui per ogni tasto, clic
+    /// e perdita di fuoco del campo: se il pezzo ha il fuoco diventa l'ultimo usato (Rune lo
+    /// chiede anche per pezzi senza fuoco, che non contano).
     pub fn edit_mut(&mut self, id: u64) -> Option<&mut TextEdit> {
-        self.pieces.iter_mut().find(|p| p.id == id).map(|p| &mut p.edit)
+        let p = self.pieces.iter_mut().find(|p| p.id == id)?;
+        if p.edit.focused {
+            self.last = id;
+        }
+        Some(&mut p.edit)
     }
 
     fn index(&self, id: u64) -> Option<usize> {
@@ -167,9 +176,9 @@ impl Pieces {
         &mut self.pieces[i].edit
     }
 
-    /// Il cursore nel testo intero (byte): nel pezzo con il fuoco, o 0.
+    /// Il cursore nel testo intero (byte): nel pezzo con il fuoco, o nell'ultimo che l'ha avuto.
     pub fn caret(&self) -> usize {
-        let Some(i) = self.focused() else { return 0 };
+        let Some(i) = self.focused().or_else(|| self.index(self.last)) else { return 0 };
         self.pieces[..i].iter().map(|p| p.edit.text.len() + 1).sum::<usize>() + self.pieces[i].edit.focus
     }
 
@@ -194,6 +203,7 @@ impl Pieces {
         for (j, p) in self.pieces.iter_mut().enumerate() {
             p.edit.focused = j == i;
         }
+        self.last = self.pieces[i].id;
         let e = &mut self.pieces[i].edit;
         let at = (0..=at.min(e.text.len())).rev().find(|&k| e.text.is_char_boundary(k)).unwrap_or(0);
         e.set_caret(at);
@@ -308,6 +318,9 @@ mod tests {
         assert_eq!((p.focused(), p.current().focus), (Some(0), 3), "il \\n fra due pezzi è la fine del primo");
         p.set_caret(99);
         assert_eq!((p.focused(), p.caret()), (Some(1), 6));
+        // Senza fuoco vale l'ultimo pezzo che l'ha avuto.
+        p.current().focused = false;
+        assert_eq!((p.focused(), p.caret()), (None, 6));
     }
 
     #[test]

@@ -24,6 +24,8 @@ for line in open(sys.argv[1]):
         continue
     if mark["typing"] <= f["t"] < mark["typed"]:
         ms.append(f["quality"]["cpu_ms"])
+if not ms:
+    sys.exit("edit_big: nessun frame fra i mark typing e typed (il trace è vuoto o lo script è cambiato?)")
 ms.sort()
 pct = lambda p: ms[round((len(ms) - 1) * p)]
 print(f"frame cpu ms: n={len(ms)} p50={pct(0.5):.2f} p95={pct(0.95):.2f} max={pct(1.0):.2f}")
