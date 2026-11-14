@@ -286,6 +286,9 @@ pub struct Library {
     waker: Option<Waker>,
     /// La prima scansione è finita: l'indice è quello del disco (non solo della cache).
     pub scanned: bool,
+    /// Le cartelle della scansione raccolta nell'ultimo `poll` (vuoto se nessuna): cambi
+    /// dell'indice senza un evento per file (l'albero del repo le guarda).
+    pub landed: Vec<PathBuf>,
     /// Cambiato dall'ultimo salvataggio.
     dirty: bool,
     saved_at: Option<Instant>,
@@ -297,7 +300,7 @@ impl Library {
     pub fn load(roots: Vec<PathBuf>, cache: Option<PathBuf>) -> Library {
         let mut index = cache.as_deref().map(Index::load_cache).unwrap_or_default();
         index.set_roots(roots.clone());
-        Library { index, roots, cache, scan: None, queued: Vec::new(), waker: None, scanned: false, dirty: false, saved_at: None, saving: None }
+        Library { index, roots, cache, scan: None, queued: Vec::new(), waker: None, scanned: false, landed: Vec::new(), dirty: false, saved_at: None, saving: None }
     }
 
     /// Le cartelle osservate.
@@ -346,6 +349,7 @@ impl Library {
     /// cambiato.
     pub fn poll(&mut self, events: &[FsEvent], now: Instant) -> bool {
         let mut changed = false;
+        self.landed.clear();
         for ev in events {
             changed |= match ev {
                 FsEvent::Rescan(dir) => self.rescan(dir),
@@ -356,6 +360,7 @@ impl Library {
             Some(Ok(entries)) => {
                 let (under, _) = self.scan.take().expect("scansione in corso");
                 self.index.finish_scan(&under, entries);
+                self.landed = under;
                 changed = true;
                 if !self.scanned {
                     self.scanned = true;

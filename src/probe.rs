@@ -29,6 +29,12 @@ fn log_to(var: &str, line: &str) {
     writeln!(f, "{line}").expect("log");
 }
 
+/// Il costo sul thread della UI di un ricalcolo della sidebar dopo un cambio dell'indice
+/// (`MDSPIKE_LOG`, una riga per cambio).
+pub fn sidebar_refreshed(d: std::time::Duration) {
+    log(&format!("sidebar_refresh_us={:.1}", d.as_secs_f64() * 1e6));
+}
+
 #[derive(Default)]
 struct Frames {
     first: bool,

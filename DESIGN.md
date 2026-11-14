@@ -54,6 +54,10 @@ typography:
     fontFamily: "Inter"
     fontSize: "12px"
     fontWeight: 500
+  kbd:
+    fontFamily: "Inter"
+    fontSize: "11px"
+    fontWeight: 400
 rounded:
   kbd: "4px"
   row: "6px"
@@ -66,6 +70,24 @@ spacing:
   row: "28px"
   tree-row: "26px"
   tree-indent: "16px"
+  sidebar-top: "44px"
+  sidebar-pad: "8px"
+  sidebar-bottom: "10px"
+  field: "30px"
+  field-margin: "0 2px 6px"
+  row-pad: "10px"
+  tree-row-pad: "8px"
+  row-gap: "8px"
+  qualifier-gap: "6px"
+  icon: "14px"
+  chevron: "10px"
+  section-pad: "14px 10px 6px"
+  kbd-pad: "1px 5px"
+  hairline: "0.5px"
+motion:
+  press: "scale 0.98, 160ms ease-out"
+  hover: "120ms ease"
+  ease-out: "cubic-bezier(0.23, 1, 0.32, 1)"
 components:
   sidebar-row:
     height: "{spacing.row}"
@@ -169,9 +191,16 @@ Raggi piccoli e costanti: pannello 10, campo 7, riga 6, tasto ⌘ 4. Le linee so
 
 **Riga della sidebar.** Alta 28 px (26 nell'albero), raggio 6. Hover `sel`, solo con puntatore fine. Premuta:
 scala 0,98 in 160 ms ease-out. Selezionata: riempimento `sel`, testo `fg`.
+Misure della sidebar (dal mockup `scheda`, ora token in `spacing`): spazio sopra di 44 per i semafori,
+margini 8 ai lati e 10 in fondo, margine interno delle righe 10 (8 nell'albero), 8 fra icona, nome e tempo,
+6 fra nome e repo/cartella di un nome doppio, icone da 14 e freccia delle cartelle da 10, etichette di sezione
+con 14 sopra e 6 sotto. Il riempimento `sel` dell'hover entra ed esce in 120 ms (`ease`); la scala della
+riga premuta va e torna in 160 ms con la curva `motion.ease-out`. Con "riduci movimento" tutti e due sono
+immediati.
 
-**Campo "Apri file".** Alto 30 px, raggio 7, riempimento `field`, bordo interno 0,5 px a `ink` 10 %. Icona,
-testo e "⌘P" in `fg-2` (deve leggersi: commento di Matteo).
+**Campo "Apri file".** Alto 30 px, raggio 7, riempimento `field`, bordo interno 0,5 px in `line`. Icona,
+testo e "⌘P" in `fg-2` (deve leggersi: commento di Matteo). Il tasto "⌘P" è testo `kbd` (11 px, 400) con
+bordo 0,5 px in `line`, raggio 4 e margine interno `kbd-pad`; il campo ha margine `field-margin`.
 
 **Scheda.** Testo UI 13 px. La scheda del file attivo ha riempimento `sel`.
 

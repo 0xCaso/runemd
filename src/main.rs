@@ -269,7 +269,7 @@ fn init() -> Doc {
     probe::index_cached(t.elapsed(), library.index.len());
     let mut doc = Doc { document: None, style: ui::markdown_style::style(&ui::theme::Theme::for_mode(dark_mode()), 15.5), scroll: probe::ScrollRun::from_env(), generation: 0, live: live::Live::default(), library, sidebar: ui::sidebar::Sidebar::default(), rings: BTreeMap::new(), ring_wake: None, below: live::below::Below::default(), visible_last: 0, fire_since: None, fire_armed: None, window_active: true, changed: live::arriving::Changed::default(), mark_wake: None, dither_since: None };
     // Recenti dalla cache: la sidebar è piena dal primo frame.
-    doc.sidebar.refresh(&doc.library.index, SystemTime::now());
+    doc.sidebar.refresh(&doc.library.index, &[], SystemTime::now());
     doc.open_paths(paths);
     doc
 }
@@ -350,12 +350,25 @@ fn poll(s: &mut Doc, clock: f64, tx: &mut Tx) -> bool {
         probe::index_scanned(s.library.index.len());
     }
     let wall = SystemTime::now();
-    let mut side = if indexed { s.sidebar.refresh(&s.library.index, wall) } else { s.sidebar.tick(wall) };
+    let t_side = Instant::now();
+    let mut side = if indexed {
+        // L'albero si ricontrolla solo per i percorsi toccati sotto (o sopra) la radice del repo.
+        let mut touched: Vec<PathBuf> = s.live.drained().iter().map(|ev| match ev {
+            watch::FsEvent::Changed(p) | watch::FsEvent::Removed(p) | watch::FsEvent::GitHead(p) | watch::FsEvent::Rescan(p) => p.clone(),
+        }).collect();
+        touched.extend(s.library.landed.iter().cloned());
+        s.sidebar.refresh(&s.library.index, &touched, wall)
+    } else {
+        s.sidebar.tick(wall)
+    };
     // Il branch: un cambio di HEAD del repo del file aperto (worktree compresi, `repo::head_path`).
     for ev in s.live.drained() {
         if let watch::FsEvent::GitHead(root) = ev {
             side |= s.sidebar.git_head(root);
         }
+    }
+    if indexed {
+        probe::sidebar_refreshed(t_side.elapsed());
     }
     // I tempi di Recenti cambiano col tempo: un risveglio al prossimo cambio, non frame continui.
     if let Some(d) = s.sidebar.label_wake(wall, clock) {

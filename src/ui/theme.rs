@@ -13,6 +13,11 @@ pub const TREE_INDENT: f32 = 16.0;
 pub const UI_TEXT: f32 = 13.0;
 /// UI piccola (DESIGN.md, `typography.ui-small`): 12 pt, peso 500. Tempi, sezioni, branch.
 pub const UI_SMALL: f32 = 12.0;
+/// Pesi della UI (DESIGN.md, "Typography"): righe 400, nome del repo 600, UI piccola 500, tasto 400.
+pub const UI_WEIGHT: f32 = 400.0;
+pub const UI_STRONG_WEIGHT: f32 = 600.0;
+pub const UI_SMALL_WEIGHT: f32 = 500.0;
+pub const KBD_WEIGHT: f32 = 400.0;
 /// L'etichetta del fuoco sta a questa distanza dal fondo del pannello.
 pub const FIRE_LABEL_BOTTOM: f32 = 10.0;
 /// Corpo del documento (DESIGN.md, `typography.doc-body`): 15,5 pt, interlinea 1,62.
@@ -28,6 +33,39 @@ pub const ROW_PAD_Y: f32 = 7.0;
 pub const CHANGED_MARK_W: f32 = 2.0;
 /// Il segno sta a questa distanza dal bordo sinistro della riga (a metà del margine).
 pub const CHANGED_MARK_X: f32 = (ROW_PAD_X - CHANGED_MARK_W) / 2.0;
+
+/// Sidebar (DESIGN.md, `spacing`): spazio sopra il campo per i semafori, margini ai lati e in fondo.
+pub const SIDEBAR_TOP: f32 = 44.0;
+pub const SIDEBAR_PAD: f32 = 8.0;
+pub const SIDEBAR_BOTTOM: f32 = 10.0;
+/// Campo "Apri file" e riga del repo (`spacing.field`); margine del campo (`field-margin`).
+pub const FIELD_H: f32 = 30.0;
+pub const FIELD_MARGIN_X: f32 = 2.0;
+pub const FIELD_MARGIN_BOTTOM: f32 = 6.0;
+/// Margine orizzontale dentro le righe della sidebar (`row-pad`) e dell'albero (`tree-row-pad`).
+pub const ROW_PAD: f32 = 10.0;
+pub const TREE_ROW_PAD: f32 = 8.0;
+/// Spazio fra icona, nome e tempo (`row-gap`), e fra nome e repo di un nome doppio (`qualifier-gap`).
+pub const ROW_GAP: f32 = 8.0;
+pub const QUALIFIER_GAP: f32 = 6.0;
+/// Icone di campo e repo (`icon`), freccia delle cartelle (`chevron`).
+pub const ICON: f32 = 14.0;
+pub const CHEVRON: f32 = 10.0;
+/// Etichette di sezione: 14 sopra, 6 sotto, `ROW_PAD` ai lati (`section-pad`).
+pub const SECTION_PAD_TOP: f32 = 14.0;
+pub const SECTION_PAD_BOTTOM: f32 = 6.0;
+/// Il tasto "⌘P": testo `typography.kbd` (11, 400) e margine interno `kbd-pad`.
+pub const KBD_TEXT: f32 = 11.0;
+pub const KBD_PAD_X: f32 = 5.0;
+pub const KBD_PAD_Y: f32 = 1.0;
+/// Le linee sono di 0,5 pt (`hairline`, DESIGN.md "Shapes").
+pub const HAIRLINE: f32 = 0.5;
+/// Riga premuta: scala 0,98 in 160 ms ease-out; hover che entra ed esce in 120 ms (`motion`).
+pub const PRESS_SCALE: f32 = 0.98;
+pub const PRESS_TIME: f32 = 0.16;
+pub const HOVER_FADE: f32 = 0.12;
+/// `motion.ease-out`: cubic-bezier(0.23, 1, 0.32, 1).
+pub const EASE_OUT: rune::Easing = rune::Easing::cubic(0.23, 1.0, 0.32, 1.0);
 
 pub const R_KBD: f32 = 4.0;
 pub const R_ROW: f32 = 6.0;
