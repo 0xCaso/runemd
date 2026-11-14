@@ -69,11 +69,14 @@ pub struct Tab {
     /// Il titolo dell'indice cliccato (id del blocco) e il primo blocco visibile dopo il salto:
     /// resta evidenziato finché si vede e non si scorre a mano, anche se non arriva in cima.
     picked: Option<(u64, Option<usize>)>,
+    /// Cmd+E non è entrato perché il file non è UTF-8: la lettura mostra la riga che lo dice
+    /// (`ui::source::NOT_UTF8_TEXT`) finché un Cmd+E non entra.
+    pub(crate) not_utf8: bool,
 }
 
 impl Tab {
     pub(crate) fn new(doc: Document, follow: Follow) -> Tab {
-        Tab { doc, mode: Mode::Read, below: Below::default(), changed: Changed::default(), follow, visible_last: 0, visible_first: 0, fire_since: None, fire_armed: None, mark_wake: None, dither_since: None, visible_start: 0, visible_end: 0, outline: ui::outline::Cache::default(), viewport: [0.0; 4], page: [0.0; 4], at_bottom: false, picked: None }
+        Tab { doc, mode: Mode::Read, below: Below::default(), changed: Changed::default(), follow, visible_last: 0, visible_first: 0, fire_since: None, fire_armed: None, mark_wake: None, dither_since: None, visible_start: 0, visible_end: 0, outline: ui::outline::Cache::default(), viewport: [0.0; 4], page: [0.0; 4], at_bottom: false, picked: None, not_utf8: false }
     }
 
     /// Il file come lo riporta FSEvents (canonico): la chiave degli anelli.
@@ -633,6 +636,7 @@ impl App {
                 Ok(()) => continue,
                 Err(edit::SaveError::Conflict) => "il file è cambiato su disco".to_owned(),
                 Err(edit::SaveError::Io(e)) => format!("salvataggio non riuscito ({e})"),
+                Err(edit::SaveError::NotUtf8) => "il file non è UTF-8".to_owned(),
             };
             let path = tab.doc.path.display().to_string();
             match self.recovery.as_deref().map(|dir| edit::recover(tab, dir, &stamp)) {
@@ -745,7 +749,11 @@ impl App {
         self.open_paths(vec![path.clone()]);
         let tab = self.tabs.get_mut(self.active).filter(|t| t.doc.path == path || t.path() == path.canonicalize().unwrap_or_else(|_| path.clone()))?;
         if matches!(tab.mode, Mode::Read) {
-            tab.mode = Mode::Source(Box::new(edit::enter(&tab.doc)));
+            if edit::editable(tab.follow.path()) {
+                tab.mode = Mode::Source(Box::new(edit::enter(&tab.doc)));
+            } else {
+                tab.not_utf8 = true;
+            }
         }
         Some(self.tab().map(|t| t.doc.id) != before)
     }
@@ -910,6 +918,11 @@ impl App {
         let Some(tab) = self.tabs.get_mut(self.active) else { return false };
         match tab.mode {
             Mode::Read => {
+                if !edit::editable(tab.follow.path()) {
+                    tab.not_utf8 = true;
+                    return true;
+                }
+                tab.not_utf8 = false;
                 tab.mode = Mode::Source(Box::new(edit::enter(&tab.doc)));
                 // Cerca vale solo in lettura (v1).
                 self.find.close();

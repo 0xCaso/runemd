@@ -40,6 +40,9 @@ pub struct SourceEdit {
     /// "Salvare le modifiche a …?" (Salva, Non salvare, Annulla). Ogni salvataggio la toglie: se
     /// non scrive, torna la riga di `notice`.
     pub asking: bool,
+    /// Il testo di partenza non era UTF-8 (letto con `from_utf8_lossy`): non si scrive mai,
+    /// nemmeno con "Tieni il mio" (review finale I1).
+    pub lossy: bool,
 }
 
 /// Perché l'ultimo salvataggio non ha scritto: quello che la riga sopra il sorgente dice.
@@ -49,6 +52,9 @@ pub enum Notice {
     Conflict,
     /// "Salvataggio non riuscito": un errore di lettura o scrittura, non un conflitto.
     SaveFailed,
+    /// "Il file non è UTF-8: modifica disattivata": il testo ha U+FFFD al posto dei byte non
+    /// validi, e scriverlo li perderebbe.
+    NotUtf8,
 }
 
 /// Il salvataggio non ha scritto.
@@ -58,6 +64,8 @@ pub enum SaveError {
     Conflict,
     /// Il file non si legge o non si scrive (permessi, disco pieno).
     Io(io::Error),
+    /// Il file su disco, o quello da cui è partita la modifica, non è UTF-8: non si scrive.
+    NotUtf8,
 }
 
 impl SourceEdit {
@@ -73,15 +81,26 @@ impl SourceEdit {
     }
 }
 
+/// Il file si può modificare: si legge ed è UTF-8. Uno che non lo è resta in lettura (Cmd+E,
+/// Cmd+N su un nome che esiste): il sorgente lo riscriverebbe con U+FFFD al posto dei byte non
+/// validi. Un file che non si legge si lascia a [`enter`].
+pub fn editable(path: &Path) -> bool {
+    !matches!(disk(path), Ok((_, _, false)))
+}
+
 /// Entra in modifica: il sorgente è il file com'è adesso su disco (il documento tiene solo i
 /// blocchi, non le righe vuote fra l'uno e l'altro), con il cursore all'inizio e il fuoco nel
 /// campo. Se il file non si legge (sparito durante un rename) si parte dai blocchi del documento.
 pub fn enter(doc: &Document) -> SourceEdit {
-    let (text, base_hash) = match disk(&doc.path) {
-        Ok((text, hash)) => (text, hash),
-        Err(_) => (doc.blocks.iter().map(|b| &*b.source).collect::<Vec<_>>().join("\n\n") + "\n", doc.file_hash),
+    let (text, base_hash, utf8) = match disk(&doc.path) {
+        Ok(d) => d,
+        Err(_) => {
+            let text = doc.blocks.iter().map(|b| &*b.source).collect::<Vec<_>>().join("\n\n") + "\n";
+            let utf8 = !text.contains(char::REPLACEMENT_CHARACTER);
+            (text, doc.file_hash, utf8)
+        }
     };
-    SourceEdit { pieces: Pieces::new(&text), base_hash, dirty: false, notice: None, asking: false }
+    SourceEdit { pieces: Pieces::new(&text), base_hash, dirty: false, notice: None, asking: false, lossy: !utf8 }
 }
 
 /// Salva il sorgente della scheda se il disco ha ancora il contenuto da cui è partita la
@@ -99,6 +118,7 @@ pub fn save(tab: &mut Tab, own: &mut OwnWrites) -> Result<(), SaveError> {
             Ok(()) => None,
             Err(SaveError::Conflict) => Some(Notice::Conflict),
             Err(SaveError::Io(_)) => Some(Notice::SaveFailed),
+            Err(SaveError::NotUtf8) => Some(Notice::NotUtf8),
         };
     }
     if let Err(SaveError::Io(e)) = &result {
@@ -109,9 +129,13 @@ pub fn save(tab: &mut Tab, own: &mut OwnWrites) -> Result<(), SaveError> {
 
 fn try_save(tab: &mut Tab, own: &mut OwnWrites) -> Result<(), SaveError> {
     let Mode::Source(src) = &mut tab.mode else { return Ok(()) };
+    if src.lossy {
+        return Err(SaveError::NotUtf8);
+    }
     let target = tab.follow.path().to_owned();
     match disk(&target) {
-        Ok((_, h)) if h == src.base_hash => {}
+        Ok((_, _, false)) => return Err(SaveError::NotUtf8),
+        Ok((_, h, true)) if h == src.base_hash => {}
         Ok(_) => return Err(SaveError::Conflict),
         // Sparito (un rename a metà, o cancellato): è cambiato su disco.
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Err(SaveError::Conflict),
@@ -140,6 +164,12 @@ pub fn recover(tab: &mut Tab, dir: &Path, stamp: &str) -> io::Result<std::path::
 /// e ne fa il nuovo punto di partenza. Come un salvataggio, la rilettura del watcher è una
 /// scrittura dell'app (niente segni, fuoco o dither). La scheda resta nel sorgente.
 pub fn keep_mine(tab: &mut Tab, own: &mut OwnWrites) -> io::Result<()> {
+    if let Mode::Source(src) = &mut tab.mode
+        && src.lossy
+    {
+        src.notice = Some(Notice::NotUtf8);
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "il file non è UTF-8"));
+    }
     let result = commit(tab, own);
     if let Mode::Source(src) = &mut tab.mode {
         match &result {
@@ -193,12 +223,15 @@ pub fn leave(tab: &mut Tab, own: &mut OwnWrites) -> Result<(), SaveError> {
     Ok(())
 }
 
-/// Il file su disco come lo legge la ricarica (`from_utf8_lossy`) e il suo hash.
-fn disk(path: &Path) -> io::Result<(String, u64)> {
+/// Il file su disco come lo legge la ricarica (`from_utf8_lossy`), il suo hash e se era UTF-8.
+fn disk(path: &Path) -> io::Result<(String, u64, bool)> {
     let bytes = fs::read(path)?;
-    let text = String::from_utf8_lossy(&bytes).into_owned();
+    let (text, utf8) = match String::from_utf8(bytes) {
+        Ok(text) => (text, true),
+        Err(e) => (String::from_utf8_lossy(e.as_bytes()).into_owned(), false),
+    };
     let hash = hash_str(&text);
-    Ok((text, hash))
+    Ok((text, hash, utf8))
 }
 
 /// Scrive `text` in `path` con un file accanto e un rename: chi legge (la nostra ricarica, un
@@ -446,6 +479,28 @@ pub(crate) mod tests {
         // Quando si torna a scrivere, la riga sparisce.
         assert!(save(&mut tab, &mut own).is_ok());
         assert_eq!(source(&mut tab).notice, None);
+    }
+
+    /// I1: un file che non è UTF-8 non si salva mai (il testo del sorgente avrebbe U+FFFD al
+    /// posto dei byte non validi), nemmeno con "Tieni il mio": i byte restano quelli.
+    #[test]
+    fn save_refuses_a_file_that_is_not_utf8() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("a.md");
+        let bytes = b"# a\n\ncaff\xe8 \xff\n".to_vec();
+        fs::write(&path, &bytes).unwrap();
+        let mut tab = tab_on(&path);
+        tab.mode = Mode::Source(Box::new(enter(&tab.doc)));
+        let s = source(&mut tab);
+        let text = s.text();
+        s.set_text(&format!("{text}X\n"));
+        s.dirty = true;
+        let mut own = OwnWrites::default();
+        assert!(matches!(save(&mut tab, &mut own), Err(SaveError::NotUtf8)));
+        assert_eq!(source(&mut tab).notice, Some(Notice::NotUtf8));
+        assert!(keep_mine(&mut tab, &mut own).is_err());
+        assert!(matches!(leave(&mut tab, &mut own), Err(SaveError::NotUtf8)));
+        assert_eq!(fs::read(&path).unwrap(), bytes, "stessi byte");
     }
 
     #[test]

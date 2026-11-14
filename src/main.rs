@@ -103,6 +103,9 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
             // Con le impostazioni aperte l'indice lascia il posto al pannello.
             let wide = cx.layout_with("app", |r| r[2] >= ui::theme::OUTLINE_MIN_WINDOW).unwrap_or(false);
             let outline = if wide && !s.settings_panel.open { ui::outline::view(tab, hooks, &theme, reduced, !cx.hover_none()) } else { None };
+            // Cmd+E su un file che non è UTF-8: la riga sopra la lettura lo dice.
+            let refused = tab.not_utf8.then(|| ui::source::not_utf8_row(&theme));
+            let doc = rune::col().w_full().h_full().children(refused).child(el().w_full().grow(1.0).min_h(0.0).child(doc));
             rune::row().key("doc-pane").w_full().grow(1.0).min_h(0.0).child(el().grow(1.0).min_w(0.0).h_full().child(doc)).children(outline)
         }
         None => el().grow(1.0),

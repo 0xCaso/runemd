@@ -36,8 +36,12 @@ pub const CONFLICT_TEXT: &str = "Il file è cambiato su disco";
 pub const RELOAD_TEXT: &str = "Ricarica";
 pub const KEEP_TEXT: &str = "Tieni il mio";
 pub const FAILED_TEXT: &str = "Salvataggio non riuscito";
+/// Cmd+E su un file che non è UTF-8 (review finale I1, scelta del controller).
+pub const NOT_UTF8_TEXT: &str = "Il file non è UTF-8: modifica disattivata";
 /// Le chiavi della riga e dei suoi due bottoni.
 pub const NOTICE_KEY: &str = "source-notice";
+/// La riga sopra la lettura quando Cmd+E non entra perché il file non è UTF-8.
+pub const NOT_UTF8_KEY: &str = "read-not-utf8";
 pub const RELOAD_KEY: &str = "source-reload";
 pub const KEEP_KEY: &str = "source-keep";
 /// I bottoni della riga che chiede alla chiusura (record `2026-11-14-cmdw-modifiche-non-salvate`).
@@ -251,6 +255,7 @@ fn notice_row(s: &App, hooks: Hooks<App>, id: u64, notice: Notice, theme: &Theme
     let message = match notice {
         Notice::Conflict => CONFLICT_TEXT,
         Notice::SaveFailed => FAILED_TEXT,
+        Notice::NotUtf8 => NOT_UTF8_TEXT,
     };
     let mut buttons = Vec::new();
     if notice == Notice::Conflict {
@@ -258,6 +263,12 @@ fn notice_row(s: &App, hooks: Hooks<App>, id: u64, notice: Notice, theme: &Theme
         buttons.push(button(s, hooks, KEEP_KEY, KEEP_TEXT, theme, motion, move |s: &mut App, _: &mut Tx| s.keep_mine(id)));
     }
     alert_row(NOTICE_KEY, message, buttons, theme)
+}
+
+/// La riga sopra la lettura dopo un Cmd+E su un file che non è UTF-8 (come quella del
+/// conflitto, senza bottoni).
+pub fn not_utf8_row(theme: &Theme) -> El {
+    alert_row(NOT_UTF8_KEY, NOT_UTF8_TEXT, Vec::new(), theme)
 }
 
 /// La riga che chiede alla chiusura con modifiche non salvate. "Salva" è il bottone di default
@@ -590,6 +601,24 @@ mod tests {
         assert_eq!((rt.state.tabs.len(), rt.state.active), (2, 0), "a davanti, aperta");
         assert!(has(&rt, ASK_KEY), "la riga");
         assert_eq!(std::fs::read_to_string(&a).unwrap(), "# a\n\nuno\n");
+    }
+
+    /// I1: un file che non è UTF-8 non entra nel sorgente (lo riscriverebbe con U+FFFD): Cmd+E
+    /// lascia la lettura e una riga lo dice. Il file non cambia.
+    #[test]
+    fn a_file_that_is_not_utf8_stays_in_read_mode() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("a.md");
+        let bytes = b"# a\n\ncaff\xe8 \xff\n".to_vec();
+        std::fs::write(&path, &bytes).unwrap();
+        let mut rt = open(&path);
+        assert!(!has(&rt, NOT_UTF8_KEY));
+        rt.key(cmd('e'));
+        settle(&mut rt);
+        assert!(source_text(&rt).is_none(), "resta in lettura");
+        assert!(has(&rt, NOT_UTF8_KEY), "la riga");
+        assert!(texts(&rt).iter().any(|t| t == NOT_UTF8_TEXT));
+        assert_eq!(std::fs::read(&path).unwrap(), bytes);
     }
 
     /// Un errore di scrittura: la riga dice "Salvataggio non riuscito", senza i due bottoni.
