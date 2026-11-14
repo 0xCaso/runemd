@@ -15,9 +15,16 @@ use super::theme::{FIELD_H, FIELD_MARGIN_BOTTOM, FIELD_MARGIN_X, HAIRLINE, ICON,
 pub const MAX_RESULTS: usize = 50;
 
 
-/// Quanto pesa un nome che combacia sopra un percorso che combacia: il nome vince sempre.
+/// Un nome che combacia vale sempre più di una cartella che combacia.
 const BASENAME_BONUS: i32 = 10_000;
-/// Del percorso si guardano le ultime cartelle: il resto (`/Users/…`) non dice cosa cercare.
+/// Una cartella dal nome uguale alla ricerca, e una che la contiene come sottosequenza.
+const FOLDER_EXACT: i32 = 5_000;
+const FOLDER_FUZZY: i32 = 1_000;
+/// Ogni cartella fra quella che combacia e il file toglie questo: a parità vince il file più vicino.
+const DEPTH_COST: i32 = 100;
+/// Delle cartelle sopra il file se ne guardano al massimo queste: il resto (`/Users/…`) non dice cosa cercare.
+const FOLDER_PARTS: usize = 4;
+/// Un percorso con "/" nella ricerca si confronta con le ultime parti, come testo unico.
 const TAIL_PARTS: usize = 3;
 
 /// Sottosequenza senza maiuscole, come `score` di `rune-kit/src/combobox.rs` (privata, quindi
@@ -42,32 +49,62 @@ fn score(needle: &[u8], hay: &[u8]) -> Option<i32> {
     Some(total)
 }
 
-/// Il punteggio di un percorso: il nome del file prima, poi le ultime cartelle.
-fn score_path(needle: &[u8], path: &Path) -> Option<i32> {
-    let full = path.as_os_str().as_bytes();
+/// Il punteggio di una parola della ricerca: il nome del file prima; poi la cartella che combacia
+/// (il nome intero meglio di una sottosequenza, la più vicina al file meglio della più lontana).
+/// Niente penalità per la lunghezza delle parti sopra la cartella che combacia.
+fn score_token(needle: &[u8], full: &[u8]) -> Option<i32> {
     let name_at = full.iter().rposition(|&b| b == b'/').map_or(0, |i| i + 1);
     if let Some(s) = score(needle, &full[name_at..]) {
         return Some(BASENAME_BONUS + s);
     }
-    let mut cut = name_at;
-    for _ in 1..TAIL_PARTS {
-        cut = full[..cut.saturating_sub(1)].iter().rposition(|&b| b == b'/').unwrap_or(0);
-        if cut == 0 {
+    let mut best: Option<i32> = None;
+    let mut end = name_at.saturating_sub(1);
+    for depth in 0..FOLDER_PARTS {
+        if end == 0 {
             break;
         }
+        let start = full[..end].iter().rposition(|&b| b == b'/').map_or(0, |i| i + 1);
+        let seg = &full[start..end];
+        let found = if seg.eq_ignore_ascii_case(needle) { Some(FOLDER_EXACT) } else { score(needle, seg).map(|s| FOLDER_FUZZY + s) };
+        if let Some(f) = found.map(|f| f - depth as i32 * DEPTH_COST) {
+            best = Some(best.map_or(f, |b| b.max(f)));
+        }
+        end = start.saturating_sub(1);
     }
-    score(needle, &full[cut..])
+    if best.is_none() && needle.contains(&b'/') {
+        let mut cut = name_at;
+        for _ in 1..TAIL_PARTS {
+            cut = full[..cut.saturating_sub(1)].iter().rposition(|&b| b == b'/').map_or(0, |i| i + 1);
+            if cut == 0 {
+                break;
+            }
+        }
+        return score(needle, &full[cut..]);
+    }
+    best
+}
+
+/// Il punteggio di un percorso: ogni parola della ricerca (separate da spazi) deve combaciare,
+/// in qualsiasi ordine; il punteggio è la somma.
+fn score_path(tokens: &[Vec<u8>], path: &Path) -> Option<i32> {
+    let full = path.as_os_str().as_bytes();
+    let mut total = 0;
+    for t in tokens {
+        total += score_token(t, full)?;
+    }
+    Some(total)
 }
 
 /// I `limit` percorsi che meglio combaciano con `query`, dal migliore; a parità il più corto e poi
 /// l'ordine alfabetico. Una ricerca vuota non dà niente. Gira sul thread della UI a ogni tasto:
 /// niente copie per i percorsi che non combaciano.
 pub fn rank<'a>(query: &str, paths: impl Iterator<Item = &'a Path>, limit: usize) -> Vec<PathBuf> {
-    let needle: Vec<u8> = query.trim().to_lowercase().into_bytes();
-    if needle.is_empty() || limit == 0 {
+    let lower = query.to_lowercase();
+    let tokens: Vec<Vec<u8>> = lower.split_whitespace().map(|t| t.as_bytes().to_vec()).collect();
+    if tokens.is_empty() || limit == 0 {
         return Vec::new();
     }
-    let mut hits: Vec<(i32, &Path)> = paths.filter_map(|p| score_path(&needle, p).map(|s| (s, p))).collect();
+    let mut hits: Vec<(i32, &Path)> = paths.filter_map(|p| score_path(&tokens, p).map(|s| (s, p))).collect();
     let order = |a: &(i32, &Path), b: &(i32, &Path)| (Reverse(a.0), a.1.as_os_str().len(), a.1).cmp(&(Reverse(b.0), b.1.as_os_str().len(), b.1));
     if hits.len() > limit {
         hits.select_nth_unstable_by(limit, order);
@@ -103,10 +140,18 @@ impl QuickOpen {
         self.selected = 0;
     }
 
-    /// Ricalcola i risultati dai nomi dell'indice; la scelta torna alla prima riga.
+    /// La ricerca è cambiata: nuovi risultati dai nomi dell'indice, scelta alla prima riga.
     pub fn requery<'a>(&mut self, names: impl Iterator<Item = &'a Path>) {
         self.hits = rank(&self.edit.text, names, MAX_RESULTS);
         self.selected = 0;
+    }
+
+    /// È cambiato l'indice, non la ricerca: la riga scelta resta quella, per percorso (una
+    /// scrittura altrove non deve spostare ciò che Invio apre). Se non c'è più, torna alla prima.
+    pub fn refresh<'a>(&mut self, names: impl Iterator<Item = &'a Path>) {
+        let before = self.chosen().map(Path::to_path_buf);
+        self.hits = rank(&self.edit.text, names, MAX_RESULTS);
+        self.selected = before.and_then(|b| self.hits.iter().position(|h| *h == b)).unwrap_or(0);
     }
 
     /// Sposta la scelta di `delta` righe, da un capo all'altro.
@@ -270,5 +315,52 @@ mod tests {
         assert_eq!(q.chosen(), Some(Path::new("/r/a.md")));
         q.close();
         assert!(!q.active() && q.hits.is_empty() && !q.edit.focused);
+    }
+
+    #[test]
+    fn exact_folder_beats_scattered_and_shallow_beats_deep() {
+        let paths = [
+            Path::new("/Users/me/GitHub/runemd/docs/spec.md"),
+            Path::new("/Users/me/GitHub/rune-md-spike/README.md"),
+            Path::new("/Users/me/GitHub/runemd/README.md"),
+            Path::new("/Users/me/GitHub/runemd/docs/deep/more.md"),
+        ];
+        let hits = rank("runemd", paths.iter().copied(), 10);
+        assert_eq!(hits[0], Path::new("/Users/me/GitHub/runemd/README.md"));
+        assert_eq!(hits[1], Path::new("/Users/me/GitHub/runemd/docs/spec.md"));
+        assert_eq!(hits[2], Path::new("/Users/me/GitHub/runemd/docs/deep/more.md"));
+        assert_eq!(hits[3], Path::new("/Users/me/GitHub/rune-md-spike/README.md"));
+        let named = [Path::new("/x/runemd/a.md"), Path::new("/y/runemd.md")];
+        assert_eq!(rank("runemd", named.iter().copied(), 10)[0], Path::new("/y/runemd.md"), "il nome vince sulla cartella");
+    }
+
+    #[test]
+    fn every_space_separated_word_must_match_in_any_order() {
+        let paths = [Path::new("/r/docs/plan.md"), Path::new("/r/docs/notes.md"), Path::new("/r/plan/x.txt")];
+        assert_eq!(rank("plan md", paths.iter().copied(), 10), [Path::new("/r/docs/plan.md")]);
+        assert_eq!(rank("md plan", paths.iter().copied(), 10), [Path::new("/r/docs/plan.md")]);
+        let tasks = [Path::new("/r/task/18/a.md"), Path::new("/r/task/19/a.md")];
+        assert_eq!(rank("task 18", tasks.iter().copied(), 10), [Path::new("/r/task/18/a.md")]);
+    }
+
+    #[test]
+    fn refresh_keeps_the_chosen_file_by_path() {
+        let mut q = QuickOpen::default();
+        q.edit.replace_text("md");
+        let names = ["/r/a.md", "/r/b.md", "/r/c.md", "/r/d.md"].map(Path::new);
+        q.requery(names.iter().copied());
+        q.step(2);
+        let chosen = q.chosen().unwrap().to_path_buf();
+        // Un file nuovo entra davanti: la riga scelta resta lo stesso file.
+        let more = ["/r/a.md", "/r/0.md", "/r/b.md", "/r/c.md", "/r/d.md"].map(Path::new);
+        q.refresh(more.iter().copied());
+        assert_eq!(q.chosen(), Some(chosen.as_path()));
+        // Sparisce: torna alla prima. Con la ricerca cambiata si riparte dalla prima.
+        let fewer: Vec<&Path> = more.iter().copied().filter(|p| **p != *chosen).collect();
+        q.refresh(fewer.iter().copied());
+        assert_eq!(q.selected, 0);
+        q.step(1);
+        q.requery(more.iter().copied());
+        assert_eq!(q.selected, 0);
     }
 }

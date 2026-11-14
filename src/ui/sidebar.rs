@@ -152,9 +152,10 @@ impl Sidebar {
         let mut changed = self.refresh_recent(index);
         changed |= self.tick(now);
         if self.quick.active() {
-            let before = self.quick.chosen().map(Path::to_path_buf);
-            self.requery(index);
-            changed |= before.as_deref() != self.quick.chosen() || self.quick_rows.len() != self.quick.hits.len();
+            // L'indice è cambiato, non la ricerca: la riga scelta resta quella.
+            let before = (self.quick.hits.clone(), self.quick.selected);
+            self.rank_quick(index, true);
+            changed |= before != (self.quick.hits.clone(), self.quick.selected);
         }
         let near = |root: &Path| touched.iter().any(|p| p.starts_with(root) || root.starts_with(p));
         if self.repo.as_ref().is_some_and(|r| near(&r.root)) {
@@ -166,11 +167,32 @@ impl Sidebar {
     /// La ricerca di Cmd+P è cambiata, o l'indice: ricalcola i risultati. I nomi doppi prendono il
     /// qualificatore di Recenti (`qualify`).
     pub fn requery(&mut self, index: &Index) {
-        self.quick.requery(index.names());
+        self.rank_quick(index, false);
+    }
+
+    /// `keep`: la ricerca è la stessa (l'indice è cambiato), la riga scelta resta per percorso.
+    fn rank_quick(&mut self, index: &Index, keep: bool) {
+        if keep {
+            self.quick.refresh(index.names());
+        } else {
+            self.quick.requery(index.names());
+        }
         let mut rows: Vec<RecentRow> = self.quick.hits.iter().map(|p| RecentRow { name: file_name(p), path: p.clone(), qualifier: None, mtime: SystemTime::UNIX_EPOCH }).collect();
         let names = &mut self.repo_names;
         qualify(&mut rows, |p| names.entry(p.to_owned()).or_insert_with(|| repo::of(p).name).clone());
         self.quick_rows = rows;
+    }
+
+    /// Il campo ha perso il fuoco (un clic fuori): lista e ricerca si chiudono, così Esc e frecce
+    /// non restano morti su una lista vecchia. Non durante un clic su una riga: il fuoco lascia il
+    /// campo alla pressione, e il clic parte al rilascio. Vero se la lista si è chiusa.
+    pub fn blur_close(&mut self) -> bool {
+        if self.quick.active() && !self.quick.edit.focused && self.pressed.is_none() {
+            self.quick.close();
+            self.quick_rows.clear();
+            return true;
+        }
+        false
     }
 
     /// Ricalcola Recenti: le `RECENT_MAX` voci più recenti che sono ancora file. Il disco si
@@ -762,6 +784,38 @@ mod tests {
         sb.requery(&index);
         assert_eq!(sb.quick_rows.len(), 1);
         assert_eq!(sb.quick_rows[0].qualifier, None);
+    }
+
+    /// Un clic fuori dal campo chiude la lista; un clic su una riga (premuta) no, finché non parte.
+    #[test]
+    fn blur_closes_the_list_except_during_a_press() {
+        let index = Index::from_entries(vec![entry(Path::new("/r/a.md"), 1)]);
+        let mut sb = Sidebar::default();
+        sb.quick.edit.replace_text("a");
+        sb.quick.edit.focused = true;
+        sb.requery(&index);
+        assert!(!sb.blur_close(), "col fuoco resta aperta");
+        sb.quick.edit.focused = false;
+        sb.press("quick-/r/a.md", Phase::Down);
+        assert!(!sb.blur_close(), "durante la pressione di una riga resta aperta");
+        sb.press("quick-/r/a.md", Phase::Up);
+        assert!(sb.blur_close());
+        assert!(!sb.quick.active() && sb.quick_rows.is_empty());
+    }
+
+    /// Una scrittura altrove (l'indice cambia) non sposta la riga scelta con le frecce.
+    #[test]
+    fn index_refresh_keeps_the_chosen_row() {
+        let a = Index::from_entries(vec![entry(Path::new("/r/a.md"), 1), entry(Path::new("/r/b.md"), 1), entry(Path::new("/r/c.md"), 1)]);
+        let mut sb = Sidebar::default();
+        sb.quick.edit.replace_text("md");
+        sb.requery(&a);
+        sb.quick.step(2);
+        let chosen = sb.quick.chosen().unwrap().to_path_buf();
+        let b = Index::from_entries(vec![entry(Path::new("/r/0.md"), 1), entry(Path::new("/r/a.md"), 1), entry(Path::new("/r/b.md"), 1), entry(Path::new("/r/c.md"), 1), entry(Path::new("/other/z.md"), 9)]);
+        sb.refresh(&b, &[], SystemTime::now());
+        assert_eq!(sb.quick.chosen(), Some(chosen.as_path()));
+        assert_eq!(sb.quick_rows[sb.quick.selected].path, chosen);
     }
 
     /// Il gesto: giù preme la riga, su la rilascia; il su di un'altra riga non la tocca.

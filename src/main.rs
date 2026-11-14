@@ -406,7 +406,8 @@ fn poll(s: &mut Doc, clock: f64, tx: &mut Tx) -> bool {
     if let Some(d) = wake {
         tx.wake_after(d);
     }
-    let changed = opened || reloaded.is_some() || ring || fire || dither || marks || side;
+    let blurred = s.sidebar.blur_close();
+    let changed = opened || reloaded.is_some() || ring || fire || dither || marks || side || blurred;
     let Some(run) = s.scroll.as_mut() else { return changed };
     if let Some(y) = run.step(clock) {
         tx.scroll_to_instant("doc", 0.0, y);
