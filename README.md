@@ -1,10 +1,16 @@
 # RuneMD
 
-Lettore Markdown per Mac, scritto in Rust con [Rune](https://github.com/anomalyco/rune). Avvio sotto i 350 ms, scroll fluido anche su file da 1 MB.
+Lettore Markdown per Mac, scritto in Rust con [Rune](https://github.com/anomalyco/rune). Avvio sotto i 350 ms, anche su file da 1 MB (scroll: vedi "Stato: v1").
 
 ## Stato: v1
 
-La v1 (piano in `docs/plan.md`, task 1–28) è completa, solo in locale:
+La v1 (piano in `docs/plan.md`, task 1–28) è completa, solo in locale, tranne due cose:
+
+- scroll: i refresh persi superano la soglia del 3 % (misurati con load average 7–19, da rimisurare a macchina
+  scarica; `docs/perf.md`, sezione "v1");
+- la riga meta sotto il titolo di `DESIGN.md` (cartella, stato, parole) non c'è: decisione di Matteo in sospeso.
+
+Cosa c'è:
 
 - lettura con scroll virtualizzato, schede, sidebar con Recenti e albero del repo del file, Apri veloce (⌘P),
   Cerca nel file (⌘F), indice dei titoli, diagrammi Mermaid;

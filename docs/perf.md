@@ -27,8 +27,27 @@ corse davano 3,0 % e 5,3 %; oggi 9,8 % e 13,2 % (medie), con dt p95 di 19 ms con
 non lo spiega: `bench/outline_scroll.sh` (headless, big, 1280×800, stesso momento, load 17,2) dà p50 0,85, p95
 4,16, max 15,3 ms, sotto il periodo di 10 ms. Ipotesi, non verificata: il costo è nella presentazione (GPU e
 WindowServer, al 43 % di CPU nel campione di `ps` delle 15:35), per esempio il vetro di sistema (`El::system_material`, da `320df94`) o il
-carico degli altri processi. Da rimisurare a macchina scarica e, se resta, confrontare con il binario di `c727ff7`
-(prima del vetro) sulla stessa macchina.
+carico degli altri processi. Nell'A/B qui sotto il binario di prima del vetro perde gli stessi refresh. Da rimisurare a macchina scarica.
+
+## Scroll: A/B con `c727ff7` (prima del vetro), stesso carico
+
+14/11 16:06–16:09. Binario di `c727ff7` (l'ultimo commit senza `El::system_material`) compilato in un worktree
+temporaneo, impacchettato con gli asset del suo albero e firmato come `make app`. `bench/scroll.sh <dir> 1`
+alternato fra HEAD (l'app di `/tmp/runemd-bench`, codice di `7698fa5`: i commit dopo cambiano solo documenti) e `c727ff7`, 3 giri (ogni giro: normal poi big), così i due binari vedono lo
+stesso carico. Load average a 1 minuto prima di ogni corsa: 81 / 71, 63 / 56, 51 / 44 (HEAD / `c727ff7`), molto
+più alto delle misure delle 15:56 (in quel momento un processo GPU di Chrome era al 344 % di CPU).
+
+| file | build | refresh persi per corsa | media | dt p95 |
+|---|---|---|---|---|
+| normal | HEAD | 6,8 / 8,6 / 9,0 % | 8,1 % | 15,9–17,0 ms |
+| normal | `c727ff7` | 7,3 / 14,0 / 7,5 % | 9,6 % | 16,1–18,0 ms |
+| big | HEAD | 13,6 / 21,4 / 7,6 % | 14,2 % | 16,2–20,9 ms |
+| big | `c727ff7` | 16,5 / 19,1 / 8,8 % | 14,8 % | 16,2–19,4 ms |
+
+Cosa dicono i numeri: a parità di carico i due binari si sovrappongono corsa per corsa; il vetro e il resto
+del lavoro dopo `c727ff7` non spiegano i refresh persi di oggi. Cosa non dicono: perché oggi le corse vanno
+peggio del 13/11 (3,0 % e 5,3 % con il binario del task 2). Il carico di oggi è diverso (processi GPU e audio
+invece di sole CPU), ma non è misurato da `load average`; la soglia resta da verificare a macchina scarica.
 
 # Perf: compositor rune-fx a riposo (task 2)
 
