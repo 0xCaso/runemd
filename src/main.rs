@@ -70,7 +70,10 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
     let reduced = cx.is_reduced_motion();
     let hooks = ui::sidebar::Hooks { get: |s: &App| &s.sidebar, get_mut: |s: &mut App| &mut s.sidebar, open: App::open_from_sidebar, ring: App::ring_of, query: App::requery_sidebar };
     let body = match s.tab() {
-        Some(tab @ app::Tab { mode: app::Mode::Source(src), .. }) => ui::source::view(s, hooks, tab, src, &theme, reduced, !cx.hover_none()),
+        Some(tab @ app::Tab { mode: app::Mode::Source(src), .. }) => {
+            let caret = ui::source::caret_lines(cx, tab, src);
+            ui::source::view(s, hooks, tab, src, caret, &theme, reduced, !cx.hover_none())
+        }
         Some(tab) => {
             // Il dither: una barra alta una riga e larga come il testo, nello spazio sotto l'ultimo blocco.
             let tail = tab.dither_since.map(|since| fx::dither::slot(el().w_full().h(ui::theme::BODY_LINE), since, dark, reduced));

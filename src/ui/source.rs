@@ -1,22 +1,25 @@
-//! La vista del sorgente (Cmd+E): tutto il file in un `text_input` multilinea, nella colonna del
-//! documento, con i colori Markdown di rune-highlights (via `rune_kit::syntax`) sui grigi del
-//! tema: nessun accento (DESIGN.md).
+//! La vista del sorgente (Cmd+E): tutto il file nella colonna del documento, un `text_input`
+//! multilinea per pezzo ([`crate::edit::blocks`]) dentro `virtual_rows`, così Rune impagina e
+//! colora solo le righe montate. I colori Markdown sono di rune-highlights (via
+//! `rune_kit::syntax`) sui grigi del tema: nessun accento (DESIGN.md). Ogni pezzo si colora da
+//! sé, quindi tutto il file ha colori (non solo i primi 128 KiB).
 //!
-//! Invio va a capo (un `text_input` multilinea lo userebbe per inviare). Cmd+S e Cmd+E stanno in
-//! `main::on_key`: il campo non li prende.
+//! Il sorgente si comporta come un campo solo: Invio va a capo nel pezzo (un `text_input`
+//! multilinea lo userebbe per inviare); Backspace all'inizio e Canc alla fine uniscono due pezzi;
+//! le frecce ai bordi passano al pezzo vicino (su e giù dalla prima e dall'ultima riga disegnata,
+//! che la vista legge da `Cx::caret`: [`caret_lines`]). Una selezione resta dentro un pezzo.
+//! Cmd+S e Cmd+E stanno in `main::on_key`: il campo non li prende.
 //!
-//! Quando un salvataggio non scrive, sopra il sorgente compare una riga alta come la barra delle
-//! schede, con una linea sotto: "Il file è cambiato su disco" con "Ricarica" e "Tieni il mio"
-//! (righe premibili come le schede, testo `fg2`, hover `sel`), o "Salvataggio non riuscito" da
-//! sola. Testo UI in `fg`, nessun accento.
+use std::borrow::Cow;
 
-use rune::{El, Family, ScrollSpec, Span, TextStyle, Tx, col, el, row, text, text_input};
+use rune::{Cx, El, Family, GrowthSpec, Key, KeyEvent, ScrollSpec, Span, TextStyle, Tx, col, el, memo, row, text, text_input};
 use rune_kit::syntax::{self, Syntax, SyntaxTheme};
 
 use super::doc_view::{BOTTOM, TOP};
 use super::sidebar::{self, Hooks, Motion};
 use super::theme::{CODE_TEXT, COLUMN, HAIRLINE, ROW, ROW_PAD, ROW_PAD_X, TAB_BAR_H, TAB_GAP, Theme, UI_STRONG_WEIGHT};
-use crate::app::{App, Tab};
+use crate::app::{App, Mode, Tab};
+use crate::edit::blocks::{Edge, Pieces};
 use crate::edit::{Notice, SourceEdit};
 
 /// I testi della riga (spec, "Modifica"; "Salvataggio non riuscito": scelta del controller).
@@ -70,31 +73,127 @@ pub fn syntax_theme(theme: &Theme) -> SyntaxTheme {
     t.with_weight(Heading, UI_STRONG_WEIGHT)
 }
 
-/// Gli span dei colori per `text`. `rune_kit::syntax` tiene in cache l'ultimo risultato per testo
-/// e colora i primi 128 KiB (oltre il testo resta nel colore del corpo).
+/// Gli span dei colori per `text` (un pezzo). `rune_kit::syntax` tiene in cache l'ultimo
+/// risultato e colora i primi 128 KiB: un pezzo è molto più corto.
 pub fn spans(text: &str, theme: &SyntaxTheme) -> Vec<Span> {
     theme.spans(&syntax::highlight(Some("markdown"), text), 0)
 }
 
-/// La vista del sorgente della scheda `tab`, in modifica con `src`, con la riga sopra se
-/// l'ultimo salvataggio non ha scritto. `hover`: il puntatore è fine e può passare sopra.
-pub fn view(s: &App, hooks: Hooks<App>, tab: &Tab, src: &SourceEdit, theme: &Theme, reduced: bool, hover: bool) -> El {
-    let id = tab.doc.id;
-    let input = text_input(&src.edit, font())
-        .key("source-input")
+/// Dove sta il cursore nel pezzo `piece`, che ha il fuoco: sulla prima e/o sull'ultima riga
+/// disegnata. Decide se freccia su e giù passano al pezzo vicino.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct CaretLines {
+    pub piece: u64,
+    pub first: bool,
+    pub last: bool,
+}
+
+/// La chiave del campo del pezzo `piece` della scheda `id`.
+pub fn input_key(id: u64, piece: u64) -> String {
+    format!("src-{id:x}-{piece:x}")
+}
+
+/// La chiave della riga del pezzo: id della scheda e del pezzo (stabile mentre si scrive).
+fn row_key(id: u64, piece: u64) -> String {
+    format!("{id:x}-p{piece:x}")
+}
+
+/// [`CaretLines`] del pezzo con il fuoco, dal cursore e dal campo come sono disegnati (punti
+/// della finestra, dopo lo scroll). Prima del primo layout: dalle righe del testo.
+pub fn caret_lines(cx: &Cx<App>, tab: &Tab, src: &SourceEdit) -> Option<CaretLines> {
+    let i = src.pieces.focused()?;
+    let p = src.pieces.get(i)?;
+    let key = input_key(tab.doc.id, p.id);
+    let (first, last) = match (cx.caret(&key), cx.window_layout(&key)) {
+        (Some([_, y, _, h]), Some([_, top, _, height])) => (y < top + h * 0.5, y + h > top + height - h * 0.5),
+        _ => {
+            let at = p.edit.focus.min(p.edit.text.len());
+            (!p.edit.text[..at].contains('\n'), !p.edit.text[at..].contains('\n'))
+        }
+    };
+    Some(CaretLines { piece: p.id, first, last })
+}
+
+fn pieces_of(s: &App, id: u64) -> Option<&Pieces> {
+    match &s.tabs.iter().find(|t| t.doc.id == id)?.mode {
+        Mode::Source(src) => Some(&src.pieces),
+        Mode::Read => None,
+    }
+}
+
+/// Il bordo che il tasto `ev` tocca, se è uno di quelli che passano da un pezzo all'altro.
+fn edge_of(ev: &KeyEvent) -> Option<Edge> {
+    let m = ev.mods;
+    let plain = !m.shift && !m.cmd && !m.alt && !m.ctrl;
+    match ev.key {
+        Key::Backspace if !m.cmd && !m.ctrl => Some(Edge::JoinBack),
+        Key::Delete if !m.cmd && !m.ctrl => Some(Edge::JoinForward),
+        Key::Up if plain => Some(Edge::Up),
+        Key::Down if plain => Some(Edge::Down),
+        Key::Left if plain => Some(Edge::Left),
+        Key::Right if plain => Some(Edge::Right),
+        _ => None,
+    }
+}
+
+/// La riga di un pezzo: il suo campo, con i colori, nella colonna.
+fn piece_row(id: u64, piece: u64, edit: &rune::TextEdit, style: &Style, lines: (bool, bool)) -> El {
+    let (first, last) = lines;
+    let input = text_input(edit, font())
+        .key(input_key(id, piece))
         .w_full()
-        .color(theme.body)
-        .caret(theme.fg, theme.sel)
-        .label(tab.title())
-        .spans(spans(&src.edit.text, &syntax_theme(theme)))
-        .on_edit(move |s: &mut App| s.source_edit(id))
+        .color(style.body)
+        .caret(style.caret, style.sel)
+        .label(&*style.label)
+        .spans(spans(&edit.text, &style.syntax))
+        .on_edit(move |s: &mut App| s.source_edit(id, piece))
         .on_input_change(move |s: &mut App, _: &mut Tx| s.source_changed(id))
         .on_submit(move |s: &mut App, _: &mut Tx| {
-            s.source_edit(id).insert("\n");
+            s.source_edit(id, piece).insert("\n");
             s.source_changed(id);
-        });
-    let column = col().w_full().max_w(COLUMN).self_center().px(ROW_PAD_X).child(input);
-    let page = col().w_full().pt(TOP).pb(BOTTOM).child(column);
+        })
+        .on_input_key(move |s: &mut App, ev: &KeyEvent, tx: &mut Tx| edge_of(ev).is_some_and(|e| s.source_edge(id, piece, e, first, last, tx)));
+    col().w_full().px(ROW_PAD_X).child(input)
+}
+
+/// Quello che serve per disegnare un pezzo, copiabile nelle closure delle righe.
+#[derive(Clone, Hash)]
+struct Style {
+    syntax: SyntaxTheme,
+    body: rune::Color,
+    caret: rune::Color,
+    sel: rune::Color,
+    label: std::rc::Rc<str>,
+}
+
+/// L'altezza stimata di un pezzo non ancora misurato: qualche riga di `doc-code`.
+const PIECE_ESTIMATE: f32 = 80.0;
+
+/// La vista del sorgente della scheda `tab`, in modifica con `src`, con la riga sopra se
+/// l'ultimo salvataggio non ha scritto. `caret`: [`caret_lines`]. `hover`: il puntatore è fine
+/// e può passare sopra.
+#[allow(clippy::too_many_arguments)]
+pub fn view(s: &App, hooks: Hooks<App>, tab: &Tab, src: &SourceEdit, caret: Option<CaretLines>, theme: &Theme, reduced: bool, hover: bool) -> El {
+    let id = tab.doc.id;
+    let style = Style { syntax: syntax_theme(theme), body: theme.body, caret: theme.fg, sel: theme.sel, label: tab.title().into() };
+    let rows = col()
+        .key("source-rows")
+        .w_full()
+        .max_w(COLUMN)
+        .self_center()
+        .growth(GrowthSpec::default())
+        .virtual_rows(
+            src.pieces.len(),
+            PIECE_ESTIMATE,
+            move |s: &App, i| Cow::Owned(pieces_of(s, id).and_then(|p| p.get(i)).map_or_else(|| format!("{id:x}-i{i:x}"), |p| row_key(id, p.id))),
+            move |s: &App, i| {
+                let Some(p) = pieces_of(s, id).and_then(|p| p.get(i)) else { return el() };
+                let lines = caret.filter(|c| c.piece == p.id).map_or((false, false), |c| (c.first, c.last));
+                memo(format!("piece-{:x}", p.id), (&p.edit, lines, &style), || piece_row(id, p.id, &p.edit, &style, lines))
+            },
+        )
+        .virtual_rows_version((id, src.pieces.version));
+    let page = col().w_full().pt(TOP).pb(BOTTOM).child(rows);
     let scroll = col().key("source").w_full().grow(1.0).min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(page);
     let mut view = col().key(format!("source-{id:x}")).w_full().grow(1.0).min_h(0.0);
     if let Some(notice) = src.notice {
@@ -150,7 +249,7 @@ mod tests {
     use rune::{Env, Key, KeyEvent, Mods, Runtime};
 
     use super::*;
-    use crate::app::Mode;
+
 
     fn cmd(c: char) -> KeyEvent {
         KeyEvent { key: Key::Command(c), mods: Mods { cmd: true, ..Mods::default() } }
@@ -179,9 +278,9 @@ mod tests {
         rt
     }
 
-    fn source_text(rt: &Runtime<App>) -> Option<&str> {
+    fn source_text(rt: &Runtime<App>) -> Option<String> {
         match &rt.state.tab()?.mode {
-            Mode::Source(s) => Some(&s.edit.text),
+            Mode::Source(s) => Some(s.text()),
             Mode::Read => None,
         }
     }
@@ -196,15 +295,15 @@ mod tests {
         let mut rt = open(&path);
         rt.key(cmd('e'));
         settle(&mut rt);
-        assert_eq!(source_text(&rt), Some("# a\n\nuno\n"));
-        assert!(rt.elements().iter().any(|e| e.key.as_deref() == Some("source-input")), "il campo è nella vista");
+        assert_eq!(source_text(&rt).as_deref(), Some("# a\n\nuno\n"));
+        assert!(rt.elements().iter().any(|e| e.key.as_deref().is_some_and(|k| k.starts_with("src-"))), "il campo è nella vista");
         rt.key(typed("X"));
         rt.key(KeyEvent { key: Key::Enter, mods: Mods::default() });
         settle(&mut rt);
-        assert_eq!(source_text(&rt), Some("X\n# a\n\nuno\n"), "scrive al cursore, Invio va a capo");
+        assert_eq!(source_text(&rt).as_deref(), Some("X\n# a\n\nuno\n"), "scrive al cursore, Invio va a capo");
         rt.key(cmd('e'));
         settle(&mut rt);
-        assert!(source_text(&rt).is_none(), "di nuovo in lettura");
+        assert!(source_text(&rt).as_deref().is_none(), "di nuovo in lettura");
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "X\n# a\n\nuno\n");
         assert_eq!(rt.state.active_document().blocks.len(), 3, "la lettura mostra il testo salvato (X, titolo, uno)");
     }
@@ -249,11 +348,11 @@ mod tests {
         // Con la riga sopra il campo tiene il fuoco: si continua a scrivere.
         rt.key(typed("Y"));
         settle(&mut rt);
-        assert_eq!(source_text(&rt), Some("XY# a\n\nuno\n"));
+        assert_eq!(source_text(&rt).as_deref(), Some("XY# a\n\nuno\n"));
         tap(&mut rt, KEEP_KEY);
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "XY# a\n\nuno\n", "il disco ha il testo locale");
         assert!(!has(&rt, NOTICE_KEY), "la riga sparisce");
-        assert_eq!(source_text(&rt), Some("XY# a\n\nuno\n"), "resta nel sorgente");
+        assert_eq!(source_text(&rt).as_deref(), Some("XY# a\n\nuno\n"), "resta nel sorgente");
     }
 
     /// "Ricarica" scarta le modifiche: il sorgente mostra il testo dell'agente, il disco non cambia.
@@ -272,12 +371,12 @@ mod tests {
         settle(&mut rt);
         assert!(has(&rt, NOTICE_KEY), "Cmd+E non esce: riga");
         tap(&mut rt, RELOAD_KEY);
-        assert_eq!(source_text(&rt), Some(agent));
+        assert_eq!(source_text(&rt).as_deref(), Some(agent));
         assert!(!has(&rt, NOTICE_KEY));
         assert_eq!(std::fs::read_to_string(&path).unwrap(), agent);
         rt.key(cmd('e'));
         settle(&mut rt);
-        assert!(source_text(&rt).is_none(), "senza modifiche Cmd+E torna alla lettura");
+        assert!(source_text(&rt).as_deref().is_none(), "senza modifiche Cmd+E torna alla lettura");
     }
 
     /// Cmd+W rifiutato su una scheda in secondo piano (clic centrale): la riga si vede quando la
@@ -326,7 +425,7 @@ mod tests {
         let t = texts(&rt);
         assert!(t.iter().any(|x| x == FAILED_TEXT), "{t:?}");
         assert!(!t.iter().any(|x| x == CONFLICT_TEXT || x == KEEP_TEXT));
-        assert_eq!(source_text(&rt), Some("X# a\n"), "le modifiche restano");
+        assert_eq!(source_text(&rt).as_deref(), Some("X# a\n"), "le modifiche restano");
     }
 
     /// Costo per frame digitando nel sorgente: un tasto a metà del file e il frame che lo mostra,
@@ -343,11 +442,13 @@ mod tests {
             let mut rt = open(&path);
             rt.key(cmd('e'));
             settle(&mut rt);
-            rt.update(|s, _| {
+            rt.update(|s, tx| {
                 let id = s.tab().unwrap().doc.id;
-                let e = s.source_edit(id);
-                let mid = (e.text.len() / 2..e.text.len()).find(|&i| e.text.is_char_boundary(i)).unwrap();
-                e.set_caret(mid);
+                let Some(Mode::Source(src)) = s.tabs.iter_mut().find(|t| t.doc.id == id).map(|t| &mut t.mode) else { unreachable!() };
+                let mid = src.text().len() / 2;
+                src.pieces.set_caret(mid);
+                let piece = src.pieces.get(src.pieces.focused().unwrap()).unwrap().id;
+                tx.scroll_into_view(row_key(id, piece));
             });
             settle(&mut rt);
             let mut ms = Vec::new();
@@ -357,9 +458,154 @@ mod tests {
                 rt.frame(1.0 / 60.0);
                 ms.push(t.elapsed().as_secs_f64() * 1000.0);
             }
+            let text = source_text(&rt).unwrap();
+            let at = text.find("per misurare il costo di ogni tasto. Una frase").expect("il testo scritto è nel sorgente");
+            assert!(at > text.len() / 3, "scritto a metà del file");
             ms.sort_by(f64::total_cmp);
             let pct = |p: f64| ms[((ms.len() - 1) as f64 * p).round() as usize];
             eprintln!("source_typing_cost {name}: n={} p50={:.2} ms p95={:.2} ms max={:.2} ms", ms.len(), pct(0.5), pct(0.95), pct(1.0));
+        }
+    }
+
+    fn key(k: Key) -> KeyEvent {
+        KeyEvent { key: k, mods: Mods::default() }
+    }
+
+    fn caret(rt: &Runtime<App>) -> usize {
+        match &rt.state.tab().unwrap().mode {
+            Mode::Source(s) => s.pieces.caret(),
+            Mode::Read => panic!("non nel sorgente"),
+        }
+    }
+
+    /// Il sorgente in pezzi si usa come un campo solo: le frecce passano da un pezzo all'altro,
+    /// Invio va a capo nel pezzo, Backspace all'inizio e Canc alla fine tolgono il `\n` fra due
+    /// pezzi; quello che si scrive va nel pezzo dove sta il cursore.
+    #[test]
+    fn pieces_edit_like_one_field() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("a.md");
+        std::fs::write(&path, "# a\n\nuno\n\ndue\n").unwrap();
+        let mut rt = open(&path);
+        rt.key(cmd('e'));
+        settle(&mut rt);
+        // Giù dalla prima riga del primo pezzo ("# a\n"): la sua ultima riga è quella vuota.
+        rt.key(key(Key::Down));
+        settle(&mut rt);
+        assert_eq!(caret(&rt), 4, "riga vuota del primo pezzo");
+        rt.key(key(Key::Down));
+        settle(&mut rt);
+        assert_eq!(caret(&rt), 5, "nel secondo pezzo");
+        rt.key(typed("X"));
+        settle(&mut rt);
+        assert_eq!(source_text(&rt).as_deref(), Some("# a\n\nXuno\n\ndue\n"), "scrive nel secondo pezzo");
+        rt.key(key(Key::Up));
+        settle(&mut rt);
+        assert_eq!(caret(&rt), 4, "su: di nuovo nel primo pezzo");
+        rt.key(key(Key::Right));
+        rt.key(key(Key::Right));
+        settle(&mut rt);
+        assert_eq!(caret(&rt), 6, "destra: dopo la X");
+        rt.key(key(Key::Left));
+        settle(&mut rt);
+        rt.key(key(Key::Backspace));
+        settle(&mut rt);
+        assert_eq!(source_text(&rt).as_deref(), Some("# a\nXuno\n\ndue\n"), "Backspace all'inizio unisce al pezzo prima");
+        assert_eq!(caret(&rt), 4);
+        rt.key(key(Key::Enter));
+        settle(&mut rt);
+        assert_eq!(source_text(&rt).as_deref(), Some("# a\n\nXuno\n\ndue\n"), "Invio va a capo");
+        // Canc alla fine del primo pezzo ("# a\n\nXuno\n"): toglie il \n prima di "due".
+        if let Mode::Source(s) = &mut rt.state.tabs[0].mode {
+            s.pieces.set_caret(10);
+        }
+        rt.invalidate();
+        settle(&mut rt);
+        rt.key(key(Key::Delete));
+        settle(&mut rt);
+        assert_eq!(source_text(&rt).as_deref(), Some("# a\n\nXuno\ndue\n"), "Canc alla fine unisce il pezzo dopo");
+        rt.key(cmd('e'));
+        settle(&mut rt);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "# a\n\nXuno\ndue\n");
+    }
+
+    /// Le frecce attraversano molti pezzi di `big.md`: il cursore resta nella vista (lo scroll
+    /// lo segue) e il fuoco è nel pezzo del cursore.
+    #[test]
+    fn the_caret_stays_in_view_across_pieces() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("big.md");
+        std::fs::copy(Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/big.md"), &path).unwrap();
+        let mut rt = open(&path);
+        rt.key(cmd('e'));
+        settle(&mut rt);
+        let view = |rt: &Runtime<App>| rt.elements().into_iter().find(|e| e.key.as_deref() == Some("source")).unwrap().rect;
+        let focused_caret = |rt: &Runtime<App>| rt.elements().into_iter().find_map(|e| e.caret.filter(|_| e.key.as_deref().is_some_and(|k| k.starts_with("src-"))));
+        let piece = |rt: &Runtime<App>| match &rt.state.tab().unwrap().mode {
+            Mode::Source(s) => s.pieces.focused().unwrap(),
+            Mode::Read => panic!(),
+        };
+        // Ogni volta che il cursore passa a un altro pezzo (dopo i primi, sul bordo della vista).
+        for k in [Key::Down, Key::Up] {
+            for crossing in 0..12 {
+                let was = piece(&rt);
+                for _ in 0..400 {
+                    rt.key(key(k.clone()));
+                    rt.frame(1.0 / 60.0);
+                    if piece(&rt) != was {
+                        break;
+                    }
+                }
+                assert_ne!(piece(&rt), was, "{k:?} passa al pezzo vicino");
+                settle(&mut rt);
+                let [_, top, _, h] = view(&rt);
+                let c = focused_caret(&rt).expect("un campo ha il cursore");
+                assert!(c[1] >= top - 0.5 && c[1] + c[3] <= top + h + 0.5, "{k:?} {crossing}: cursore {c:?} fuori da {top}..{}", top + h);
+            }
+        }
+        let Mode::Source(s) = &rt.state.tab().unwrap().mode else { panic!() };
+        assert!(s.pieces.focused().is_some());
+        rt.key(typed("Z"));
+        settle(&mut rt);
+        let Mode::Source(s) = &rt.state.tab().unwrap().mode else { panic!() };
+        assert_eq!(s.text().as_bytes()[s.pieces.caret() - 1], b'Z', "si scrive al cursore");
+    }
+
+    /// Il sorgente virtualizzato (un campo per pezzo): riunire i pezzi ridà il file identico,
+    /// byte per byte, e un salvataggio senza modifiche lo riscrive uguale.
+    #[test]
+    fn virtualized_roundtrip() {
+        let big = std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/big.md")).unwrap();
+        let cases = [
+            big.as_str(),
+            "# a\n\nuno",
+            "# a\n\n\n\nuno\n\n\n\n\ndue\n",
+            "\n\n\n# a\n\nuno\n",
+            "",
+            "\n",
+            "# a\r\n\r\nuno\r\n\r\n\r\ndue\r\n",
+            "```\n\n\n```\n\n~~~\nx\n\n",
+        ];
+        for text in cases {
+            let pieces = crate::edit::blocks::Pieces::new(text);
+            assert_eq!(pieces.text(), text, "{:?}", &text[..text.len().min(40)]);
+        }
+        let pieces = crate::edit::blocks::Pieces::new(&big);
+        assert!(pieces.len() > 100, "big.md in pezzi: {}", pieces.len());
+        assert!(pieces.iter().all(|p| p.edit.text.len() <= 2 * crate::edit::blocks::MAX_PIECE));
+        // Dal file al disco: entrare, "Tieni il mio" (scrive senza confrontare), stessi byte.
+        let dir = tempfile::tempdir().unwrap();
+        for (i, text) in cases.iter().enumerate() {
+            let path = dir.path().join(format!("{i}.md"));
+            std::fs::write(&path, text).unwrap();
+            let mut live = crate::live::Live::default();
+            let mut tab = Tab::new(crate::doc::document::Document::load(&path).unwrap(), live.follow(&path));
+            tab.mode = Mode::Source(Box::new(crate::edit::enter(&tab.doc)));
+            if let Mode::Source(s) = &tab.mode {
+                assert_eq!(s.text(), *text);
+            }
+            crate::edit::keep_mine(&mut tab, &mut crate::live::reload::OwnWrites::default()).unwrap();
+            assert_eq!(std::fs::read(&path).unwrap(), text.as_bytes(), "{i}.md");
         }
     }
 

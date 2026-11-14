@@ -442,16 +442,34 @@ impl App {
         }
     }
 
-    /// Il campo del sorgente della scheda `id` (`on_edit` della vista). Se la scheda non c'è più o
-    /// è tornata alla lettura, un campo di scarto: il tasto si perde, nessun altro testo cambia.
-    pub fn source_edit(&mut self, id: u64) -> &mut TextEdit {
-        match self.tabs.iter().position(|t| t.doc.id == id && matches!(t.mode, Mode::Source(_))) {
-            Some(i) => match &mut self.tabs[i].mode {
-                Mode::Source(s) => &mut s.edit,
-                Mode::Read => unreachable!(),
-            },
+    /// Il campo del pezzo `piece` del sorgente della scheda `id` (`on_edit` della vista). Se la
+    /// scheda non c'è più, è tornata alla lettura o il pezzo si è unito a un altro, un campo di
+    /// scarto: il tasto si perde, nessun altro testo cambia.
+    pub fn source_edit(&mut self, id: u64, piece: u64) -> &mut TextEdit {
+        let src = self.tabs.iter_mut().find(|t| t.doc.id == id).and_then(|t| match &mut t.mode {
+            Mode::Source(s) => s.pieces.edit_mut(piece),
+            Mode::Read => None,
+        });
+        match src {
+            Some(edit) => edit,
             None => &mut self.spare_edit,
         }
+    }
+
+    /// Un tasto ai bordi del pezzo `piece` del sorgente della scheda `id` (`on_input_key`): vero
+    /// se l'ha preso (unito due pezzi o passato al vicino). Un'unione toglie un `\n`: il testo è
+    /// cambiato. Rune fa seguire il cursore allo scroll solo dopo un tasto che passa dal campo:
+    /// un tasto vuoto al campo che ha adesso il fuoco lo chiede senza cambiare niente.
+    pub fn source_edge(&mut self, id: u64, piece: u64, edge: edit::blocks::Edge, first: bool, last: bool, tx: &mut Tx) -> bool {
+        let Some(Mode::Source(s)) = self.tab_of(id).map(|t| &mut t.mode) else { return false };
+        let took = s.pieces.edge(piece, edge, first, last);
+        if took {
+            if matches!(edge, edit::blocks::Edge::JoinBack | edit::blocks::Edge::JoinForward) {
+                s.dirty = true;
+            }
+            tx.send_key(rune::KeyEvent { key: rune::Key::Text(String::new()), mods: rune::Mods::default() });
+        }
+        took
     }
 
     /// Il testo del sorgente della scheda `id` è cambiato.
@@ -733,7 +751,7 @@ mod tests {
         tab.mode = Mode::Source(Box::new(edit::enter(&tab.doc)));
         let mine = "# a.md\n\nuno\n\ndue\n\n```rs\nfn";
         if let Mode::Source(s) = &mut tab.mode {
-            s.edit = TextEdit::new(mine);
+            s.set_text(mine);
             s.dirty = true;
         }
         assert!(edit::leave(tab, &mut app.live.own).is_ok());
@@ -806,7 +824,7 @@ mod tests {
     fn edit_tab(app: &mut App, i: usize, text: &str) {
         let tab = &mut app.tabs[i];
         let mut src = edit::enter(&tab.doc);
-        src.edit = TextEdit::new(text);
+        src.set_text(text);
         src.dirty = true;
         tab.mode = Mode::Source(Box::new(src));
     }
@@ -835,7 +853,7 @@ mod tests {
         assert!(!app.close(0), "non chiusa");
         app.close_active();
         assert_eq!(app.tabs.len(), 1);
-        assert!(matches!(&app.tabs[0].mode, Mode::Source(s) if s.dirty && s.edit.text == "# a.md\n\nmio\n"));
+        assert!(matches!(&app.tabs[0].mode, Mode::Source(s) if s.dirty && s.text() == "# a.md\n\nmio\n"));
         assert_eq!(fs::read_to_string(&p[0]).unwrap(), "# a.md\n\ndell'agente\n");
     }
 

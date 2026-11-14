@@ -1,5 +1,5 @@
-//! Modifica del sorgente (Cmd+E): il file intero in un campo di testo, salvato con Cmd+S o
-//! tornando alla lettura.
+//! Modifica del sorgente (Cmd+E): il file intero, diviso in pezzi con un campo ciascuno
+//! ([`blocks`]), salvato con Cmd+S o tornando alla lettura.
 //!
 //! All'ingresso si ricorda l'hash del file ([`SourceEdit::base_hash`]); ogni salvataggio lo
 //! confronta con il disco e, se è cambiato, non scrive ([`SaveError::Conflict`]): mai
@@ -13,17 +13,19 @@ use std::fs;
 use std::io::{self, Write};
 use std::path::Path;
 
-use rune::TextEdit;
+pub mod blocks;
 
 use crate::app::{Mode, Tab};
 use crate::doc::document::Document;
 use crate::doc::ids::hash_str;
 use crate::live::reload::OwnWrites;
+use blocks::Pieces;
 
 /// Il sorgente in modifica di una scheda.
 #[derive(Debug)]
 pub struct SourceEdit {
-    pub edit: TextEdit,
+    /// Il testo, in pezzi riuniti con `"\n"` (un campo per pezzo).
+    pub pieces: Pieces,
     /// L'hash del contenuto da cui parte la modifica (lo stesso `ids::hash_str` della ricarica):
     /// se il disco non ha più questo, qualcun altro ha scritto il file.
     pub base_hash: u64,
@@ -52,6 +54,19 @@ pub enum SaveError {
     Io(io::Error),
 }
 
+impl SourceEdit {
+    /// Il testo intero del sorgente.
+    pub fn text(&self) -> String {
+        self.pieces.text()
+    }
+
+    /// Sostituisce tutto il testo (ridivide i pezzi, cursore all'inizio).
+    #[cfg(test)]
+    pub fn set_text(&mut self, text: &str) {
+        self.pieces.set_text(text);
+    }
+}
+
 /// Entra in modifica: il sorgente è il file com'è adesso su disco (il documento tiene solo i
 /// blocchi, non le righe vuote fra l'uno e l'altro), con il cursore all'inizio e il fuoco nel
 /// campo. Se il file non si legge (sparito durante un rename) si parte dai blocchi del documento.
@@ -60,10 +75,7 @@ pub fn enter(doc: &Document) -> SourceEdit {
         Ok((text, hash)) => (text, hash),
         Err(_) => (doc.blocks.iter().map(|b| &*b.source).collect::<Vec<_>>().join("\n\n") + "\n", doc.file_hash),
     };
-    let mut edit = TextEdit::new(text);
-    edit.set_caret(0);
-    edit.focused = true;
-    SourceEdit { edit, base_hash, dirty: false, notice: None }
+    SourceEdit { pieces: Pieces::new(&text), base_hash, dirty: false, notice: None }
 }
 
 /// Salva il sorgente della scheda se il disco ha ancora il contenuto da cui è partita la
@@ -97,7 +109,7 @@ fn try_save(tab: &mut Tab, own: &mut OwnWrites) -> Result<(), SaveError> {
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Err(SaveError::Conflict),
         Err(e) => return Err(SaveError::Io(e)),
     }
-    if hash_str(&src.edit.text) != src.base_hash {
+    if hash_str(&src.text()) != src.base_hash {
         commit(tab, own).map_err(SaveError::Io)?;
     }
     if let Mode::Source(src) = &mut tab.mode {
@@ -132,22 +144,21 @@ pub fn reload(tab: &mut Tab) {
     if disk(&tab.doc.path).is_err() {
         return;
     }
-    let caret = src.edit.focus;
+    let caret = src.pieces.caret();
     let mut fresh = enter(&tab.doc);
-    let text = &fresh.edit.text;
-    let at = (0..=caret.min(text.len())).rev().find(|&i| text.is_char_boundary(i)).unwrap_or(0);
-    fresh.edit.set_caret(at);
+    fresh.pieces.set_caret(caret);
     **src = fresh;
 }
 
 /// Scrive il testo del sorgente nel file della scheda, aggiorna il documento e `base_hash`.
 fn commit(tab: &mut Tab, own: &mut OwnWrites) -> io::Result<()> {
     let Mode::Source(src) = &mut tab.mode else { return Ok(()) };
-    let hash = hash_str(&src.edit.text);
-    write(tab.follow.path(), &src.edit.text)?;
+    let text = src.text();
+    let hash = hash_str(&text);
+    write(tab.follow.path(), &text)?;
     // Sul thread della UI, prima di qualsiasi `poll`: la rilettura del watcher la trova.
     own.remember(&tab.doc.path, hash);
-    tab.doc.update(&src.edit.text);
+    tab.doc.update(&text);
     src.base_hash = hash;
     Ok(())
 }
@@ -228,7 +239,7 @@ pub(crate) mod tests {
         fs::File::options().write(true).open(&path).unwrap().set_modified(old).unwrap();
         let mut tab = tab_on(&path);
         tab.mode = Mode::Source(Box::new(enter(&tab.doc)));
-        assert_eq!(source(&mut tab).edit.text, "# a\n\nuno\n", "il sorgente intero del file");
+        assert_eq!(source(&mut tab).text(), "# a\n\nuno\n", "il sorgente intero del file");
         let mut own = OwnWrites::default();
         assert!(leave(&mut tab, &mut own).is_ok());
         assert!(matches!(tab.mode, Mode::Read), "torna alla lettura");
@@ -247,11 +258,11 @@ pub(crate) mod tests {
         let mut tab = tab_on(&path);
         tab.mode = Mode::Source(Box::new(enter(&tab.doc)));
         let s = source(&mut tab);
-        s.edit.insert("X");
+        s.pieces.current().insert("X");
         s.dirty = true;
-        s.edit.set_selection(0, 1);
-        s.edit.insert("");
-        assert_eq!(s.edit.text, "# a\n\nuno\n");
+        s.pieces.current().set_selection(0, 1);
+        s.pieces.current().insert("");
+        assert_eq!(s.text(), "# a\n\nuno\n");
         assert!(s.dirty);
         assert!(leave(&mut tab, &mut OwnWrites::default()).is_ok());
         assert!(matches!(tab.mode, Mode::Read));
@@ -267,7 +278,7 @@ pub(crate) mod tests {
         tab.mode = Mode::Source(Box::new(enter(&tab.doc)));
         let mine = "# a\n\nuno\n\ndue\n";
         let s = source(&mut tab);
-        s.edit = TextEdit::new(mine);
+        s.set_text(mine);
         s.dirty = true;
         let mut own = OwnWrites::default();
         assert!(save(&mut tab, &mut own).is_ok());
@@ -297,7 +308,7 @@ pub(crate) mod tests {
         let mut tab = tab_on(path);
         tab.mode = Mode::Source(Box::new(enter(&tab.doc)));
         let s = source(&mut tab);
-        s.edit = TextEdit::new(mine);
+        s.set_text(mine);
         s.dirty = true;
         tab
     }
@@ -319,7 +330,7 @@ pub(crate) mod tests {
         assert!(matches!(leave(&mut tab, &mut own), Err(SaveError::Conflict)));
         let s = source(&mut tab);
         assert_eq!(s.notice, Some(Notice::Conflict), "la riga resta finché non si sceglie");
-        assert!(s.dirty && s.edit.text == "# a\n\nmio\n", "le modifiche restano");
+        assert!(s.dirty && s.text() == "# a\n\nmio\n", "le modifiche restano");
         assert_eq!(fs::read_to_string(&path).unwrap(), "# a\n\nseconda\n", "nessuna scrittura su disco");
     }
 
@@ -336,12 +347,12 @@ pub(crate) mod tests {
         assert!(save(&mut tab, &mut own).is_err());
         reload(&mut tab);
         let s = source(&mut tab);
-        assert_eq!((s.edit.text.as_str(), s.dirty, s.notice), (agent, false, None));
+        assert_eq!((s.text().as_str(), s.dirty, s.notice), (agent, false, None));
         assert_eq!(s.base_hash, hash_str(agent), "il nuovo punto di partenza");
         assert_eq!(fs::read_to_string(&path).unwrap(), agent);
         // Ora si salva sopra il testo dell'agente senza conflitto.
-        source(&mut tab).edit.set_caret(0);
-        source(&mut tab).edit.insert("X");
+        source(&mut tab).pieces.set_caret(0);
+        source(&mut tab).pieces.current().insert("X");
         source(&mut tab).dirty = true;
         assert!(save(&mut tab, &mut own).is_ok());
         assert_eq!(fs::read_to_string(&path).unwrap(), format!("X{agent}"));
@@ -361,7 +372,7 @@ pub(crate) mod tests {
         assert!(matches!(save(&mut tab, &mut own), Err(SaveError::Conflict)));
         reload(&mut tab);
         let s = source(&mut tab);
-        assert_eq!((s.edit.text.as_str(), s.dirty, s.notice), (mine, true, Some(Notice::Conflict)));
+        assert_eq!((s.text().as_str(), s.dirty, s.notice), (mine, true, Some(Notice::Conflict)));
         assert!(!path.exists(), "niente scritto");
         assert!(keep_mine(&mut tab, &mut own).is_ok());
         assert_eq!(fs::read_to_string(&path).unwrap(), mine, "Tieni il mio ricrea il file");
@@ -412,7 +423,7 @@ pub(crate) mod tests {
         assert!(kept.is_err());
         let s = source(&mut tab);
         assert_eq!(s.notice, Some(Notice::SaveFailed));
-        assert!(s.dirty && s.edit.text == "# a\n\nmio\n", "le modifiche restano");
+        assert!(s.dirty && s.text() == "# a\n\nmio\n", "le modifiche restano");
         assert_eq!(fs::read_to_string(&path).unwrap(), "# a\n");
         // Quando si torna a scrivere, la riga sparisce.
         assert!(save(&mut tab, &mut own).is_ok());
@@ -429,7 +440,7 @@ pub(crate) mod tests {
         let agent = "# a\n\ndell'agente\n";
         fs::write(&path, agent).unwrap();
         let s = source(&mut tab);
-        s.edit = TextEdit::new("# a\n\nmio\n");
+        s.set_text("# a\n\nmio\n");
         s.dirty = true;
         let mut own = OwnWrites::default();
         assert!(matches!(save(&mut tab, &mut own), Err(SaveError::Conflict)));

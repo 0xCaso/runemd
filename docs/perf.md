@@ -100,3 +100,22 @@ Prima del fix il rescan percorreva `~/Desktop/GitHub` sul thread della UI (≈ 0
 scansione gira sul thread `runemd-index`; ordinamento e dedup stanno lì, il thread della UI fonde soltanto. App
 vera dopo il fix (stesso comando di sopra, 2 giri): cache 3,08 ms prima del primo frame con 6919 voci; scansione
 finita 1,1–1,2 s dopo il primo frame.
+
+# Modifica del sorgente (task 22)
+
+`bench/edit_big.sh` (headless, `bench/edit_big.json`): Cmd+E, scroll a metà del sorgente, un clic per il cursore,
+200 caratteri uno per frame a 20 fps; p95 del tempo CPU per frame (`quality.cpu_ms` del `--trace`) fra i mark
+`typing` e `typed`. Mac con altre sessioni attive; il load average è quello di `uptime` all'avvio di ogni corsa.
+
+| sorgente | file | load average | p50 | p95 | max | soglia |
+|---|---|---|---|---|---|---|
+| un `text_input` per tutto il file (task 20) | big | 14,9 | 147,0 | **149,4** | 181,4 | 8 ms: no |
+| un `text_input` per pezzo in `virtual_rows` (piano B) | big | 16,5 (la più bassa avuta) | 1,26 | **1,57** | 1,79 | 8 ms: sì |
+| piano B, altre 3 corse | big | 36–37 | 1,20–1,24 | 1,47–1,53 | 1,74–4,07 | 8 ms: sì |
+| piano B | normal | 36,1 | 0,89 | 1,10 | 2,97 | — |
+
+Senza GPU né encode (`cargo test --profile perf source_typing_cost -- --ignored --nocapture`, un tasto e un
+`Runtime::frame`, load average 21): big p50 0,56 / p95 0,87 ms (task 20: 148,9 / 164,3 ms), normal 0,57 / 0,80 ms.
+
+Scroll nel sorgente di big con il campo a fuoco (la vista legge `Cx::caret` e rigira a ogni frame di scroll): 240
+frame a 60 fps, p50 0,39 / p95 1,22 / max 2,35 ms (load average ~20, script ad hoc, non nel repo).
