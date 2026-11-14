@@ -226,7 +226,6 @@ impl Index {
     }
 
     /// Tutti i percorsi, in ordine alfabetico (Cmd+P, albero del repo).
-    #[cfg_attr(not(test), allow(dead_code))] // letto da Cmd+P e dall'albero (task 16, 18); oggi solo dai test
     pub fn names(&self) -> impl Iterator<Item = &Path> {
         self.entries.iter().map(|e| e.path.as_path())
     }

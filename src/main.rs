@@ -223,6 +223,11 @@ impl Doc {
         }
     }
 
+    /// La ricerca di Cmd+P è cambiata.
+    fn requery_sidebar(&mut self) {
+        self.sidebar.requery(&self.library.index);
+    }
+
     /// Apre i percorsi ricevuti (Finder, riga di comando). Per ora un solo documento: vale
     /// l'ultimo percorso e sostituisce quello corrente. Il task 19 sposta questo metodo su
     /// `App` e apre una scheda per percorso.
@@ -313,7 +318,7 @@ fn view(s: &Doc, cx: &mut Cx<Doc>) -> El {
     }
     // L'anello "sta scrivendo" sta sulle righe del file in Recenti e nell'albero; la scheda è il
     // task 19.
-    let hooks = ui::sidebar::Hooks { get: |s: &Doc| &s.sidebar, get_mut: |s: &mut Doc| &mut s.sidebar, open: Doc::open_from_sidebar, ring: Doc::ring_of };
+    let hooks = ui::sidebar::Hooks { get: |s: &Doc| &s.sidebar, get_mut: |s: &mut Doc| &mut s.sidebar, open: Doc::open_from_sidebar, ring: Doc::ring_of, query: Doc::requery_sidebar };
     let sidebar = ui::sidebar::view(s, hooks, &theme, cx.is_reduced_motion(), !cx.hover_none());
     let main = el().key("main").grow(1.0).min_w(0.0).h_full().pt(ui::theme::FRAME).pr(ui::theme::FRAME).pb(ui::theme::FRAME).child(panel);
     rune::row().w_full().h_full().system_material(rune::SystemMaterial::Glass).fill(theme.glass).child(sidebar).child(main)
@@ -322,6 +327,11 @@ fn view(s: &Doc, cx: &mut Cx<Doc>) -> El {
 
 /// Ogni tasto non preso da un controllo, prima della selezione di Rune: il Cmd+A va segnato.
 fn on_key(s: &mut Doc, key: &rune::KeyEvent, tx: &mut Tx) -> bool {
+    // Cmd+P: il fuoco nel campo "Apri file" della sidebar.
+    if matches!(key.key, rune::Key::Command('p')) && key.mods.cmd && !key.mods.shift && !key.mods.alt && !tx.key_repeat() {
+        s.sidebar.quick.focus();
+        return true;
+    }
     if let Some(doc) = &s.document {
         ui::doc_view::note_key(doc, key, tx.key_repeat());
     }

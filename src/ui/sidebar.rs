@@ -13,11 +13,12 @@ use std::time::{Duration, SystemTime};
 use rune::{Anim, Curve, Drag, El, Easing, GrowthSpec, Phase, ScrollSpec, TextStyle, Tx, col, el, icon, row, text};
 use rune_kit::{FileNode, FileTree, TreeModel, glyphs};
 
+use super::quick_open::{self, QuickOpen};
 use super::relative_time;
 use super::theme::{
-    CHEVRON, EASE_OUT, FIELD_H, FIELD_MARGIN_BOTTOM, FIELD_MARGIN_X, HAIRLINE, HOVER_FADE, ICON, KBD_PAD_X, KBD_PAD_Y, KBD_TEXT, PRESS_SCALE,
-    PRESS_TIME, QUALIFIER_GAP, R_FIELD, R_KBD, R_ROW, ROW, ROW_GAP, ROW_PAD, SECTION_PAD_BOTTOM, SECTION_PAD_TOP, SIDEBAR, SIDEBAR_BOTTOM,
-    SIDEBAR_PAD, SIDEBAR_TOP, TREE_INDENT, TREE_ROW, TREE_ROW_PAD, Theme, UI_SMALL, UI_SMALL_WEIGHT, UI_STRONG_WEIGHT, UI_TEXT, UI_WEIGHT, KBD_WEIGHT,
+    CHEVRON, EASE_OUT, FIELD_H, HAIRLINE, HOVER_FADE, ICON, PRESS_SCALE,
+    PRESS_TIME, QUALIFIER_GAP, R_ROW, ROW, ROW_GAP, ROW_PAD, SECTION_PAD_BOTTOM, SECTION_PAD_TOP, SIDEBAR, SIDEBAR_BOTTOM,
+    SIDEBAR_PAD, SIDEBAR_TOP, TREE_INDENT, TREE_ROW, TREE_ROW_PAD, Theme, UI_SMALL, UI_SMALL_WEIGHT, UI_STRONG_WEIGHT, UI_TEXT, UI_WEIGHT,
 };
 use crate::fx::{self, Mark};
 use crate::index::Index;
@@ -106,6 +107,9 @@ pub struct Sidebar {
     pressed: Option<String>,
     /// macOS nega la lettura di una cartella osservata (Desktop): la sidebar lo dice.
     pub no_access: bool,
+    /// Cmd+P: il campo e i risultati; le righe dei risultati hanno il qualificatore dei nomi doppi.
+    pub quick: QuickOpen,
+    pub quick_rows: Vec<RecentRow>,
 }
 
 impl Sidebar {
@@ -147,11 +151,26 @@ impl Sidebar {
     pub fn refresh(&mut self, index: &Index, touched: &[PathBuf], now: SystemTime) -> bool {
         let mut changed = self.refresh_recent(index);
         changed |= self.tick(now);
+        if self.quick.active() {
+            let before = self.quick.chosen().map(Path::to_path_buf);
+            self.requery(index);
+            changed |= before.as_deref() != self.quick.chosen() || self.quick_rows.len() != self.quick.hits.len();
+        }
         let near = |root: &Path| touched.iter().any(|p| p.starts_with(root) || root.starts_with(p));
         if self.repo.as_ref().is_some_and(|r| near(&r.root)) {
             changed |= self.refresh_tree(index);
         }
         changed
+    }
+
+    /// La ricerca di Cmd+P è cambiata, o l'indice: ricalcola i risultati. I nomi doppi prendono il
+    /// qualificatore di Recenti (`qualify`).
+    pub fn requery(&mut self, index: &Index) {
+        self.quick.requery(index.names());
+        let mut rows: Vec<RecentRow> = self.quick.hits.iter().map(|p| RecentRow { name: file_name(p), path: p.clone(), qualifier: None, mtime: SystemTime::UNIX_EPOCH }).collect();
+        let names = &mut self.repo_names;
+        qualify(&mut rows, |p| names.entry(p.to_owned()).or_insert_with(|| repo::of(p).name).clone());
+        self.quick_rows = rows;
     }
 
     /// Ricalcola Recenti: le `RECENT_MAX` voci più recenti che sono ancora file. Il disco si
@@ -279,6 +298,8 @@ pub struct Hooks<S> {
     pub open: fn(&mut S, PathBuf, &mut Tx),
     /// L'orologio di Rune a cui si è acceso l'anello "sta scrivendo" del file; `None` se spento.
     pub ring: fn(&S, &Path) -> Option<f64>,
+    /// La ricerca di Cmd+P è cambiata: ricalcola i risultati dall'indice.
+    pub query: fn(&mut S),
 }
 
 impl<S> Clone for Hooks<S> {
@@ -290,11 +311,11 @@ impl<S> Clone for Hooks<S> {
 impl<S> Copy for Hooks<S> {}
 
 /// Testo UI (13/400) e UI piccola (12/500, cifre tabellari) di DESIGN.md.
-fn ui_font() -> TextStyle {
+pub(super) fn ui_font() -> TextStyle {
     TextStyle::new(UI_TEXT, UI_WEIGHT)
 }
 
-fn small_font() -> TextStyle {
+pub(super) fn small_font() -> TextStyle {
     TextStyle::new(UI_SMALL, UI_SMALL_WEIGHT).features("'tnum' 1")
 }
 
@@ -302,9 +323,13 @@ fn small_font() -> TextStyle {
 pub fn view<S: 'static>(s: &S, hooks: Hooks<S>, theme: &Theme, reduced: bool, hover: bool) -> El {
     let sb = (hooks.get)(s);
     let motion = Motion { reduced, hover };
-    let mut side = col().key("sidebar").w(SIDEBAR).h_full().pt(SIDEBAR_TOP).px(SIDEBAR_PAD).pb(SIDEBAR_BOTTOM).child(field(theme));
+    let mut side = col().key("sidebar").w(SIDEBAR).h_full().pt(SIDEBAR_TOP).px(SIDEBAR_PAD).pb(SIDEBAR_BOTTOM).child(quick_open::field(sb, hooks, theme));
     if sb.no_access {
         side = side.child(no_access(sb, hooks, theme, motion));
+    }
+    // La ricerca di Cmd+P prende il posto di Recenti e dell'albero.
+    if sb.quick.active() {
+        return side.child(quick_open::view(sb, hooks, theme, motion));
     }
     if !sb.recent.is_empty() {
         side = side.child(section("Recenti", theme));
@@ -317,26 +342,6 @@ pub fn view<S: 'static>(s: &S, hooks: Hooks<S>, theme: &Theme, reduced: bool, ho
         side = side.child(section("Repo del file", theme)).child(repo_row(repo, theme)).child(tree(sb, hooks, theme, motion));
     }
     side
-}
-
-/// Il campo "Apri file ⌘P": solo da vedere (Cmd+P è il task 18).
-fn field(theme: &Theme) -> El {
-    let kbd = el().key("kbd").border(HAIRLINE, theme.line).radius(R_KBD).px(KBD_PAD_X).py(KBD_PAD_Y).child(text("⌘P").font(TextStyle::new(KBD_TEXT, KBD_WEIGHT)).color(theme.fg2));
-    row()
-        .key("open-file")
-        .h(FIELD_H)
-        .mx(FIELD_MARGIN_X)
-        .mb(FIELD_MARGIN_BOTTOM)
-        .px(ROW_PAD)
-        .gap(ROW_GAP)
-        .center_y()
-        .radius(R_FIELD)
-        .fill(theme.field)
-        .border(HAIRLINE, theme.line)
-        .child(icon(&glyphs::SEARCH, ICON).color(theme.fg2))
-        .child(text("Apri file").font(ui_font()).color(theme.fg2))
-        .child(el().grow(1.0))
-        .child(kbd)
 }
 
 /// Dove macOS tiene il permesso "File e cartelle".
@@ -371,10 +376,10 @@ fn section(label: &'static str, theme: &Theme) -> El {
 
 /// Come si muove una riga (DESIGN.md, `motion`); con "riduci movimento" tutto è immediato.
 #[derive(Clone, Copy)]
-struct Motion {
-    reduced: bool,
+pub(super) struct Motion {
+    pub(super) reduced: bool,
     /// Il puntatore è fine e può passare sopra: hover `sel` solo allora.
-    hover: bool,
+    pub(super) hover: bool,
 }
 
 impl Motion {
@@ -393,7 +398,7 @@ impl Motion {
 /// puntatore fine (`hover_ok`), e scala 0,98 in 160 ms finché è premuta. Rune non ha una curva per
 /// `press_scale` (scende subito e torna a molla): la pressione si segue con `on_drag` (giù/su) e
 /// la scala con `scale` + `scale_motion`. Il clic resta di `on_press` (rilascio dentro la riga).
-fn pressable<S: 'static>(e: El, key: String, sb: &Sidebar, hooks: Hooks<S>, theme: &Theme, motion: Motion, hover_ok: bool) -> El {
+pub(super) fn pressable<S: 'static>(e: El, key: String, sb: &Sidebar, hooks: Hooks<S>, theme: &Theme, motion: Motion, hover_ok: bool) -> El {
     let down = sb.is_pressed(&key);
     let mut e = e
         .radius(R_ROW)
@@ -416,12 +421,18 @@ fn ring_host(row: El, mark: Mark, since: Option<f64>, reduced: bool) -> El {
     }
 }
 
+/// Il nome del file e, se un'altra riga ha lo stesso nome, il repo o la cartella in `fg3`.
+pub(super) fn name_cell(name: &str, qualifier: Option<&str>, theme: &Theme) -> El {
+    let mut cell = row().gap(QUALIFIER_GAP).center_y().grow(1.0).shrink().min_w(0.0).child(text(name.to_owned()).font(ui_font()).color(theme.fg).truncate().shrink().min_w(0.0));
+    if let Some(q) = qualifier {
+        cell = cell.child(text(q.to_owned()).font(small_font()).color(theme.fg3).truncate().shrink().min_w(0.0));
+    }
+    cell
+}
+
 #[allow(clippy::too_many_arguments)]
 fn recent_row<S: 'static>(s: &S, hooks: Hooks<S>, i: usize, r: &RecentRow, label: String, theme: &Theme, motion: Motion) -> El {
-    let mut name = row().gap(QUALIFIER_GAP).center_y().grow(1.0).shrink().min_w(0.0).child(text(r.name.clone()).font(ui_font()).color(theme.fg).truncate().shrink().min_w(0.0));
-    if let Some(q) = &r.qualifier {
-        name = name.child(text(q.clone()).font(small_font()).color(theme.fg3).truncate().shrink().min_w(0.0));
-    }
+    let name = name_cell(&r.name, r.qualifier.as_deref(), theme);
     let path = r.path.clone();
     let e = row()
         .w_full()
@@ -738,6 +749,21 @@ mod tests {
         assert_eq!(shown, ["note.md", "other.md"]);
     }
 
+    /// I risultati di Cmd+P: un nome doppio prende il repo o la cartella, come in Recenti.
+    #[test]
+    fn quick_results_qualify_doubles() {
+        let index = Index::from_entries(vec![entry(Path::new("/r1/docs/spec.md"), 1), entry(Path::new("/r2/docs/spec.md"), 2), entry(Path::new("/r1/docs/other.md"), 3)]);
+        let mut sb = Sidebar::default();
+        sb.quick.edit.replace_text("spec");
+        sb.requery(&index);
+        let rows: Vec<(&str, Option<&str>)> = sb.quick_rows.iter().map(|r| (r.name.as_str(), r.qualifier.as_deref())).collect();
+        assert_eq!(rows, [("spec.md", Some("docs")), ("spec.md", Some("docs"))]);
+        sb.quick.edit.replace_text("oth");
+        sb.requery(&index);
+        assert_eq!(sb.quick_rows.len(), 1);
+        assert_eq!(sb.quick_rows[0].qualifier, None);
+    }
+
     /// Il gesto: giù preme la riga, su la rilascia; il su di un'altra riga non la tocca.
     #[test]
     fn press_follows_the_gesture() {
@@ -792,5 +818,42 @@ mod tests {
         case("scrittura a un file del repo aperto", &in_repo, false);
         case("scrittura fuori dal repo aperto", &elsewhere, false);
         case("file nuovo nel repo aperto (albero ricostruito)", &in_repo, true);
+    }
+
+    /// Misura (report del task 18): il costo sul thread della UI di un tasto di Cmd+P, con
+    /// l'indice vero (`RUNEMD_ROOTS` non impostata, scansione delle cartelle osservate). Ogni ricerca
+    /// si digita lettera per lettera; ogni tasto chiama `requery` (rank + qualificatori).
+    /// `cargo test --profile perf quick_open_cost -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn quick_open_cost() {
+        use std::time::Instant;
+        // Nessuna cache su questa macchina: si scandiscono le cartelle osservate, come fa l'app.
+        let index = &Index::from_entries(crate::index::scan::scan(&crate::index::roots()));
+        eprintln!("quick_open_cost indice {} voci", index.len());
+        let mut sb = Sidebar::default();
+        let mut ms = Vec::new();
+        let mut rank_ms = Vec::new();
+        let queries = ["runemd", "readme", "spec", "design", "plan md", "a", "e", "docs", "claude", "task 18", "zzzq", "index", "superpowers", "notes", "rune md spike"];
+        for _ in 0..20 {
+            for q in queries {
+                let mut typed = String::new();
+                for c in q.chars() {
+                    typed.push(c);
+                    sb.quick.edit.replace_text(typed.clone());
+                    let t = Instant::now();
+                    sb.requery(index);
+                    ms.push(t.elapsed().as_secs_f64() * 1000.0);
+                    let t = Instant::now();
+                    let _ = crate::ui::quick_open::rank(&typed, index.names(), 50);
+                    rank_ms.push(t.elapsed().as_secs_f64() * 1000.0);
+                }
+            }
+        }
+        ms.sort_by(f64::total_cmp);
+        let pct = |q: f64| ms[((ms.len() - 1) as f64 * q).round() as usize];
+        rank_ms.sort_by(f64::total_cmp);
+        eprintln!("quick_open_cost solo rank: p50={:.3} ms p95={:.3} ms max={:.3} ms", rank_ms[rank_ms.len() / 2], rank_ms[(rank_ms.len() as f64 * 0.95) as usize], rank_ms[rank_ms.len() - 1]);
+        eprintln!("quick_open_cost n={} p50={:.3} ms p95={:.3} ms max={:.3} ms", ms.len(), pct(0.5), pct(0.95), pct(1.0));
     }
 }

@@ -202,6 +202,12 @@ immediati.
 testo e "⌘P" in `fg-2` (deve leggersi: commento di Matteo). Il tasto "⌘P" è testo `kbd` (11 px, 400) con
 bordo 0,5 px in `line`, raggio 4 e margine interno `kbd-pad`; il campo ha margine `field-margin`.
 
+**Apri veloce (⌘P).** Il campo "Apri file" è un campo di testo: ⌘P gli dà il fuoco. Finché la ricerca non è
+vuota, la lista dei risultati prende il posto di Recenti e dell'albero. Le righe sono quelle della sidebar (28 px,
+raggio 6, hover `sel`, scala 0,98 premuta); la riga scelta con le frecce ha riempimento `sel` e testo `fg`. Un nome
+doppio mostra repo o cartella in `fg-3`, come in Recenti. Invio apre, Esc svuota e chiude, nessuna animazione di
+apertura (azione da tastiera). Nessun accento: caret `fg`, selezione `sel`. Nessun risultato: "Nessun file" in `fg-3`.
+
 **Scheda.** Testo UI 13 px. La scheda del file attivo ha riempimento `sel`.
 
 **Segnali live (effetti GPU di Rune).** Ognuno ha un solo significato, e nessun altro elemento lo usa.
