@@ -8,11 +8,12 @@ use super::marks::Mark;
 use super::{dither, fire, ring};
 use crate::App;
 
-/// Un solo compositor per la finestra. A riposo (nessun layer, nessun anello acceso) il frame è
-/// quello di default di Rune e `animating()` è falso: niente frame, niente costo.
+/// Un solo compositor per la finestra. Senza effetti (nessun layer, nessuno slot) il frame è
+/// quello di default di Rune e `animating()` è falso: niente frame, niente costo. Il fuoco a
+/// riposo non tiene il display link: lo ridisegnano i risvegli di `fire::REST_FRAME`.
 ///
 /// Anelli, fuoco e dither non passano da `set`: la vista mette uno slot `ring::slot` solo mentre
-/// il file è "sta scrivendo", uno `fire::slot` solo mentre c'è testo nuovo sotto la vista e uno
+/// il file è "sta scrivendo", uno `fire::slot` sempre in lettura (a riposo o acceso) e uno
 /// `dither::slot` solo mentre l'ultimo blocco sta arrivando; qui ogni slot diventa il layer del
 /// suo rect.
 #[derive(Default)]
@@ -23,6 +24,10 @@ pub struct FxCompositor {
     moving: bool,
     /// L'ultimo frame ha disegnato almeno un layer.
     drew: bool,
+    /// Il fuoco dell'ultimo frame era acceso (testo nuovo sotto la vista).
+    fire_lit: bool,
+    /// L'orologio a cui il fuoco si è spento: da lì torna a riposo (`fire::Phase::Falling`).
+    fire_out: Option<f64>,
 }
 
 /// Il rect di uno slot in pt.
@@ -39,11 +44,13 @@ fn ring_layer(i: &Instance, clock: f64) -> FxLayer {
     ring::layer_rounded(rect_pt(i), radius, t, reduced, ring::slot_dark(i.uv))
 }
 
-/// Il layer del fuoco per uno slot `fire::slot`: il rect dello slot tocca il fondo del pannello
-/// e ne ha la larghezza.
-fn fire_layer(i: &Instance, clock: f64) -> FxLayer {
-    let s = fire::slot_state(i.uv, clock);
-    fire::layer(rect_pt(i), s.t, s.dark, s.reduced, s.active_window)
+/// La fase del fuoco di uno slot `fire::slot`, dato quando si è spento l'ultima volta (`out`).
+fn fire_phase(s: fire::SlotState, out: Option<f64>, clock: f64) -> fire::Phase {
+    match (s.lit, out) {
+        (true, _) => fire::Phase::Rising(s.t),
+        (false, Some(at)) => fire::Phase::Falling((clock - at).max(0.0) as f32),
+        (false, None) => fire::Phase::Rest,
+    }
 }
 
 /// Il layer del dither per uno slot `dither::slot` e se pulsa (rune-fx non lo conta come
@@ -77,6 +84,8 @@ impl Compositor<App> for FxCompositor {
         let mut layers: Vec<FxLayer> = Vec::new();
         let mut slots: Vec<FxSlot> = Vec::new();
         let mut pulsing = false;
+        let mut paced_fire = None;
+        let mut saw_fire = false;
         for (n, i) in f.rt.instances.iter().enumerate() {
             if i.params[1] != KIND_EFFECT {
                 continue;
@@ -85,7 +94,24 @@ impl Compositor<App> for FxCompositor {
             let layer = if Mark::is_ring(mark) {
                 ring_layer(i, clock)
             } else if mark == Mark::Fire.id() {
-                fire_layer(i, clock)
+                // Il rect dello slot tocca il fondo del pannello e ne ha la larghezza.
+                let s = fire::slot_state(i.uv, clock);
+                if self.fire_lit && !s.lit {
+                    self.fire_out = Some(clock);
+                } else if s.lit {
+                    self.fire_out = None;
+                }
+                self.fire_lit = s.lit;
+                let phase = fire_phase(s, self.fire_out, clock);
+                let layer = fire::layer(rect_pt(i), phase, clock as f32, s.dark, s.reduced, s.active_window);
+                // A riposo le fiamme si muovono coi risvegli di `fire::REST_FRAME` (`App::fire_rests`),
+                // non col display link.
+                if fire::paced(phase) {
+                    self.fire_out = None;
+                    paced_fire = Some(layers.len());
+                }
+                saw_fire = true;
+                layer
             } else if mark == Mark::Dither.id() {
                 let (layer, moving) = dither_layer(i, clock);
                 pulsing |= moving;
@@ -99,9 +125,13 @@ impl Compositor<App> for FxCompositor {
             layers.push(layer);
             slots.push(FxSlot::default().scale(i.params[3]).clip(i.clip, i.fade));
         }
+        // Senza fuoco (sorgente, fuoco spento) il prossimo riparte da riposo, senza discesa.
+        if !saw_fire {
+            (self.fire_lit, self.fire_out) = (false, None);
+        }
         // Fermo appena nessun layer si muove: un anello con "riduci movimento" non tiene il
         // display link, e uno spento non c'è più fra le istanze. Il dither che pulsa sì.
-        self.moving = pulsing || layers.iter().any(FxLayer::is_animating);
+        self.moving = pulsing || layers.iter().enumerate().any(|(k, l)| Some(k) != paced_fire && l.is_animating());
         self.drew = !layers.is_empty();
         fx.set_srgb_blend(f.srgb_blend());
         fx.add_format(device, wgpu::TextureFormat::Rgba16Float);

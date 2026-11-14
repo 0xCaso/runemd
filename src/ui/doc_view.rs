@@ -454,11 +454,50 @@ mod tests {
         scroll_to(&mut rt, 1.0e9);
         assert_eq!(rt.state.tab().unwrap().below.count(), 0);
         assert_eq!(rt.state.tab().unwrap().fire_since, None);
-        assert!(!rt.elements().iter().any(|e| e.key.as_deref() == Some("fire") && !e.exiting), "fuoco spento");
+        assert!(!fire_drawn(&rt), "etichetta spenta");
+        assert!(rt.elements().iter().any(|e| e.key.as_deref() == Some("fire") && !e.exiting), "il fuoco resta, a riposo");
     }
 
+    /// Il fuoco acceso dal testo nuovo: l'etichetta "N paragrafi nuovi più in basso". Lo slot
+    /// delle fiamme c'è sempre (a riposo, basso).
     fn fire_drawn(rt: &Runtime<Doc>) -> bool {
-        rt.elements().iter().any(|e| matches!(e.key.as_deref(), Some("fire" | "fire-label")) && !e.exiting)
+        rt.elements().iter().any(|e| e.key.as_deref() == Some("fire-text") && !e.exiting)
+    }
+
+    /// Sempre acceso: in lettura lo slot del fuoco c'è anche senza testo nuovo, senza etichetta;
+    /// nel sorgente (Cmd+E) e con il fuoco spento dalle impostazioni no.
+    #[test]
+    fn the_fire_rests_at_the_panel_bottom_without_new_text() {
+        let mut rt = open(&join(&sample()));
+        let slot = |rt: &Runtime<Doc>| rt.elements().iter().any(|e| e.key.as_deref() == Some("fire") && !e.exiting);
+        assert!(slot(&rt), "slot del fuoco a riposo");
+        assert!(!fire_drawn(&rt), "nessuna etichetta a riposo");
+        assert!(rt.state.effects_lit(), "il compositor scorre le istanze");
+        rt.update(|s, _| s.settings.fire = false);
+        settle(&mut rt);
+        assert!(!slot(&rt) && !fire_drawn(&rt), "fuoco spento: niente slot né etichetta");
+    }
+
+    /// A riposo, con la finestra attiva e senza "riduci movimento", le fiamme chiedono un
+    /// risveglio ogni `fire::REST_FRAME`; ferme no.
+    #[test]
+    fn the_resting_fire_is_paced_by_wakes_only_while_it_moves() {
+        let mut rt = open(&join(&sample()));
+        assert!(rt.state.fire_rests());
+        rt.update(|s, _| s.window_active = false);
+        assert!(!rt.state.fire_rests(), "finestra non attiva: ferme");
+        rt.update(|s, _| {
+            s.window_active = true;
+            s.motion_env = Some(true);
+        });
+        settle(&mut rt);
+        assert!(!rt.state.fire_rests(), "riduci movimento: ferme");
+        rt.update(|s, _| {
+            s.motion_env = Some(false);
+            s.tabs[0].fire_since = Some(0.0);
+        });
+        settle(&mut rt);
+        assert!(!rt.state.fire_rests(), "acceso: lo muove il display link");
     }
 
     /// Un documento corto, tutto in vista: un blocco aggiunto in fondo entra subito nella vista.

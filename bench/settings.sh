@@ -42,7 +42,7 @@ has() { texts "$1" | grep -qxF -- "$2"; }
 lbl() { case "$1" in "$HOME"/*) echo "~${1#"$HOME"}" ;; *) echo "$1" ;; esac; }
 
 run open --scale 1 --tree "$W/open.json"
-for t in "Cartelle osservate" Font Dimensione Tema Sistema Chiaro Scuro "Fuoco per il testo nuovo" \
+for t in "Cartelle osservate" Font Dimensione Tema Sistema Chiaro Scuro "Fuoco in fondo al pannello" \
   "Aggiungi cartella…" Inter "SF Pro" "American Typewriter" "15,5 pt" "$(lbl "$W/uno")"; do
   has open "$t" || fail "manca \"$t\" a pannello aperto"
 done

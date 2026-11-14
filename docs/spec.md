@@ -82,7 +82,7 @@ i lati. Schede in alto, "⌘E sorgente" a destra, colonna di 680 px, indice "In 
 | Segnale | Significato |
 |---|---|
 | Anello di metallo liquido su 4 lati attorno a scheda, riga nei Recenti, riga nell'albero | Un agente sta scrivendo questo file |
-| Fuoco dal fondo del pannello, con "N paragrafi nuovi più in basso" | C'è testo nuovo sotto la parte visibile |
+| Fuoco dal fondo del pannello, sempre acceso e basso; alto con "N paragrafi nuovi più in basso" | Alto: c'è testo nuovo sotto la parte visibile |
 | Dither che pulsa al posto di un blocco | Il blocco sta ancora arrivando |
 
 ### Da dove arrivano i file
@@ -149,8 +149,10 @@ aperto. Le cartelle osservate sono `~/Desktop/GitHub` (28 repo oggi), più altre
 ### Segnali live: quando si accendono
 
 - **Anello ("sta scrivendo")**: il file è cambiato da una scrittura esterna negli ultimi N secondi (ipotesi: 3 s).
-- **Fuoco**: ci sono blocchi nuovi o cambiati sotto la parte visibile. Sparisce quando l'ultimo di questi entra
-  nella parte visibile. L'etichetta conta questi blocchi e resta "N paragrafi nuovi più in basso" (testo approvato).
+- **Fuoco** (v1.1: sempre acceso in lettura, basso, a riposo): sale quando ci sono blocchi nuovi o cambiati
+  sotto la parte visibile, e torna a riposo quando l'ultimo di questi entra nella parte visibile. L'impostazione
+  "Fuoco in fondo al pannello" lo spegne del tutto (resta solo l'etichetta col testo nuovo). A riposo si
+  ridisegna 12 volte al secondo, senza display link, per non tenere la CPU alta. L'etichetta conta questi blocchi e resta "N paragrafi nuovi più in basso" (testo approvato).
   Con la finestra non attiva l'animazione si ferma e il fuoco resta fermo e visibile [mia scelta].
 - **Dither ("sta arrivando")**: solo per l'ultimo blocco del file, quando è aperto (fence ``` non chiusa, oppure
   il file non finisce con una riga vuota dopo il blocco) e il file è cambiato negli ultimi N secondi. Altrimenti si
@@ -159,7 +161,7 @@ aperto. Le cartelle osservate sono `~/Desktop/GitHub` (28 repo oggi), più altre
   Matteo").
 - **Cosa è cambiato**: i blocchi nuovi o cambiati hanno un segno grigio sottile a sinistra per qualche secondo
   (ipotesi: 8 s).
-- Con "riduci movimento" l'anello e il dither restano fermi e visibili, il fuoco compare senza salire.
+- Con "riduci movimento" l'anello e il dither restano fermi e visibili, il fuoco è fermo e cambia altezza senza salire.
 
 ### Effetti GPU (rune-fx) [mia scelta, dopo la revisione]
 
@@ -167,7 +169,7 @@ rune-fx non è un metodo di `El`: serve un `App::compositor` unico (`crates/rune
 disegna ogni frame con `FxRenderer`, più `El::effect(mark)` sugli elementi.
 
 - Un mark per ogni posto che può avere un effetto (scheda, riga Recenti, riga albero, fondo del pannello, blocco in
-  arrivo). `animating()` è falso senza agenti attivi: a riposo nessun effetto costa.
+  arrivo). `animating()` è falso senza agenti attivi; il fuoco a riposo (v1.1) si ridisegna coi risvegli a 12 fps.
 - L'anello è `LiquidMetal` come bordo: `.border(w)` dipinge dentro la forma (`rune-fx/README.md:108`), quindi il
   mark è più grande della riga di 1,5 px per lato, o si usa `effect_bleed`.
 - Fuoco nel tema chiaro: stessa copertura del tema scuro, il testo resta sotto le fiamme (decisione `docs/decisions/2026-11-14-fuoco-tema-chiaro.md`).

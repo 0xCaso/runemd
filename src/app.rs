@@ -308,7 +308,10 @@ pub struct App {
     theme_env: Option<bool>,
     /// `RUNEMD_REDUCE_MOTION` (`1` o `0`), letto una volta all'avvio: vince sulla preferenza di
     /// sistema "riduci movimento".
-    motion_env: Option<bool>,
+    pub(crate) motion_env: Option<bool>,
+    /// "Riduci movimento" come l'ha vista l'ultima vista (`poll` non ha `Cx`): il fuoco a riposo
+    /// chiede i suoi risvegli solo se si muove.
+    pub(crate) reduced_seen: std::cell::Cell<bool>,
     pub(crate) scroll: Option<probe::ScrollRun>,
     /// Watcher, "sta scrivendo" e scritture dell'app, per tutte le schede.
     pub(crate) live: Live,
@@ -348,6 +351,7 @@ impl App {
                 Ok("dark") => Some(true),
                 _ => None,
             },
+            reduced_seen: std::cell::Cell::new(false),
             motion_env: crate::fx::reduce_motion_env(std::env::var("RUNEMD_REDUCE_MOTION").ok().as_deref()),
             scroll: None,
             live: Live::default(),
@@ -431,7 +435,7 @@ impl App {
         }
     }
 
-    /// Accende o spegne il fuoco per il testo nuovo; l'etichetta resta.
+    /// Accende o spegne il fuoco in fondo al pannello; l'etichetta del testo nuovo resta.
     pub fn toggle_fire(&mut self) {
         self.settings_panel.clear_notice();
         self.settings.fire = !self.settings.fire;
@@ -907,7 +911,14 @@ impl App {
     /// scorre le istanze solo allora. Il sorgente non mostra fuoco né dither.
     pub fn effects_lit(&self) -> bool {
         let fire = self.settings.fire;
-        self.ring_lit() || self.tab().is_some_and(|t| matches!(t.mode, Mode::Read) && ((fire && t.fire_since.is_some()) || t.dither_since.is_some()))
+        self.ring_lit() || self.tab().is_some_and(|t| matches!(t.mode, Mode::Read) && (fire || t.dither_since.is_some()))
+    }
+
+    /// Il fuoco della scheda davanti è a riposo e si muove: senza display link, `poll` chiede un
+    /// risveglio ogni `fx::fire::REST_FRAME` per ridisegnarlo. Fermo (finestra non attiva, "riduci
+    /// movimento") o acceso (lo muove il display link) no.
+    pub fn fire_rests(&self) -> bool {
+        self.settings.fire && self.window_active && !self.reduced_seen.get() && self.tab().is_some_and(|t| matches!(t.mode, Mode::Read) && t.fire_since.is_none())
     }
 
     /// Cmd+E sulla scheda davanti: entra nel sorgente o, se c'è già, salva se ci sono modifiche e
@@ -1265,7 +1276,7 @@ mod tests {
         assert!(!app.tabs[0].note_reload(&change, 3.0));
         assert_eq!(app.tabs[0].below.count(), 2, "conta in secondo piano");
         assert!(app.tab().unwrap().fire_since.is_none(), "la scheda davanti resta spenta");
-        assert!(!app.effects_lit());
+        assert!(app.fire_rests(), "la scheda davanti resta a riposo");
         app.select(0);
         assert!(app.visible_rows(app.tabs[0].doc.id, 0..1));
         assert_eq!(app.tab().unwrap().fire_since, Some(3.0));

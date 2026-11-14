@@ -78,6 +78,7 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
     // "Riduci movimento": la preferenza di macOS, o `RUNEMD_REDUCE_MOTION`. L'override va anche a
     // Rune, così le sue transizioni (hover, scala premuta, scroll) seguono gli effetti.
     let reduced = s.reduced_motion(cx.system_reduced_motion());
+    s.reduced_seen.set(reduced);
     cx.reduced_motion(reduced);
     // Il fuoco della tastiera come quello di Rune (3 pt, attaccato al bordo), ma pieno
     // (e un po' più scuro nel tema chiaro).
@@ -119,13 +120,15 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
     let body = rune::row().key("body").w_full().grow(1.0).min_h(0.0).child(el().grow(1.0).min_w(0.0).h_full().child(body)).children(aside);
     let content = rune::col().w_full().h_full().child(bar).child(body);
     let mut panel = el().w_full().h_full().fill(theme.panel).radius(ui::theme::R_PANEL).clip_rounded(ui::theme::R_PANEL).child(content);
-    // Il fuoco della scheda davanti: una fascia sul fondo del pannello, sopra il documento, con
-    // l'etichetta. Fuori dal flusso, così il documento e il suo scroll non si muovono quando
-    // compare. L'etichetta è una fascia sorella dopo lo slot, così Rune la dipinge sopra le
-    // fiamme. Sta sulla base calda del fuoco, quasi bianca nei due temi: il testo prende un
-    // grigio scuro dei token (`panel` nello scuro, `fg` nel chiaro).
-    if let Some((since, count)) = s.tab().filter(|t| matches!(t.mode, app::Mode::Read)).and_then(|t| Some((t.fire_since?, t.below.count()))) {
-        panel = panel.children(fire_band(since, count, s.settings.fire, dark, &theme, reduced, s.window_active));
+    // Il fuoco della scheda davanti: sempre in lettura, una fascia sul fondo del pannello sopra
+    // il documento, bassa a riposo; con testo nuovo sotto la vista sale e porta l'etichetta.
+    // Fuori dal flusso, così il documento e il suo scroll non si muovono. L'etichetta è una fascia
+    // sorella dopo lo slot, così Rune la dipinge sopra le fiamme. Sta sulla base calda del fuoco,
+    // quasi bianca nei due temi: il testo prende un grigio scuro dei token (`panel` nello scuro,
+    // `fg` nel chiaro).
+    if let Some(tab) = s.tab().filter(|t| matches!(t.mode, app::Mode::Read)) {
+        let lit = tab.fire_since.map(|since| (since, tab.below.count()));
+        panel = panel.children(fire_band(lit, s.settings.fire, dark, &theme, reduced, s.window_active));
     }
     // L'anello "sta scrivendo" sta sulla scheda del file (`ui::tabs`) e sulle sue righe in
     // Recenti e nell'albero.
@@ -141,21 +144,24 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
         .on_window_focus(|s: &mut App, focused, _| s.window_active = focused)
 }
 
-/// Il fuoco e la sua etichetta sul fondo del pannello. Con il fuoco spento dalle impostazioni
-/// (`Settings::fire`) resta solo l'etichetta, in `fg2` su una fascia `panel` con la linea `line`
-/// sopra: senza le fiamme sotto, il testo del documento non deve passarle dietro.
-#[allow(clippy::too_many_arguments)]
-fn fire_band(since: f64, count: usize, fire: bool, dark: bool, theme: &ui::theme::Theme, reduced: bool, active: bool) -> Vec<El> {
-    let label = |ink| rune::text(ui::doc_view::fire_label(count)).key("fire-text").font(rune::TextStyle::new(ui::theme::UI_TEXT, ui::theme::UI_WEIGHT)).color(ink);
+/// Il fuoco e la sua etichetta sul fondo del pannello. `lit`: da quando c'è testo nuovo sotto la
+/// vista, e quanti blocchi; `None` a riposo (fiamme basse, nessuna etichetta). Con il fuoco
+/// spento dalle impostazioni (`Settings::fire`) non c'è niente a riposo, e con testo nuovo solo
+/// l'etichetta, in `fg2` su una fascia `panel` con la linea `line` sopra: senza le fiamme sotto,
+/// il testo del documento non deve passarle dietro.
+fn fire_band(lit: Option<(f64, usize)>, fire: bool, dark: bool, theme: &ui::theme::Theme, reduced: bool, active: bool) -> Vec<El> {
+    let label = |count, ink| rune::text(ui::doc_view::fire_label(count)).key("fire-text").font(rune::TextStyle::new(ui::theme::UI_TEXT, ui::theme::UI_WEIGHT)).color(ink);
     if !fire {
+        let Some((_, count)) = lit else { return Vec::new() };
         let line = el().w_full().h(ui::theme::HAIRLINE).fill(theme.line);
-        let strip = rune::col().w_full().h(ui::theme::TAB_BAR_H).fill(theme.panel).items_center().justify_center().child(label(theme.fg2));
+        let strip = rune::col().w_full().h(ui::theme::TAB_BAR_H).fill(theme.panel).items_center().justify_center().child(label(count, theme.fg2));
         return vec![rune::col().key("fire-label").pin(Some(0.0), None, Some(0.0), Some(0.0)).child(line).child(strip)];
     }
     let band = |key: &str| rune::col().key(key).pin(Some(0.0), None, Some(0.0), Some(0.0)).h(fx::fire::FIRE_H);
+    let flames = fx::fire::slot(band("fire"), lit.map(|(since, _)| since), dark, reduced, active);
+    let Some((_, count)) = lit else { return vec![flames] };
     let ink = if dark { theme.panel } else { theme.fg };
-    let flames = fx::fire::slot(band("fire"), since, dark, reduced, active);
-    let text = band("fire-label").items_center().justify_end().pb(ui::theme::FIRE_LABEL_BOTTOM).child(label(ink));
+    let text = band("fire-label").items_center().justify_end().pb(ui::theme::FIRE_LABEL_BOTTOM).child(label(count, ink));
     // Due fasce sorelle: lo slot prima, l'etichetta dopo (Rune la dipinge sopra le fiamme).
     vec![flames, text]
 }
@@ -303,6 +309,11 @@ fn poll(s: &mut App, clock: f64, tx: &mut Tx) -> bool {
     if let Some(d) = s.sidebar.label_wake(wall, clock) {
         tx.wake_after(d);
     }
+    // Il fuoco a riposo si muove senza display link: un risveglio ogni `REST_FRAME` lo ridisegna.
+    let resting = s.fire_rests();
+    if resting {
+        tx.wake_after(fx::fire::REST_FRAME);
+    }
     // Gli anelli si spengono con un solo risveglio a fine finestra, non con frame continui.
     let now = Instant::now();
     let (ring, wake) = s.update_ring(clock, now);
@@ -316,6 +327,11 @@ fn poll(s: &mut App, clock: f64, tx: &mut Tx) -> bool {
     }
     let blurred = s.sidebar.blur_close() | s.settings_panel.expire(Instant::now());
     let changed = opened || tabs || ring || side || blurred || found;
+    // Solo il fuoco a riposo da ridisegnare: un frame senza rigirare la vista.
+    if resting && !changed {
+        tx.live_only();
+    }
+    let changed = changed || resting;
     let Some(run) = s.scroll.as_mut() else { return changed };
     if let Some(y) = run.step(clock) {
         tx.scroll_to_instant("doc", 0.0, y);

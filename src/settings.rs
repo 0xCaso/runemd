@@ -1,5 +1,5 @@
-//! Le impostazioni (spec, "Impostazioni"): cartelle osservate, font, dimensione, tema e fuoco per
-//! il testo nuovo, salvate con `rune::prefs` in `~/Library/Application Support/RuneMD/prefs.json`.
+//! Le impostazioni (spec, "Impostazioni"): cartelle osservate, font, dimensione, tema e fuoco in
+//! fondo al pannello, salvate con `rune::prefs` in `~/Library/Application Support/RuneMD/prefs.json`.
 //!
 //! Ogni campo ha la sua chiave: un valore che manca o che non si legge (un'altra versione
 //! dell'app) prende il default, gli altri restano.
@@ -51,8 +51,9 @@ pub struct Settings {
     /// La dimensione del corpo, pt; titoli, tabelle e codice scalano con lei.
     pub size: f32,
     pub theme: ThemePref,
-    /// Il fuoco per il testo nuovo (decisione di Matteo, `docs/decisions/2026-11-14-fuoco-tema-chiaro.md`):
-    /// spento, l'etichetta "N paragrafi nuovi più in basso" resta e le fiamme no.
+    /// Il fuoco in fondo al pannello (decisione di Matteo, `docs/decisions/2026-11-14-fuoco-tema-chiaro.md`;
+    /// sempre acceso dalla v1.1): spento, niente fiamme, né a riposo né col testo nuovo, e
+    /// l'etichetta "N paragrafi nuovi più in basso" resta.
     pub fire: bool,
 }
 

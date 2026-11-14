@@ -44,7 +44,7 @@ pub const THEMES: [(ThemePref, &str); 3] = [
     (ThemePref::Light, "Chiaro"),
     (ThemePref::Dark, "Scuro"),
 ];
-pub const FIRE: &str = "Fuoco per il testo nuovo";
+pub const FIRE: &str = "Fuoco in fondo al pannello";
 /// Il riscontro di "Aggiungi cartella…" quando la cartella scelta è già osservata (o sta sotto
 /// una osservata): resta `NOTICE_FOR` o fino alla prossima azione.
 pub const ALREADY: &str = "Già osservata";

@@ -355,7 +355,7 @@ chiude, Esc la chiude. Titolo "Impostazioni" (UI, 600, `fg`), poi sezioni con et
 "Aggiungi cartella…" apre il dialogo delle cartelle; una cartella già osservata, o sotto una osservata, non si
 aggiunge e sotto compare "Già osservata" in `fg-2` per 3 s o fino alla prossima azione), "Font" (Inter, SF Pro, New York se installato col suo nome,
 poi le famiglie installate; lista virtuale alta 8 righe e mezza, così la nona tagliata dice che scorre), "Dimensione" ("−", "15,5 pt", "+"; titoli, tabelle e
-codice scalano col corpo), "Tema" ("Sistema", "Chiaro", "Scuro"), e la casella "Fuoco per il testo nuovo". Le
+codice scalano col corpo), "Tema" ("Sistema", "Chiaro", "Scuro"), e la casella "Fuoco in fondo al pannello" (accende e spegne il fuoco, a riposo e col testo nuovo). Le
 righe sono quelle della sidebar (28, raggio 6, hover `sel`, scala 0,98). La scelta fatta ha riempimento `sel`,
 testo `fg` e una spunta in `fg`; le altre testo `fg-2`. La casella ha il bordo di 1 in `fg-3`; accesa è piena in
 `fg-2` con la spunta in `panel`. Con il fuoco spento l'etichetta "N paragrafi nuovi più in basso" resta, in `fg-2`
@@ -366,12 +366,14 @@ su una fascia `panel` alta 44 con la linea `line` sopra. Tutto cambia subito, se
 | Effetto | Significato | Dove | Inizio | Fine |
 |---|---|---|---|---|
 | Metallo liquido (anello su 4 lati, 1,5 px, giro di 3 s) | Un agente sta scrivendo questo file | Scheda del file, sua riga in "Recenti", sua riga nell'albero | Appare in 220 ms ease-out alla prima modifica | Si ferma quando il file non cambia più (ipotesi: 3 s senza scritture) |
-| Fuoco di Rune (fiamme e braci, alto 110 px) | C'è testo nuovo sotto la parte che stai leggendo | Fondo del pannello, con l'etichetta "N paragrafi nuovi più in basso" | Sale in 420 ms ease-out | Sparisce quando scorri fino in fondo |
+| Fuoco di Rune (fiamme e braci) | A riposo, basso (26 px): è il fondo del pannello. Alto 110 px: c'è testo nuovo sotto la parte che stai leggendo | Fondo del pannello, sempre in lettura; alto, con l'etichetta "N paragrafi nuovi più in basso" | Da riposo sale a 110 in 420 ms ease-out | Torna a riposo in 300 ms ease-out quando scorri fino al testo nuovo |
 | Dither (Bayer 4×4, pulsa a 4 passi in 1,6 s) | Questo blocco sta arrivando | Al posto dei blocchi non ancora scritti, larghi come una riga di testo | Subito | Quando il blocco è completo |
 
 Nel tema chiaro il fuoco usa la luminanza come maschera (sul bianco lo screen sparirebbe) e il dither è
 invertito. Con "riduci movimento" l'anello e il dither non si animano (restano fermi e visibili) e il fuoco
-compare senza salire.
+è fermo, a riposo o alto, senza salire né scendere; con la finestra non attiva è fermo allo stesso modo. A riposo
+le fiamme non tengono il display link: si ridisegnano 12 volte al secondo (CPU a riposo ~3,5 % contro ~11 % a
+120 Hz, misure in `.superpowers/sdd/plan/v11-batch-a-report.md`).
 
 ## Do's and Don'ts
 
