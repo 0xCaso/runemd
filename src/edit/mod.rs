@@ -141,9 +141,11 @@ fn try_save(tab: &mut Tab, own: &mut OwnWrites) -> Result<(), SaveError> {
     }
     let target = tab.follow.path().to_owned();
     match read_disk(&target) {
+        // Prima il confronto: un cambio esterno (anche non UTF-8) è un conflitto che si risolve
+        // sul posto. Il rifiuto per non-UTF-8 resta per il file invariato ma con perdita.
+        Ok((_, h, _)) if h != src.base_hash => return Err(SaveError::Conflict),
         Ok((_, _, false)) => return Err(SaveError::NotUtf8),
-        Ok((_, h, true)) if h == src.base_hash => {}
-        Ok(_) => return Err(SaveError::Conflict),
+        Ok(_) => {}
         // Sparito (un rename a metà, o cancellato): è cambiato su disco.
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Err(SaveError::Conflict),
         Err(e) => return Err(SaveError::Io(e)),
@@ -496,6 +498,26 @@ pub(crate) mod tests {
         assert_eq!(source(&mut tab).notice, Some(Notice::NotUtf8));
         assert!(keep_mine(&mut tab, &mut own).is_err());
         assert!(matches!(leave(&mut tab, &mut own), Err(SaveError::NotUtf8)));
+        assert_eq!(fs::read(&path).unwrap(), bytes, "stessi byte");
+    }
+
+    /// Un agente scrive byte non UTF-8 mentre si modifica: è un conflitto (Ricarica / Tieni il
+    /// mio), non "modifica disattivata". Non si scrive niente.
+    #[test]
+    fn external_non_utf8_write_is_a_conflict() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("a.md");
+        fs::write(&path, "# a\n").unwrap();
+        let mut tab = tab_on(&path);
+        tab.mode = Mode::Source(Box::new(enter(&tab.doc)));
+        let bytes = b"# a\n\ncaff\xe8 \xff\n".to_vec();
+        fs::write(&path, &bytes).unwrap();
+        let s = source(&mut tab);
+        s.set_text("# a\n\nmio\n");
+        s.dirty = true;
+        let mut own = OwnWrites::default();
+        assert!(matches!(save(&mut tab, &mut own), Err(SaveError::Conflict)));
+        assert_eq!(source(&mut tab).notice, Some(Notice::Conflict));
         assert_eq!(fs::read(&path).unwrap(), bytes, "stessi byte");
     }
 
