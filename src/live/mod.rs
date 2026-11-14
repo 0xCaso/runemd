@@ -128,7 +128,13 @@ impl Live {
     /// se serve, fra quanto richiamarla.
     pub fn poll(&mut self, doc: Option<&mut Document>, now: Instant) -> (Option<Reloaded>, Option<Duration>) {
         let events = self.watcher.as_mut().map(|w| w.drain(now)).unwrap_or_default();
-        let changed = events.iter().any(|e| matches!(e, FsEvent::Changed(p) if self.watched.as_ref() == Some(p)));
+        // Un `Rescan` sopra il file aperto (eventi persi, cartella spostata): si rilegge, se il
+        // contenuto è lo stesso la ricarica non cambia nulla.
+        let changed = events.iter().any(|e| match e {
+            FsEvent::Changed(p) => self.watched.as_ref() == Some(p),
+            FsEvent::Rescan(dir) => self.watched.as_ref().is_some_and(|w| w.starts_with(dir)),
+            _ => false,
+        });
         self.note(&events, now);
         self.drained = events;
         self.step(doc, changed, now)
@@ -304,10 +310,12 @@ mod tests {
         fs::write(&path, "# a\n\nb\n").unwrap();
         let mut seen = Vec::new();
         let mut reloads = 0;
-        let deadline = Instant::now() + Duration::from_secs(4);
+        let mut deadline = Instant::now() + Duration::from_secs(4);
         while Instant::now() < deadline {
             if live.poll(Some(&mut doc), Instant::now()).0.is_some() {
                 reloads += 1;
+                // Dopo la prima, ancora 500 ms per vedere un'eventuale seconda ricarica.
+                deadline = deadline.min(Instant::now() + Duration::from_millis(500));
             }
             seen.extend(live.drained().iter().cloned());
             thread::sleep(Duration::from_millis(16));

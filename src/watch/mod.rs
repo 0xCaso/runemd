@@ -32,12 +32,18 @@ pub enum FsEvent {
     Removed(PathBuf),
     /// `.git/HEAD`, `ORIG_HEAD` o `FETCH_HEAD` è cambiato: la radice del repo.
     GitHead(PathBuf),
+    /// Sotto questa cartella i file possono essere cambiati senza un evento per ognuno: una
+    /// cartella spostata, rinominata, creata o tolta (FSEvents riporta solo la cartella), o
+    /// eventi persi sotto una radice ricorsiva. Chi tiene un elenco dei file la riscandisce (fuori
+    /// dal thread della UI); se la cartella non c'è più, ciò che stava sotto è sparito.
+    Rescan(PathBuf),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 enum Key {
     File(PathBuf),
     Head(PathBuf),
+    Dir(PathBuf),
 }
 
 /// La radice del repo se `path` è `<repo>/.git/HEAD`, `ORIG_HEAD` o `FETCH_HEAD`: checkout
@@ -83,6 +89,11 @@ impl Core {
         }
     }
 
+    /// Una cartella spostata, creata o tolta: esce come `Rescan` dopo il debounce.
+    fn observe_dir(&mut self, path: PathBuf, at: Instant) {
+        self.debounce.push(Key::Dir(path), at);
+    }
+
     fn request_rescan(&mut self, at: Instant) {
         self.rescan_at = Some(self.rescan_at.map_or(at, |old| old.max(at)));
     }
@@ -91,13 +102,19 @@ impl Core {
         self.rescan_at.take()
     }
 
-    /// Notify ha perso eventi: ricontrolla ogni percorso noto e ogni file sotto le radici (solo
-    /// i figli diretti per una radice non ricorsiva).
+    /// Notify ha perso eventi: ricontrolla ogni percorso noto e i figli diretti delle radici
+    /// non ricorsive. Una radice ricorsiva non si percorre qui (sul thread della UI sarebbe una
+    /// scansione intera, 0,6–2,8 s su `~/Desktop/GitHub`): esce un `Rescan` della radice e chi
+    /// tiene l'elenco dei file la riscandisce su un thread a parte.
     fn rescan(&mut self, roots: &[Root], at: Instant) {
         let mut paths: Vec<PathBuf> = self.known.iter().cloned().collect();
         paths.extend(self.missing.keys().cloned());
         for root in roots {
-            walk(&root.path, root.recursive, &mut paths);
+            if root.recursive {
+                self.observe_dir(root.path.clone(), at);
+            } else {
+                walk(&root.path, false, &mut paths);
+            }
         }
         for path in paths {
             self.observe(path, at);
@@ -113,6 +130,7 @@ impl Core {
         for key in self.debounce.ready(now) {
             match key {
                 Key::Head(root) => out.push(FsEvent::GitHead(root)),
+                Key::Dir(dir) => out.push(FsEvent::Rescan(dir)),
                 Key::File(path) if path.is_file() => {
                     self.missing.remove(&path);
                     self.known.insert(path.clone());
@@ -156,7 +174,7 @@ pub(crate) fn walk(dir: &Path, recursive: bool, out: &mut Vec<PathBuf>) {
         let path = entry.path();
         let Ok(kind) = entry.file_type() else { continue };
         if kind.is_dir() {
-            if recursive && !path.file_name().is_some_and(|n| filter::SKIPPED_DIRS.iter().any(|s| n == *s)) {
+            if recursive && !path.file_name().is_some_and(filter::skipped_name) {
                 walk(&path, true, out);
             }
         } else if filter::wanted(&path) && (!kind.is_symlink() || path.is_file()) {
@@ -172,9 +190,34 @@ struct Root {
     recursive: bool,
 }
 
+#[derive(Debug, PartialEq)]
 enum Raw {
     Path(PathBuf, Instant),
+    Dir(PathBuf, Instant),
     Rescan(Instant),
+}
+
+/// Cosa mettere in coda per un percorso di un evento di notify; `None` se non interessa. Gira
+/// sul thread di notify, così i percorsi di una build (`target/`, `node_modules/`, `.git/objects`)
+/// non tengono sveglia l'app e lo stat di una rinomina non pesa sulla UI.
+fn classify(path: PathBuf, kind: &notify::EventKind, at: Instant) -> Option<Raw> {
+    use notify::event::{CreateKind, ModifyKind, RemoveKind};
+    use notify::EventKind;
+    if git_head_root(&path).is_some() || filter::wanted(&path) {
+        return Some(Raw::Path(path, at));
+    }
+    if filter::skipped(&path) {
+        return None;
+    }
+    let dir = match kind {
+        EventKind::Create(CreateKind::Folder) | EventKind::Remove(RemoveKind::Folder) => true,
+        // Una rinomina non dice se era una cartella: lo è se ora c'è una cartella o se non c'è
+        // più niente (il lato vecchio). Per un file non Markdown sparito `Rescan` non costa:
+        // sotto non c'è nulla.
+        EventKind::Modify(ModifyKind::Name(_)) => std::fs::symlink_metadata(&path).map_or(true, |m| m.is_dir()),
+        _ => false,
+    };
+    dir.then_some(Raw::Dir(path, at))
 }
 
 #[derive(Default)]
@@ -231,12 +274,17 @@ impl Watcher {
                 if event.kind.is_access() {
                     return;
                 }
+                let rescan = event.need_rescan();
+                let raws: Vec<Raw> = event.paths.into_iter().filter_map(|p| classify(p, &event.kind, now)).collect();
+                if raws.is_empty() && !rescan {
+                    return;
+                }
                 {
                     let mut queue = shared.queue.lock().unwrap_or_else(PoisonError::into_inner);
-                    if event.need_rescan() {
+                    if rescan {
                         queue.push(Raw::Rescan(now));
                     }
-                    queue.extend(event.paths.into_iter().map(|p| Raw::Path(p, now)));
+                    queue.extend(raws);
                     shared.busy.store(true, Ordering::Release);
                 }
                 ticker.unpark();
@@ -306,6 +354,7 @@ impl Watcher {
         for raw in queued {
             match raw {
                 Raw::Path(path, at) => self.core.observe(path, at),
+                Raw::Dir(path, at) => self.core.observe_dir(path, at),
                 Raw::Rescan(at) => self.core.request_rescan(at),
             }
         }
@@ -352,11 +401,14 @@ mod tests {
         seen
     }
 
+    /// Toglie anche i `Rescan`: il lato vecchio di una rinomina atomica (`x.md.tmp`) ne dà uno,
+    /// e queste prove guardano i file.
     fn without_sentinel(events: &[FsEvent]) -> Vec<FsEvent> {
         events
             .iter()
             .filter(|e| match e {
                 FsEvent::Changed(p) | FsEvent::Removed(p) | FsEvent::GitHead(p) => p.file_name() != Some("ready.md".as_ref()),
+                FsEvent::Rescan(_) => false,
             })
             .cloned()
             .collect()
@@ -557,11 +609,78 @@ mod tests {
         // Eventi persi: `gone` sparisce, `fresh` nasce, nessun evento arriva.
         fs::remove_file(&gone).unwrap();
         fs::write(&fresh, "x").unwrap();
-        core.rescan(&[Root { path: root.clone(), recursive: true }], at(100));
+        core.rescan(&[Root { path: root.clone(), recursive: false }], at(100));
         let mut first = core.drain(at(200));
         first.sort_by_key(|e| format!("{e:?}"));
         assert_eq!(first, vec![FsEvent::Changed(fresh), FsEvent::Changed(kept)]);
         assert_eq!(core.drain(at(2300)), vec![FsEvent::Removed(gone)]);
+    }
+
+    /// Una radice ricorsiva non si percorre sul thread di chi chiama `drain`: esce un `Rescan`
+    /// della radice e basta. I percorsi noti si ricontrollano ancora.
+    #[test]
+    fn core_rescan_does_not_walk_a_recursive_root() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_path_buf();
+        fs::create_dir_all(root.join("a/b")).unwrap();
+        let (kept, deep) = (root.join("kept.md"), root.join("a/b/deep.md"));
+        fs::write(&kept, "x").unwrap();
+        fs::write(&deep, "x").unwrap();
+        let t0 = Instant::now();
+        let at = |ms| t0 + Duration::from_millis(ms);
+        let mut core = Core::new();
+        core.observe(kept.clone(), at(0));
+        assert_eq!(core.drain(at(60)), vec![FsEvent::Changed(kept.clone())]);
+        core.rescan(&[Root { path: root.clone(), recursive: true }], at(100));
+        let mut out = core.drain(at(200));
+        out.sort_by_key(|e| format!("{e:?}"));
+        assert_eq!(out, vec![FsEvent::Changed(kept), FsEvent::Rescan(root)], "`deep.md` non letto qui");
+    }
+
+    /// Misura (`docs/perf.md`): il costo sul thread della UI di un rescan con le cartelle
+    /// osservate vere (`RUNEMD_ROOTS` o `~/Desktop/GitHub`), radici ricorsive.
+    /// `cargo test --profile perf rescan_ui_cost -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn rescan_ui_cost() {
+        let roots: Vec<Root> = crate::index::roots().into_iter().map(|path| Root { path, recursive: true }).collect();
+        let mut ms = Vec::new();
+        for _ in 0..40 {
+            let mut core = Core::new();
+            let t0 = Instant::now();
+            core.rescan(&roots, t0);
+            let out = core.drain(t0 + Duration::from_millis(60));
+            ms.push(t0.elapsed().as_secs_f64() * 1000.0);
+            assert_eq!(out.len(), roots.len());
+        }
+        ms.sort_by(f64::total_cmp);
+        let pct = |p: f64| ms[((ms.len() - 1) as f64 * p).round() as usize];
+        eprintln!("rescan_ui_cost n={} p50={:.3} ms p95={:.3} ms max={:.3} ms", ms.len(), pct(0.5), pct(0.95), pct(1.0));
+    }
+
+    /// Il filtro sul thread di notify: i file di una build non entrano in coda; i Markdown,
+    /// `.git/HEAD` e le cartelle spostate sì.
+    #[test]
+    fn handler_prefilter_drops_build_files() {
+        use notify::event::{CreateKind, ModifyKind, RemoveKind, RenameMode};
+        use notify::EventKind;
+        let t = Instant::now();
+        let file = EventKind::Create(CreateKind::File);
+        assert_eq!(classify(PathBuf::from("/r/target/x.o"), &file, t), None);
+        assert_eq!(classify(PathBuf::from("/r/node_modules/p/x.js"), &file, t), None);
+        assert_eq!(classify(PathBuf::from("/r/.git/objects/ab/cd"), &file, t), None);
+        assert_eq!(classify(PathBuf::from("/r/target"), &EventKind::Create(CreateKind::Folder), t), None);
+        assert_eq!(classify(PathBuf::from("/r/src/x.o"), &file, t), None);
+        assert_eq!(classify(PathBuf::from("/r/a.md"), &file, t), Some(Raw::Path(PathBuf::from("/r/a.md"), t)));
+        assert_eq!(classify(PathBuf::from("/r/.git/HEAD"), &file, t), Some(Raw::Path(PathBuf::from("/r/.git/HEAD"), t)));
+        assert_eq!(classify(PathBuf::from("/r/docs"), &EventKind::Remove(RemoveKind::Folder), t), Some(Raw::Dir(PathBuf::from("/r/docs"), t)));
+        // Rinomina: il lato che non c'è più conta come cartella; un file esistente no.
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("x.rs"), "x").unwrap();
+        let name = EventKind::Modify(ModifyKind::Name(RenameMode::Any));
+        assert_eq!(classify(dir.path().join("x.rs"), &name, t), None);
+        assert_eq!(classify(dir.path().to_path_buf(), &name, t), Some(Raw::Dir(dir.path().to_path_buf(), t)));
+        assert_eq!(classify(dir.path().join("via"), &name, t), Some(Raw::Dir(dir.path().join("via"), t)));
     }
 
     #[test]

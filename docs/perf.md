@@ -84,3 +84,19 @@ Con la cache l'indice è pieno già al primo frame (la cache si legge in `init`,
 dopo il primo frame con l'indice salvato" rispettata per i dati; la sidebar che li mostra arriva col task 16. Senza
 cache l'indice arriva con la scansione, 1,5–1,7 s dopo il primo frame a questo carico (non è la soglia, che vale con
 l'indice salvato). Avvio al primo frame (`bench/startup.sh`) non rimisurato: a load average 100 il numero non vale.
+
+## Thread della UI dopo il fix round 1 (rescan e cartelle spostate)
+
+14/11 01:18, **load average 92** (`uptime`), `~/Desktop/GitHub`, 6918 voci.
+
+| misura | comando | p50 | p95 | max |
+|---|---|---|---|---|
+| un rescan del watcher (`Core::rescan` + `drain`, radice ricorsiva) | `cargo test --profile perf rescan_ui_cost -- --ignored --nocapture` (40 giri) | 0,000 ms | 0,001 ms | 0,014 ms |
+| raccolta della scansione intera (`Index::finish_scan`) | `cargo test --profile perf scan_pickup_cost -- --ignored --nocapture` (40 giri) | 1,40 ms | 1,63 ms | 1,73 ms |
+| copia delle voci per il salvataggio (`Library::save`) | stesso comando | 0,14 ms | 0,32 ms | 0,56 ms |
+
+Prima del fix il rescan percorreva `~/Desktop/GitHub` sul thread della UI (≈ 0,6 s a caldo, 2,8 s a freddo, più
+≈ 6900 stat nel watcher e altrettante nell'indice). Ora una radice ricorsiva diventa un `FsEvent::Rescan` e la
+scansione gira sul thread `runemd-index`; ordinamento e dedup stanno lì, il thread della UI fonde soltanto. App
+vera dopo il fix (stesso comando di sopra, 2 giri): cache 3,08 ms prima del primo frame con 6919 voci; scansione
+finita 1,1–1,2 s dopo il primo frame.

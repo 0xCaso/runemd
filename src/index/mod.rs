@@ -45,9 +45,17 @@ pub struct Index {
     entries: Vec<Entry>,
     /// Solo i percorsi sotto queste cartelle entrano; `None` = nessun limite.
     roots: Option<Vec<PathBuf>>,
-    /// Gli eventi applicati da quando è partita la scansione (`None` se nessuna è in corso):
-    /// percorso e mtime letto (`None` = tolto).
-    since_scan: Option<Vec<(PathBuf, Option<SystemTime>)>>,
+    /// I cambi applicati da quando è partita la scansione (`None` se nessuna è in corso).
+    since_scan: Option<Vec<Logged>>,
+}
+
+/// Un cambio applicato durante una scansione, da riapplicare sopra il suo risultato.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Logged {
+    /// Percorso e mtime letto (`None` = tolto).
+    Set(PathBuf, Option<SystemTime>),
+    /// Tutto ciò che stava sotto questa cartella è sparito.
+    Under(PathBuf),
 }
 
 /// L'mtime di `path` seguendo i link; `None` se non è (più) un file.
@@ -69,7 +77,9 @@ impl Index {
         Index::from_entries(cache::load(path).unwrap_or_default())
     }
 
-    /// Scrive l'indice in `path` in modo atomico (file temporaneo e rename).
+    /// Scrive l'indice in `path` in modo atomico (file temporaneo e rename). L'app salva da
+    /// `Library::save`, con una copia delle voci su un altro thread.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn save_cache(&self, path: &Path) {
         if let Err(e) = cache::save(path, &self.entries) {
             eprintln!("runemd: {}: indice non salvato: {e}", path.display());
@@ -101,14 +111,33 @@ impl Index {
             FsEvent::Changed(p) => (p, mtime_of(p)),
             FsEvent::Removed(p) => (p, None),
             FsEvent::GitHead(_) => return false,
+            // Serve una scansione della cartella su un altro thread: la fa `Library`.
+            FsEvent::Rescan(_) => return false,
         };
         if !self.covers(path) {
             return false;
         }
         if let Some(log) = &mut self.since_scan {
-            log.push((path.clone(), mtime));
+            log.push(Logged::Set(path.clone(), mtime));
         }
         self.set(path, mtime)
+    }
+
+    /// Toglie le voci sotto `dir` (una cartella sparita o spostata altrove). Vero se ne ha tolte.
+    pub fn remove_under(&mut self, dir: &Path) -> bool {
+        if let Some(log) = &mut self.since_scan {
+            log.push(Logged::Under(dir.to_owned()));
+        }
+        self.drop_under(dir)
+    }
+
+    /// Le voci sotto `dir` sono contigue nell'ordine per componenti: un intervallo, senza
+    /// scorrere tutto l'indice.
+    fn drop_under(&mut self, dir: &Path) -> bool {
+        let start = self.entries.partition_point(|e| e.path.as_path() < dir);
+        let len = self.entries[start..].iter().take_while(|e| e.path.starts_with(dir)).count();
+        self.entries.drain(start..start + len);
+        len > 0
     }
 
     /// Mette (`Some`) o toglie (`None`) la voce di `path`. Vero se è cambiato qualcosa.
@@ -134,14 +163,32 @@ impl Index {
         self.since_scan = Some(Vec::new());
     }
 
-    /// Il risultato della scansione sostituisce le voci; gli eventi arrivati nel frattempo
-    /// valgono sopra di esso.
-    pub fn finish_scan(&mut self, scanned: Vec<Entry>) {
+    /// Il risultato di una scansione delle cartelle `under` (ordinato per percorso e senza
+    /// doppioni, come lo dà `scan::scan`) sostituisce le voci sotto di esse; gli eventi
+    /// arrivati nel frattempo valgono sopra. Sul thread della UI: solo passate lineari, niente
+    /// ordinamento (costo in `docs/perf.md`).
+    pub fn finish_scan(&mut self, under: &[PathBuf], mut scanned: Vec<Entry>) {
+        debug_assert!(scanned.windows(2).all(|w| w[0].path < w[1].path), "scansione non ordinata");
         let log = self.since_scan.take().unwrap_or_default();
-        self.replace(scanned);
-        for (path, mtime) in log {
-            self.set(&path, mtime);
+        scanned.retain(|e| self.covers(&e.path));
+        let mut kept = std::mem::take(&mut self.entries);
+        kept.retain(|e| !under.iter().any(|u| e.path.starts_with(u)));
+        self.entries = merge(kept, scanned);
+        for change in log {
+            match change {
+                Logged::Set(path, mtime) => {
+                    self.set(&path, mtime);
+                }
+                Logged::Under(dir) => {
+                    self.drop_under(&dir);
+                }
+            }
         }
+    }
+
+    /// Una scansione finita male: niente da riapplicare.
+    fn abort_scan(&mut self) {
+        self.since_scan = None;
     }
 
     fn replace(&mut self, mut entries: Vec<Entry>) {
@@ -174,6 +221,29 @@ impl Index {
     }
 }
 
+/// Fonde due elenchi ordinati per percorso; a parità di percorso vale `b`.
+fn merge(a: Vec<Entry>, b: Vec<Entry>) -> Vec<Entry> {
+    let mut out = Vec::with_capacity(a.len() + b.len());
+    let mut a = a.into_iter().peekable();
+    let mut b = b.into_iter().peekable();
+    loop {
+        let take_a = match (a.peek(), b.peek()) {
+            (Some(x), Some(y)) => match x.path.cmp(&y.path) {
+                std::cmp::Ordering::Less => true,
+                std::cmp::Ordering::Equal => {
+                    a.next();
+                    false
+                }
+                std::cmp::Ordering::Greater => false,
+            },
+            (Some(_), None) => true,
+            (None, Some(_)) => false,
+            (None, None) => return out,
+        };
+        out.extend(if take_a { a.next() } else { b.next() });
+    }
+}
+
 /// Le cartelle osservate: `RUNEMD_ROOTS` (separate da `:`) se c'è, altrimenti `DEFAULT_ROOTS`
 /// sotto la home. Canoniche, come i percorsi che riporta FSEvents.
 pub fn roots() -> Vec<PathBuf> {
@@ -198,8 +268,12 @@ pub struct Library {
     pub index: Index,
     roots: Vec<PathBuf>,
     cache: Option<PathBuf>,
-    scan: Option<Receiver<Vec<Entry>>>,
-    /// La scansione è finita: l'indice è quello del disco (non solo della cache).
+    /// La scansione in corso e le cartelle che copre.
+    scan: Option<(Vec<PathBuf>, Receiver<Vec<Entry>>)>,
+    /// Cartelle da scandire appena finisce quella in corso (cartelle spostate, eventi persi).
+    queued: Vec<PathBuf>,
+    waker: Option<Waker>,
+    /// La prima scansione è finita: l'indice è quello del disco (non solo della cache).
     pub scanned: bool,
     /// Cambiato dall'ultimo salvataggio.
     dirty: bool,
@@ -212,7 +286,7 @@ impl Library {
     pub fn load(roots: Vec<PathBuf>, cache: Option<PathBuf>) -> Library {
         let mut index = cache.as_deref().map(Index::load_cache).unwrap_or_default();
         index.set_roots(roots.clone());
-        Library { index, roots, cache, scan: None, scanned: false, dirty: false, saved_at: None, saving: None }
+        Library { index, roots, cache, scan: None, queued: Vec::new(), waker: None, scanned: false, dirty: false, saved_at: None, saving: None }
     }
 
     /// Le cartelle osservate.
@@ -222,8 +296,38 @@ impl Library {
 
     /// Fa partire la scansione su un thread a parte; il thread sveglia l'app quando ha finito.
     pub fn start(&mut self, waker: Waker) {
+        self.waker = Some(waker);
+        self.queued = self.roots.clone();
+        self.launch();
+    }
+
+    /// Avvia la scansione delle cartelle in coda, se nessuna è in corso.
+    fn launch(&mut self) {
+        if self.scan.is_some() || self.queued.is_empty() {
+            return;
+        }
+        let Some(waker) = self.waker.clone() else { return };
+        let under = std::mem::take(&mut self.queued);
         self.index.begin_scan();
-        self.scan = Some(scan_in_background(self.roots.clone(), waker));
+        let rx = scan_in_background(under.clone(), waker);
+        self.scan = Some((under, rx));
+    }
+
+    /// Un `Rescan` del watcher: una cartella che c'è si riscandisce su un altro thread; una che
+    /// non c'è più si toglie subito (le sue voci sono un intervallo dell'indice).
+    fn rescan(&mut self, dir: &Path) -> bool {
+        if !self.index.covers(dir) {
+            return false;
+        }
+        if !dir.is_dir() {
+            return self.index.remove_under(dir);
+        }
+        if self.queued.iter().any(|q| dir.starts_with(q)) {
+            return false;
+        }
+        self.queued.retain(|q| !q.starts_with(dir));
+        self.queued.push(dir.to_owned());
+        false
     }
 
     /// Da chiamare a ogni `poll` con gli eventi del watcher di questo risveglio. Raccoglie la
@@ -232,24 +336,30 @@ impl Library {
     pub fn poll(&mut self, events: &[FsEvent], now: Instant) -> bool {
         let mut changed = false;
         for ev in events {
-            changed |= self.index.apply(ev);
+            changed |= match ev {
+                FsEvent::Rescan(dir) => self.rescan(dir),
+                ev => self.index.apply(ev),
+            };
         }
-        match self.scan.as_ref().map(Receiver::try_recv) {
+        match self.scan.as_ref().map(|(_, rx)| rx.try_recv()) {
             Some(Ok(entries)) => {
-                self.scan = None;
-                self.index.finish_scan(entries);
-                self.scanned = true;
+                let (under, _) = self.scan.take().expect("scansione in corso");
+                self.index.finish_scan(&under, entries);
                 changed = true;
-                // Subito dopo la scansione, così il prossimo avvio parte da qui.
-                self.saved_at = None;
+                if !self.scanned {
+                    self.scanned = true;
+                    // Subito dopo la prima scansione, così il prossimo avvio parte da qui.
+                    self.saved_at = None;
+                }
             }
-            // Il thread è morto senza risultato: resta la cache, aggiornata dagli eventi.
+            // Il thread è morto senza risultato: resta l'indice com'è, aggiornato dagli eventi.
             Some(Err(TryRecvError::Disconnected)) => {
                 self.scan = None;
-                self.index.since_scan = None;
+                self.index.abort_scan();
             }
             Some(Err(TryRecvError::Empty)) | None => {}
         }
+        self.launch();
         self.dirty |= changed;
         if self.dirty && self.saved_at.is_none_or(|t| now.saturating_duration_since(t) >= SAVE_EVERY) {
             self.save(now);
@@ -263,8 +373,13 @@ impl Library {
         if self.saving.as_ref().is_some_and(|h| !h.is_finished()) {
             return;
         }
-        let index = Index::from_entries(self.index.entries.clone());
-        self.saving = Some(std::thread::spawn(move || index.save_cache(&path)));
+        // Già ordinate e senza doppioni: una copia, nessun ordinamento sul thread della UI.
+        let entries = self.index.entries.clone();
+        self.saving = Some(std::thread::spawn(move || {
+            if let Err(e) = cache::save(&path, &entries) {
+                eprintln!("runemd: {}: indice non salvato: {e}", path.display());
+            }
+        }));
         self.dirty = false;
         self.saved_at = Some(now);
     }
@@ -370,12 +485,14 @@ mod tests {
         index.begin_scan();
         index.apply(&FsEvent::Changed(fresh.clone()));
         index.apply(&FsEvent::Removed(gone.clone()));
-        index.finish_scan(vec![Entry { path: fresh.clone(), mtime: at(1) }, Entry { path: gone, mtime: at(1) }]);
+        let mut scanned = vec![Entry { path: fresh.clone(), mtime: at(1) }, Entry { path: gone, mtime: at(1) }];
+        scanned.sort_by(|a, b| a.path.cmp(&b.path));
+        index.finish_scan(&[dir.path().to_path_buf()], scanned);
         assert_eq!(index.recent(10), [&Entry { path: fresh.clone(), mtime }]);
         // Finita la scansione, gli eventi non si ricordano più.
         index.apply(&FsEvent::Removed(fresh));
-        index.finish_scan(vec![entry("/r/x.md", 1)]);
-        assert_eq!(index.len(), 1);
+        index.finish_scan(&[PathBuf::from("/r")], vec![entry("/r/x.md", 1)]);
+        assert_eq!(index.names().collect::<Vec<_>>(), [Path::new("/r/x.md")]);
     }
 
     #[test]
@@ -430,6 +547,96 @@ mod tests {
         assert!(Index::load_cache(&path).is_empty());
         fs::write(&path, "{ rotto").unwrap();
         assert!(Index::load_cache(&path).is_empty());
+    }
+
+    #[test]
+    fn remove_under_drops_only_that_folder() {
+        let mut index = Index::from_entries(vec![entry("/r/docs/a.md", 1), entry("/r/docs/sub/b.md", 1), entry("/r/docs-old/c.md", 1), entry("/r/docs.md", 1), entry("/r/z.md", 1)]);
+        assert!(index.remove_under(Path::new("/r/docs")));
+        assert_eq!(index.names().collect::<Vec<_>>(), [Path::new("/r/docs-old/c.md"), Path::new("/r/docs.md"), Path::new("/r/z.md")]);
+        assert!(!index.remove_under(Path::new("/r/nulla")));
+    }
+
+    /// Una scansione di una sottocartella sostituisce solo le voci lì sotto.
+    #[test]
+    fn finish_scan_replaces_only_under_the_scanned_folders() {
+        let mut index = Index::from_entries(vec![entry("/r/a/old.md", 1), entry("/r/b/keep.md", 1)]);
+        index.begin_scan();
+        index.finish_scan(&[PathBuf::from("/r/a")], vec![entry("/r/a/new.md", 2), entry("/r/a/x/y.md", 3)]);
+        assert_eq!(index.names().collect::<Vec<_>>(), [Path::new("/r/a/new.md"), Path::new("/r/a/x/y.md"), Path::new("/r/b/keep.md")]);
+    }
+
+    /// Fa girare watcher e indice come l'app finché `until` o scade il tempo.
+    fn run_until(w: &mut crate::watch::Watcher, lib: &mut Library, until: impl Fn(&Library) -> bool) -> bool {
+        let deadline = Instant::now() + Duration::from_secs(8);
+        while Instant::now() < deadline {
+            let events = w.drain(Instant::now());
+            lib.poll(&events, Instant::now());
+            if until(lib) {
+                return true;
+            }
+            std::thread::sleep(Duration::from_millis(16));
+        }
+        false
+    }
+
+    /// Una cartella rinominata sotto una radice: FSEvents riporta solo la cartella. L'indice
+    /// toglie le voci vecchie e trova le nuove senza riavvio; dentro e fuori la radice.
+    #[test]
+    fn a_renamed_folder_updates_the_index_without_restart() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap().join("root");
+        fs::create_dir_all(root.join("repo/docs/sub")).unwrap();
+        fs::write(root.join("repo/docs/a.md"), "x").unwrap();
+        fs::write(root.join("repo/docs/sub/b.md"), "x").unwrap();
+        let outside = dir.path().canonicalize().unwrap().join("fuori");
+        fs::create_dir_all(&outside).unwrap();
+        fs::write(outside.join("c.md"), "x").unwrap();
+        let mut w = crate::watch::Watcher::start(vec![root.clone()], Arc::new(|| {}));
+        let mut lib = Library::load(vec![root.clone()], None);
+        lib.start(Arc::new(|| {}));
+        assert!(run_until(&mut w, &mut lib, |l| l.scanned && l.index.len() == 2), "scansione iniziale");
+        std::thread::sleep(Duration::from_millis(300));
+        let names = |l: &Library| l.index.names().map(Path::to_path_buf).collect::<Vec<_>>();
+        fs::rename(root.join("repo/docs"), root.join("repo/notes")).unwrap();
+        let want = vec![root.join("repo/notes/a.md"), root.join("repo/notes/sub/b.md")];
+        assert!(run_until(&mut w, &mut lib, |l| names(l) == want), "rinomina: {:?}", names(&lib));
+        // Una cartella portata dentro da fuori, e una portata fuori.
+        fs::rename(&outside, root.join("dentro")).unwrap();
+        fs::rename(root.join("repo/notes"), dir.path().join("via")).unwrap();
+        let want = vec![root.join("dentro/c.md")];
+        assert!(run_until(&mut w, &mut lib, |l| names(l) == want), "spostate: {:?}", names(&lib));
+    }
+
+    /// Misura (`docs/perf.md`): il costo sul thread della UI di raccogliere una scansione
+    /// intera e di salvarne la copia. `cargo test --profile perf scan_pickup_cost -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn scan_pickup_cost() {
+        let roots = roots();
+        let scanned = scan::scan(&roots);
+        let mut index = Index::from_entries(scanned.clone());
+        index.set_roots(roots.clone());
+        let (mut pickup, mut copy) = (Vec::new(), Vec::new());
+        for _ in 0..40 {
+            let fresh = scanned.clone();
+            index.begin_scan();
+            let t = Instant::now();
+            index.finish_scan(&roots, fresh);
+            pickup.push(t.elapsed().as_secs_f64() * 1000.0);
+            let t = Instant::now();
+            let entries = index.entries.clone();
+            copy.push(t.elapsed().as_secs_f64() * 1000.0);
+            drop(entries);
+        }
+        eprintln!("scan_pickup_cost {} voci: finish_scan {}", index.len(), stats(&mut pickup));
+        eprintln!("scan_pickup_cost copia per il salvataggio {}", stats(&mut copy));
+    }
+
+    fn stats(ms: &mut [f64]) -> String {
+        ms.sort_by(f64::total_cmp);
+        let pct = |p: f64| ms[((ms.len() - 1) as f64 * p).round() as usize];
+        format!("n={} p50={:.2} ms p95={:.2} ms max={:.2} ms", ms.len(), pct(0.5), pct(0.95), pct(1.0))
     }
 
     /// Misura (`docs/perf.md`): scansione e ricarica da cache sulle cartelle osservate vere.

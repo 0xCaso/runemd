@@ -3,7 +3,17 @@
 use std::path::Path;
 
 /// Cartelle che non si guardano mai (i file dentro non sono documenti dell'utente).
-pub(super) const SKIPPED_DIRS: [&str; 3] = [".git", "node_modules", "target"];
+const SKIPPED_DIRS: [&str; 3] = [".git", "node_modules", "target"];
+
+/// Vero se `name` è una cartella saltata.
+pub fn skipped_name(name: &std::ffi::OsStr) -> bool {
+    SKIPPED_DIRS.iter().any(|s| name == *s)
+}
+
+/// Vero se `path` sta sotto (o è) una cartella saltata.
+pub fn skipped(path: &Path) -> bool {
+    path.components().any(|c| skipped_name(c.as_os_str()))
+}
 
 /// Vero per un file `.md` o `.markdown` (maiuscole comprese) che non sta sotto una cartella saltata.
 pub fn wanted(path: &Path) -> bool {
@@ -11,7 +21,7 @@ pub fn wanted(path: &Path) -> bool {
         .extension()
         .and_then(|e| e.to_str())
         .is_some_and(|e| e.eq_ignore_ascii_case("md") || e.eq_ignore_ascii_case("markdown"));
-    is_markdown && !path.components().any(|c| SKIPPED_DIRS.iter().any(|s| c.as_os_str() == *s))
+    is_markdown && !skipped(path)
 }
 
 #[cfg(test)]

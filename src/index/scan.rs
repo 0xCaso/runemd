@@ -11,12 +11,17 @@ use rune::Waker;
 
 use super::{Entry, mtime_of};
 
-/// Tutti i Markdown sotto `roots`, sottocartelle comprese. Errori di lettura ignorati.
+/// Tutti i Markdown sotto `roots`, sottocartelle comprese, ordinati per percorso. Errori di
+/// lettura ignorati.
 pub fn scan(roots: &[PathBuf]) -> Vec<Entry> {
     let mut paths = Vec::new();
     for root in roots {
         crate::watch::walk(root, true, &mut paths);
     }
+    // Ordinate e senza doppioni qui, sul thread della scansione: il thread della UI le fonde
+    // soltanto (`Index::finish_scan`). Doppioni solo con radici una dentro l'altra.
+    paths.sort();
+    paths.dedup();
     paths.into_iter().filter_map(|path| Some(Entry { mtime: mtime_of(&path)?, path })).collect()
 }
 
