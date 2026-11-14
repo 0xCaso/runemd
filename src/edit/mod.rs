@@ -92,8 +92,8 @@ fn try_save(tab: &mut Tab, own: &mut OwnWrites) -> Result<(), SaveError> {
     let target = tab.follow.path().to_owned();
     match disk(&target) {
         Ok((_, h)) if h == src.base_hash => {}
-        // Sparito (un rename a metà, o cancellato): è cambiato su disco.
         Ok(_) => return Err(SaveError::Conflict),
+        // Sparito (un rename a metà, o cancellato): è cambiato su disco.
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Err(SaveError::Conflict),
         Err(e) => return Err(SaveError::Io(e)),
     }
@@ -125,9 +125,13 @@ pub fn keep_mine(tab: &mut Tab, own: &mut OwnWrites) -> io::Result<()> {
 
 /// "Ricarica": scarta le modifiche e riparte dal file com'è adesso su disco, sempre nel
 /// sorgente (la riga è del sorgente; Cmd+E torna poi alla lettura). Il cursore resta dov'era, se
-/// il testo nuovo arriva fin lì. Non scrive niente.
+/// il testo nuovo arriva fin lì. Non scrive niente. Se il file non si legge (cancellato) non c'è
+/// niente da rileggere: le modifiche e la riga restano, e solo "Tieni il mio" lo ricrea.
 pub fn reload(tab: &mut Tab) {
     let Mode::Source(src) = &mut tab.mode else { return };
+    if disk(&tab.doc.path).is_err() {
+        return;
+    }
     let caret = src.edit.focus;
     let mut fresh = enter(&tab.doc);
     let text = &fresh.edit.text;
@@ -194,7 +198,7 @@ fn write(path: &Path, text: &str) -> io::Result<()> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::live::Live;
 
@@ -277,6 +281,17 @@ mod tests {
         assert_eq!(tab.doc.blocks.len(), 3);
     }
 
+    /// Si gira come root (euid 0): una cartella in sola lettura non ferma le scritture, e i test
+    /// che contano su 0o555 si saltano. La cartella appena creata è dell'euid.
+    pub(crate) fn as_root(dir: &Path) -> bool {
+        use std::os::unix::fs::MetadataExt;
+        let root = fs::metadata(dir).unwrap().uid() == 0;
+        if root {
+            eprintln!("saltato: come root una cartella 0o555 non ferma le scritture");
+        }
+        root
+    }
+
     /// Mette la scheda nel sorgente con `mine` come modifica.
     fn editing(path: &Path, mine: &str) -> Tab {
         let mut tab = tab_on(path);
@@ -332,6 +347,27 @@ mod tests {
         assert_eq!(fs::read_to_string(&path).unwrap(), format!("X{agent}"));
     }
 
+    /// "Ricarica" con il file cancellato: non c'è niente da rileggere, quindi le modifiche e la
+    /// riga restano; solo "Tieni il mio" ricrea il file.
+    #[test]
+    fn reload_of_a_deleted_file_keeps_the_edits() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("a.md");
+        fs::write(&path, "# a\n").unwrap();
+        let mine = "# a\n\nmio\n";
+        let mut tab = editing(&path, mine);
+        fs::remove_file(&path).unwrap();
+        let mut own = OwnWrites::default();
+        assert!(matches!(save(&mut tab, &mut own), Err(SaveError::Conflict)));
+        reload(&mut tab);
+        let s = source(&mut tab);
+        assert_eq!((s.edit.text.as_str(), s.dirty, s.notice), (mine, true, Some(Notice::Conflict)));
+        assert!(!path.exists(), "niente scritto");
+        assert!(keep_mine(&mut tab, &mut own).is_ok());
+        assert_eq!(fs::read_to_string(&path).unwrap(), mine, "Tieni il mio ricrea il file");
+        assert_eq!(source(&mut tab).notice, None);
+    }
+
     /// "Tieni il mio": scrive il testo locale sopra quello dell'agente, aggiorna `base_hash` e
     /// ricorda la scrittura (la rilettura non accende segni, fuoco o dither).
     #[test]
@@ -360,6 +396,9 @@ mod tests {
     fn an_io_error_is_not_a_conflict() {
         use std::os::unix::fs::PermissionsExt;
         let dir = tempfile::tempdir().unwrap();
+        if as_root(dir.path()) {
+            return;
+        }
         let path = dir.path().join("a.md");
         fs::write(&path, "# a\n").unwrap();
         let mut tab = editing(&path, "# a\n\nmio\n");

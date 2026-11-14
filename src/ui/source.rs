@@ -119,7 +119,7 @@ fn notice_row(s: &App, hooks: Hooks<App>, id: u64, notice: Notice, theme: &Theme
         .pr(ROW_PAD_X - ROW_PAD)
         .gap(TAB_GAP)
         .center_y()
-        .child(text(message).font(sidebar::ui_font()).color(theme.fg).truncate().grow(1.0).shrink().min_w(0.0));
+        .child(text(message).font(sidebar::ui_font()).color(theme.fg).truncate().grow(1.0).shrink().min_w(0.0).a11y_hidden());
     if notice == Notice::Conflict {
         let reload = button(s, hooks, RELOAD_KEY, RELOAD_TEXT, theme, motion, move |s: &mut App| s.reload_source(id));
         let keep = button(s, hooks, KEEP_KEY, KEEP_TEXT, theme, motion, move |s: &mut App| s.keep_mine(id));
@@ -309,6 +309,9 @@ mod tests {
     fn a_failed_save_says_so() {
         use std::os::unix::fs::PermissionsExt;
         let dir = tempfile::tempdir().unwrap();
+        if crate::edit::tests::as_root(dir.path()) {
+            return;
+        }
         let path = dir.path().join("a.md");
         std::fs::write(&path, "# a\n").unwrap();
         let mut rt = open(&path);
