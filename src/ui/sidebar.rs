@@ -563,7 +563,9 @@ fn tree_row<S: 'static>(s: &S, hooks: Hooks<S>, i: usize, theme: &Theme, motion:
     // La riga selezionata tiene il suo `sel`: niente hover sopra.
     let e = pressable(e, format!("tree-{}", r.id), sb, hooks, theme, motion, !r.selected);
     let since = node.data.as_deref().and_then(|p| (hooks.ring)(s, p));
-    outer.child(ring_host(e, Mark::TreeRing(i as u32), since, motion.reduced).grow(1.0).ml(TREE_X + depth * TREE_INDENT))
+    // L'ospite è largo quanto la riga: col rientro deve stringersi, o esce dall'albero (nome
+    // tagliato senza "…", riempimento e anello senza il lato destro).
+    outer.child(ring_host(e, Mark::TreeRing(i as u32), since, motion.reduced).grow(1.0).shrink().min_w(0.0).ml(TREE_X + depth * TREE_INDENT))
 }
 
 #[cfg(test)]
@@ -610,6 +612,29 @@ mod tests {
             fs::write(p, "x").unwrap();
         }
         (d, root)
+    }
+
+    /// Un file lungo tre cartelle sotto il repo, nome lungo: ogni riga dell'albero (riempimento,
+    /// raggio e anello) finisce dentro l'albero, il rientro non la spinge oltre il bordo destro.
+    #[test]
+    fn deep_tree_rows_stay_inside_the_tree() {
+        let deep = "docs/architettura/sincronizzazione/2026-11-14-architettura-del-sistema-di-sincronizzazione-offline-v2.md";
+        let (_d, root) = repo_with(&[deep, "README.md"]);
+        let mut app = crate::App::bare(crate::index::Library::load(vec![root.clone()], None));
+        app.open_paths(vec![root.join(deep)]);
+        let mut rt = rune::Runtime::new(app, crate::view, (1280.0, 900.0), rune::Env::new(true, 2.0));
+        rt.frame(0.0);
+        for _ in 0..400 {
+            if !rt.frame(1.0 / 120.0) { break; }
+        }
+        let els = rt.elements();
+        let tree = els.iter().find(|e| e.key.as_deref() == Some("tree")).expect("albero").rect;
+        let right = tree[0] + tree[2];
+        let rows: Vec<_> = els.iter().filter(|e| !e.exiting && e.path.contains("tree-rows/") && e.rect[2] > 0.0).collect();
+        assert!(rows.len() >= 5, "righe dell'albero: {}", rows.len());
+        for e in rows {
+            assert!(e.rect[0] + e.rect[2] <= right + 0.5, "{} esce dall'albero: {:?}, bordo destro {right}", e.path, e.rect);
+        }
     }
 
     /// Due righe con lo stesso nome: accanto al nome il repo (worktree), o la cartella se il
