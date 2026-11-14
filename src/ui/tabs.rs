@@ -12,6 +12,7 @@ use rune_kit::shell::{TabItem, TabOrientation, TabStrip};
 use super::theme::{HAIRLINE, KBD_PAD_X, KBD_PAD_Y, KBD_TEXT, KBD_WEIGHT, R_KBD, R_ROW, ROW, TAB_BAR_H, TAB_BAR_PAD_X, TAB_GAP, Theme, UI_TEXT, UI_WEIGHT};
 use crate::app::App;
 use crate::fx::{self, Mark};
+use crate::fx::ring::RING_W;
 
 /// Il testo del tasto a destra (approvato, DESIGN.md "Layout").
 pub const SOURCE_KEY: &str = "⌘E sorgente";
@@ -22,7 +23,8 @@ const STRIP: &str = "tabs";
 /// Il `Kit` della barra: rune-kit dipinge la scheda davanti in `pressed`, il passaggio del
 /// puntatore in `hover`, il titolo in `text_base` (davanti) e `text_faint` (le altre), il fondo in
 /// `bg_deep`, il separatore fra schede in `layer_02`/`layer_03`. Qui diventano `sel`, `sel`, `fg`,
-/// `fg2`, `panel` e nessun separatore (il mockup non ne ha); il testo è `typography.ui` (13/400).
+/// `fg2`, `panel` e nessun separatore né quadrato vuoto al posto dell'avatar (il mockup non ne
+/// ha); il testo è `typography.ui` (13/400).
 pub fn kit(theme: &Theme) -> Kit {
     let mut k = Kit::neutral(theme.dark);
     k.c.pressed = theme.sel;
@@ -34,6 +36,8 @@ pub fn kit(theme: &Theme) -> Kit {
     k.c.bg_deep = theme.panel;
     k.c.layer_02 = Color::TRANSPARENT;
     k.c.layer_03 = Color::TRANSPARENT;
+    // Una scheda senza avatar ha un quadrato vuoto bordato al suo posto: qui non si vede.
+    k.c.border_muted = Color::TRANSPARENT;
     k.ty.ui_compact = TextStyle { size: UI_TEXT, weight: UI_WEIGHT, ..k.ty.ui_compact };
     k.ty.ui_medium = TextStyle { weight: UI_WEIGHT, ..k.ty.ui_medium };
     k
@@ -46,7 +50,12 @@ pub fn view(s: &App, width: Option<f32>, theme: &Theme, reduced: bool) -> El {
     let items = s.tabs.iter().enumerate().map(|(i, tab)| {
         let item = TabItem::new(ids[i].as_str(), titles[i].as_str()).status(None);
         match s.ring_of(tab.path()) {
-            Some(since) => item.decorate(move |e, _| fx::ring::slot(e.radius(R_ROW), Mark::TabRing(i as u32), since, reduced)),
+            // Dentro la scheda, rientrato di `RING_W`: la barra taglia ciò che esce dalle sue
+            // 28 pt, e l'anello delle righe della sidebar sta fuori dalla riga.
+            Some(since) => item.decorate(move |e, _| {
+                let host = el().key("ring").pin(Some(RING_W), Some(RING_W), Some(RING_W), Some(RING_W)).radius(R_ROW - RING_W).a11y_hidden();
+                e.child(fx::ring::slot(host, Mark::TabRing(i as u32), since, reduced))
+            }),
             None => item,
         }
     });
