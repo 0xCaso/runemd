@@ -1680,6 +1680,35 @@ mod tests {
         assert!(matches!(&app.tabs[0].mode, Mode::Source(s) if s.text() == "# a\n\nmio\n"));
     }
 
+    /// I3, da capo a fondo con il watcher vero: la cartella del file aperto sparisce (un `git
+    /// checkout` senza `docs/`) e ricompare con il file cambiato; la scheda si ricarica.
+    #[test]
+    fn a_tab_whose_folder_is_deleted_and_recreated_reloads() {
+        let dir = tempfile::tempdir().unwrap();
+        let docs = dir.path().canonicalize().unwrap().join("docs");
+        fs::create_dir(&docs).unwrap();
+        let p = docs.join("a.md");
+        fs::write(&p, "# a\n").unwrap();
+        let mut app = empty_app();
+        app.open_paths(vec![p.clone()]);
+        app.live.start(std::sync::Arc::new(|| {}), Vec::new());
+        std::thread::sleep(Duration::from_millis(300));
+        fs::remove_dir_all(&docs).unwrap();
+        let t0 = Instant::now();
+        while t0.elapsed() < Duration::from_millis(1500) {
+            app.poll_tabs(1.0, Instant::now());
+            std::thread::sleep(Duration::from_millis(16));
+        }
+        fs::create_dir(&docs).unwrap();
+        fs::write(&p, "# a\n\ntornato\n").unwrap();
+        let t0 = Instant::now();
+        while app.tabs[0].doc.blocks.len() != 2 {
+            assert!(t0.elapsed() < Duration::from_secs(6), "la scheda non si è più ricaricata");
+            app.poll_tabs(1.0, Instant::now());
+            std::thread::sleep(Duration::from_millis(16));
+        }
+    }
+
     /// Nel sorgente la scheda non si ricarica; tornata alla lettura senza modifiche, rilegge e
     /// mostra la scrittura arrivata nel frattempo. Ogni scheda ha la sua modalità.
     #[test]

@@ -4,6 +4,10 @@
 //! e decide per ogni percorso guardando il disco, non il tipo di evento: FSEvents consegna
 //! rinomina come due eventi o flag fusi. Un file mancante diventa `Removed` solo se dopo 2 s non
 //! è tornato.
+//!
+//! Una radice che sparisce (la cartella cancellata, un checkout senza di lei) esce dal watcher e
+//! aspetta: finché manca il ticker sveglia l'app ogni secondo, e `drain` la riprende quando la
+//! cartella ricompare. Sparendo e tornando dà un `Rescan`.
 
 pub mod debounce;
 pub mod filter;
@@ -25,6 +29,8 @@ const DEBOUNCE_MS: u64 = 50;
 const REMOVED_GRACE: Duration = Duration::from_secs(2);
 /// Ogni quanto il ticker sveglia l'app finché ci sono eventi in attesa.
 const TICK: Duration = Duration::from_millis(25);
+/// Ogni quanto il ticker sveglia l'app mentre una radice è sparita: `drain` guarda se è tornata.
+const DORMANT_TICK: Duration = Duration::from_secs(1);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FsEvent {
@@ -233,12 +239,18 @@ struct Shared {
     queue: Mutex<Vec<Raw>>,
     /// Vero se qualcosa attende il debounce o la tolleranza: il ticker sveglia l'app.
     busy: AtomicBool,
+    /// Vero se una radice è sparita: il ticker sveglia l'app ogni `DORMANT_TICK`, così `drain`
+    /// la riprende quando ricompare (nessun evento la riporta: non è più guardata).
+    dormant: AtomicBool,
     stop: AtomicBool,
 }
 
 pub struct Watcher {
     notify: Option<RecommendedWatcher>,
     roots: Vec<Root>,
+    /// Le radici sparite (cartella cancellata, un checkout senza di lei): tornano guardate quando
+    /// la cartella ricompare.
+    dormant: Vec<Root>,
     core: Core,
     shared: Arc<Shared>,
     ticker: Option<JoinHandle<()>>,
@@ -255,6 +267,9 @@ impl Watcher {
                     if shared.busy.load(Ordering::Acquire) {
                         waker();
                         thread::park_timeout(TICK);
+                    } else if shared.dormant.load(Ordering::Acquire) {
+                        waker();
+                        thread::park_timeout(DORMANT_TICK);
                     } else {
                         thread::park();
                     }
@@ -305,7 +320,7 @@ impl Watcher {
                 None
             }
         };
-        let mut watcher = Watcher { notify, roots: Vec::new(), core: Core::new(), shared, ticker: Some(ticker) };
+        let mut watcher = Watcher { notify, roots: Vec::new(), dormant: Vec::new(), core: Core::new(), shared, ticker: Some(ticker) };
         for root in roots {
             watcher.add_root(root, true);
         }
@@ -334,6 +349,11 @@ impl Watcher {
         let mode = if recursive { RecursiveMode::Recursive } else { RecursiveMode::NonRecursive };
         match notify.watch(&root, mode) {
             Ok(()) => self.roots.push(Root { path: root, recursive }),
+            // Una cartella che non c'è (ancora): la si guarda quando compare (`check_roots`).
+            Err(_) if !root.exists() => {
+                self.dormant.retain(|r| r.path != root);
+                self.dormant.push(Root { path: root, recursive });
+            }
             Err(e) => eprintln!("runemd: {}: non si può guardare: {e}", root.display()),
         }
     }
@@ -342,6 +362,7 @@ impl Watcher {
     /// aperto, task 19). Le cartelle osservate (ricorsive) restano: le usano l'indice e la sidebar.
     pub fn remove_root(&mut self, root: &Path) {
         let root = root.canonicalize().unwrap_or_else(|_| root.to_owned());
+        self.dormant.retain(|r| !(r.path == root && !r.recursive));
         let Some(i) = self.roots.iter().position(|r| r.path == root && !r.recursive) else { return };
         if let Some(notify) = self.notify.as_mut() {
             let _ = notify.unwatch(&root);
@@ -354,6 +375,7 @@ impl Watcher {
     /// le rimette chi le usa (`Live::remove_tree`).
     pub fn remove_tree(&mut self, root: &Path) {
         let root = root.canonicalize().unwrap_or_else(|_| root.to_owned());
+        self.dormant.retain(|r| r.path != root);
         let Some(i) = self.roots.iter().position(|r| r.path == root) else { return };
         if let Some(notify) = self.notify.as_mut() {
             let _ = notify.unwatch(&root);
@@ -367,16 +389,31 @@ impl Watcher {
         self.roots.iter().map(|r| (r.path.clone(), r.recursive)).collect()
     }
 
-    fn drop_missing_roots(&mut self) {
+    /// Le radici sparite escono dal watcher e aspettano in `dormant`; quelle che sono tornate
+    /// rientrano. Per ognuna esce un `Rescan`: chi tiene un elenco dei file toglie o riprende
+    /// quelli sotto, e le schede sotto rileggono il loro file.
+    fn check_roots(&mut self, out: &mut Vec<FsEvent>) {
         let Some(notify) = self.notify.as_mut() else { return };
-        self.roots.retain(|root| {
-            if root.path.is_dir() {
-                return true;
-            }
-            eprintln!("runemd: {}: radice sparita, non più guardata", root.path.display());
+        let (gone, kept): (Vec<Root>, Vec<Root>) = std::mem::take(&mut self.roots).into_iter().partition(|r| !r.path.is_dir());
+        self.roots = kept;
+        for root in gone {
+            eprintln!("runemd: {}: radice sparita, la si riprende se ricompare", root.path.display());
             let _ = notify.unwatch(&root.path);
-            false
-        });
+            out.push(FsEvent::Rescan(root.path.clone()));
+            self.dormant.push(root);
+        }
+        let (back, still): (Vec<Root>, Vec<Root>) = std::mem::take(&mut self.dormant).into_iter().partition(|r| r.path.is_dir());
+        self.dormant = still;
+        for root in back {
+            out.push(FsEvent::Rescan(root.path.clone()));
+            self.add_root(root.path, root.recursive);
+        }
+        let dormant = !self.dormant.is_empty();
+        if self.shared.dormant.swap(dormant, Ordering::AcqRel) != dormant
+            && let Some(ticker) = &self.ticker
+        {
+            ticker.thread().unpark();
+        }
     }
 
     /// Gli eventi pronti a `now` (debounce passato, tolleranza della rimozione scaduta).
@@ -399,8 +436,9 @@ impl Watcher {
         if let Some(at) = self.core.take_rescan() {
             self.core.rescan(&self.roots, at);
         }
-        self.drop_missing_roots();
-        let out = self.core.drain(now);
+        let mut out = Vec::new();
+        self.check_roots(&mut out);
+        out.extend(self.core.drain(now));
         // Sotto lock: un evento arrivato ora non può perdere la sua sveglia.
         let queue = self.shared.queue.lock().unwrap_or_else(PoisonError::into_inner);
         self.shared.busy.store(self.core.pending() || !queue.is_empty(), Ordering::Release);
@@ -565,6 +603,53 @@ mod tests {
         thread::sleep(Duration::from_millis(300));
         w.drain(Instant::now());
         assert!(w.roots.is_empty());
+    }
+
+    /// I3: una radice che sparisce dà un `Rescan` (chi tiene un elenco toglie i suoi file) e
+    /// torna guardata quando la cartella ricompare: una scrittura dopo dà `Changed`. Mentre è
+    /// sparita il waker continua a svegliare l'app, che se ne accorge in `drain`.
+    #[test]
+    fn a_root_that_comes_back_is_watched_again() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap().join("docs");
+        fs::create_dir(&root).unwrap();
+        let wakes = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let w2 = wakes.clone();
+        let mut w = Watcher::start(vec![root.clone()], Arc::new(move || { w2.fetch_add(1, Ordering::SeqCst); }));
+        thread::sleep(Duration::from_millis(300));
+        fs::remove_dir_all(&root).unwrap();
+        let seen = collect_raw(&mut w, Duration::from_secs(5), |s| s.contains(&FsEvent::Rescan(root.clone())));
+        assert!(seen.contains(&FsEvent::Rescan(root.clone())), "{seen:?}");
+        assert!(w.roots.is_empty(), "non più guardata");
+        let before = wakes.load(Ordering::SeqCst);
+        thread::sleep(DORMANT_TICK * 2 + Duration::from_millis(100));
+        assert!(wakes.load(Ordering::SeqCst) > before, "il waker sveglia l'app mentre la radice manca");
+        fs::create_dir(&root).unwrap();
+        let back = collect_raw(&mut w, Duration::from_secs(5), |s| s.contains(&FsEvent::Rescan(root.clone())));
+        assert!(back.contains(&FsEvent::Rescan(root.clone())), "{back:?}");
+        assert_eq!(w.watched(), vec![(root.clone(), true)], "guardata di nuovo, con le sottocartelle");
+        thread::sleep(Duration::from_millis(300));
+        let file = root.join("a.md");
+        fs::write(&file, "# a").unwrap();
+        let events = collect(&mut w, Duration::from_secs(5), |s| s.contains(&FsEvent::Changed(file.clone())));
+        assert!(events.contains(&FsEvent::Changed(file)), "{events:?}");
+    }
+
+    /// Una radice sparita e poi tolta (impostazioni, ultima scheda chiusa) non torna più.
+    #[test]
+    fn a_removed_dormant_root_stays_removed() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap().join("docs");
+        fs::create_dir(&root).unwrap();
+        let mut w = Watcher::start(Vec::new(), waker());
+        w.add_root(root.clone(), false);
+        fs::remove_dir_all(&root).unwrap();
+        w.drain(Instant::now());
+        assert!(w.roots.is_empty());
+        w.remove_root(&root);
+        fs::create_dir(&root).unwrap();
+        w.drain(Instant::now());
+        assert!(w.roots.is_empty(), "tolta: non torna");
     }
 
     #[test]
