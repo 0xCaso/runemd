@@ -19,6 +19,7 @@ use crate::edit::SourceEdit;
 use crate::live::arriving::Changed;
 use crate::live::below::Below;
 use crate::live::{Follow, Live};
+use crate::settings::{Settings, ThemePref};
 use crate::{edit, index, probe, ui};
 
 /// Come una scheda mostra il file: la lettura, o il sorgente in modifica (Cmd+E). Ogni scheda ha
@@ -271,6 +272,12 @@ pub(crate) fn rearm(wake: &mut Option<Wake>, left: Option<Duration>, clock: f64,
     next
 }
 
+/// Gli stili del documento per il tema chiaro e lo scuro, col font e la dimensione di `s`.
+fn styles_for(s: &Settings) -> [MarkdownStyle; 2] {
+    let typeface = crate::fonts::Typeface::of(&s.font, s.size);
+    [false, true].map(|dark| ui::markdown_style::style_with(&ui::theme::Theme::for_mode(dark), typeface))
+}
+
 /// Le risposte alla riga "Salvare le modifiche a …?" (Cmd+W con modifiche non salvate).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CloseAnswer {
@@ -286,8 +293,15 @@ pub struct App {
     pub tabs: Vec<Tab>,
     /// L'indice della scheda davanti; vale solo se `tabs` non è vuoto.
     pub active: usize,
-    pub(crate) style: MarkdownStyle,
-        pub(crate) scroll: Option<probe::ScrollRun>,
+    /// Lo stile del documento nel tema chiaro e nello scuro (indice `dark as usize`), dal font e
+    /// dalla dimensione delle impostazioni: la vista sceglie col tema di adesso, senza rifarlo.
+    styles: [MarkdownStyle; 2],
+    /// Le impostazioni (Cmd+,) e dove si salvano.
+    pub(crate) settings: Settings,
+    prefs: rune::prefs::Prefs,
+    /// Il pannello delle impostazioni.
+    pub(crate) settings_panel: ui::settings::Panel,
+    pub(crate) scroll: Option<probe::ScrollRun>,
     /// Watcher, "sta scrivendo" e scritture dell'app, per tutte le schede.
     pub(crate) live: Live,
     /// I file che "stanno scrivendo" e l'orologio di Rune (`poll`) a cui si è acceso il loro
@@ -310,12 +324,14 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(library: index::Library, dark: bool) -> App {
-        let theme = ui::theme::Theme::for_mode(dark);
+    pub fn new(library: index::Library, settings: Settings, prefs: rune::prefs::Prefs) -> App {
         App {
             tabs: Vec::new(),
             active: 0,
-            style: ui::markdown_style::style(&theme, ui::theme::BODY_TEXT),
+            styles: styles_for(&settings),
+            settings,
+            prefs,
+            settings_panel: ui::settings::Panel::default(),
             scroll: None,
             live: Live::default(),
             rings: BTreeMap::new(),
@@ -327,6 +343,113 @@ impl App {
             spare_edit: TextEdit::default(),
             find: ui::find::Find::default(),
         }
+    }
+
+    /// Un'app con le impostazioni di default, in memoria (i test).
+    #[cfg(test)]
+    pub fn bare(library: index::Library) -> App {
+        App::new(library, Settings::default(), rune::prefs::Prefs::memory())
+    }
+
+    /// Lo stile del documento nel tema `dark`.
+    pub fn style(&self, dark: bool) -> &MarkdownStyle {
+        &self.styles[usize::from(dark)]
+    }
+
+    /// Uno stile fisso per tutti e due i temi (i test della vista).
+    #[cfg(test)]
+    pub fn set_style(&mut self, style: MarkdownStyle) {
+        self.styles = [style.clone(), style];
+    }
+
+    /// Il tema di adesso, dato quello del sistema: `RUNEMD_THEME` (`light` o `dark`, per le foto
+    /// e le prove) vince sulle impostazioni, che vincono sul sistema.
+    pub fn dark(&self, system_dark: bool) -> bool {
+        match std::env::var("RUNEMD_THEME").as_deref() {
+            Ok("light") => false,
+            Ok("dark") => true,
+            _ => self.settings.theme.dark(system_dark),
+        }
+    }
+
+    /// Salva le impostazioni; un errore si dice sul terminale e il valore resta per questa sessione.
+    fn save_settings(&mut self) {
+        if let Err(e) = self.settings.save(&mut self.prefs) {
+            eprintln!("runemd: impostazioni non salvate: {e}");
+        }
+    }
+
+    /// Il font del documento (corpo e titoli): il documento si aggiorna subito.
+    pub fn set_font(&mut self, font: &str) {
+        if self.settings.font == font {
+            return;
+        }
+        self.settings.font = font.to_owned();
+        self.styles = styles_for(&self.settings);
+        self.save_settings();
+    }
+
+    /// La dimensione del corpo un passo più piccola (−1) o più grande (+1).
+    pub fn step_size(&mut self, step: i32) {
+        let size = self.settings.step_size(step);
+        if size == self.settings.size {
+            return;
+        }
+        self.settings.size = size;
+        self.styles = styles_for(&self.settings);
+        self.save_settings();
+    }
+
+    pub fn set_theme(&mut self, theme: ThemePref) {
+        if self.settings.theme != theme {
+            self.settings.theme = theme;
+            self.save_settings();
+        }
+    }
+
+    /// Accende o spegne il fuoco per il testo nuovo; l'etichetta resta.
+    pub fn toggle_fire(&mut self) {
+        self.settings.fire = !self.settings.fire;
+        self.save_settings();
+    }
+
+    /// Una cartella osservata in più, da subito: la guarda il watcher, l'indice la scandisce e
+    /// Recenti si aggiorna quando arriva la scansione. Una cartella sotto una già osservata non
+    /// serve e non si aggiunge; una sopra prende il posto di quelle che contiene. Vero se è cambiato.
+    pub fn add_root(&mut self, root: &Path) -> bool {
+        let root = index::canonical(root);
+        if !root.is_dir() || self.library.roots().iter().any(|r| root.starts_with(r)) {
+            return false;
+        }
+        let inside: Vec<PathBuf> = self.library.roots().iter().filter(|r| r.starts_with(&root)).cloned().collect();
+        for r in inside {
+            self.remove_root(&r);
+        }
+        self.settings.add_root(&root);
+        self.library.add_root(root.clone());
+        self.live.add_tree(&root);
+        self.save_settings();
+        true
+    }
+
+    /// Una cartella osservata in meno, da subito: esce dal watcher e dall'indice, e le sue righe
+    /// escono da Recenti. Vero se c'era.
+    pub fn remove_root(&mut self, root: &Path) -> bool {
+        let canonical = index::canonical(root);
+        let known = self.settings.remove_root(root) | self.settings.remove_root(&canonical);
+        let dropped = self.library.remove_root(&canonical);
+        if !known && !dropped {
+            return false;
+        }
+        self.live.remove_tree(&canonical);
+        self.sidebar.refresh(&self.library.index, &[], std::time::SystemTime::now());
+        self.save_settings();
+        true
+    }
+
+    /// Cmd+,: apre o chiude il pannello delle impostazioni.
+    pub fn toggle_settings(&mut self) {
+        self.settings_panel.toggle();
     }
 
     /// La scheda davanti.
@@ -719,7 +842,8 @@ impl App {
     /// Un effetto per slot è acceso (anello, fuoco o dither della scheda davanti): il compositor
     /// scorre le istanze solo allora. Il sorgente non mostra fuoco né dither.
     pub fn effects_lit(&self) -> bool {
-        self.ring_lit() || self.tab().is_some_and(|t| matches!(t.mode, Mode::Read) && (t.fire_since.is_some() || t.dither_since.is_some()))
+        let fire = self.settings.fire;
+        self.ring_lit() || self.tab().is_some_and(|t| matches!(t.mode, Mode::Read) && ((fire && t.fire_since.is_some()) || t.dither_since.is_some()))
     }
 
     /// Cmd+E sulla scheda davanti: entra nel sorgente o, se c'è già, salva se ci sono modifiche e
@@ -869,7 +993,7 @@ mod tests {
     use super::*;
 
     pub(crate) fn empty_app() -> App {
-        App::new(index::Library::load(Vec::new(), None), true)
+        App::bare(index::Library::load(Vec::new(), None))
     }
 
     fn files(names: &[&str]) -> (tempfile::TempDir, Vec<PathBuf>) {
@@ -883,7 +1007,7 @@ mod tests {
     }
 
     fn app_with_root(root: &Path) -> App {
-        App::new(index::Library::load(vec![root.to_path_buf()], None), true)
+        App::bare(index::Library::load(vec![root.to_path_buf()], None))
     }
 
     #[test]

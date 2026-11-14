@@ -331,7 +331,7 @@ mod tests {
     }
 
     fn open(path: &Path) -> Runtime<App> {
-        let mut state = App::new(crate::index::Library::load(Vec::new(), None), true);
+        let mut state = App::bare(crate::index::Library::load(Vec::new(), None));
         state.open_paths(vec![path.to_owned()]);
         let mut rt = Runtime::new(state, crate::view, (900.0, 1000.0), Env::new(true, 2.0));
         rt.on_key = Some(crate::on_key);

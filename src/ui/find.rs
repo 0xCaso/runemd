@@ -669,9 +669,8 @@ mod tests {
     }
 
     fn open(sources: &[(&str, &str)]) -> Runtime<App> {
-        let mut state = App::new(crate::index::Library::load(Vec::new(), None), true);
-        state.style =
-            crate::ui::markdown_style::style(&Theme::for_mode(true), crate::ui::theme::BODY_TEXT);
+        let mut state = App::bare(crate::index::Library::load(Vec::new(), None));
+        state.set_style(crate::ui::markdown_style::style(&Theme::for_mode(true), crate::ui::theme::BODY_TEXT));
         for (name, src) in sources {
             state.push_tab(Document::from_source(Path::new(name), src));
         }
@@ -1128,9 +1127,8 @@ mod tests {
             ms.sort_by(f64::total_cmp);
             ms[((ms.len() - 1) as f64 * q).round() as usize]
         };
-        let mut state = App::new(crate::index::Library::load(Vec::new(), None), true);
-        state.style =
-            crate::ui::markdown_style::style(&Theme::for_mode(true), crate::ui::theme::BODY_TEXT);
+        let mut state = App::bare(crate::index::Library::load(Vec::new(), None));
+        state.set_style(crate::ui::markdown_style::style(&Theme::for_mode(true), crate::ui::theme::BODY_TEXT));
         state.push_tab(Document::load(&path).unwrap());
         let mut rt = Runtime::new(state, crate::view, (900.0, 1000.0), Env::new(true, 2.0));
         rt.on_key = Some(crate::on_key);

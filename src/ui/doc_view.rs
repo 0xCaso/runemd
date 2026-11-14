@@ -290,8 +290,8 @@ mod tests {
     }
 
     fn open_doc(document: Document) -> Runtime<Doc> {
-        let mut state = Doc::new(crate::index::Library::load(Vec::new(), None), true);
-        state.style = MarkdownStyle::neutral(true);
+        let mut state = Doc::bare(crate::index::Library::load(Vec::new(), None));
+        state.set_style(MarkdownStyle::neutral(true));
         state.push_tab(document);
         let mut rt = Runtime::new(state, crate::view, VIEWPORT, Env::new(true, 2.0));
         rt.on_key = Some(crate::on_key);
@@ -882,8 +882,8 @@ mod tests {
 
     /// Il lettore con lo stile vero dell'app (`markdown_style::style`), nel tema `dark`.
     fn open_themed(source: &str, dark: bool) -> Runtime<Doc> {
-        let mut state = Doc::new(crate::index::Library::load(Vec::new(), None), dark);
-        state.style = crate::ui::markdown_style::style(&crate::ui::theme::Theme::for_mode(dark), crate::ui::theme::BODY_TEXT);
+        let mut state = Doc::bare(crate::index::Library::load(Vec::new(), None));
+        state.set_style(crate::ui::markdown_style::style(&crate::ui::theme::Theme::for_mode(dark), crate::ui::theme::BODY_TEXT));
         state.push_tab(Document::from_source(Path::new("t.md"), source));
         let mut rt = Runtime::new(state, crate::view, VIEWPORT, Env::new(dark, 2.0));
         rt.frame(0.0);

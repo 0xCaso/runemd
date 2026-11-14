@@ -369,8 +369,8 @@ mod tests {
     }
 
     fn open_at(src: &str, viewport: (f32, f32)) -> Runtime<App> {
-        let mut state = App::new(crate::index::Library::load(Vec::new(), None), true);
-        state.style = MarkdownStyle::neutral(true);
+        let mut state = App::bare(crate::index::Library::load(Vec::new(), None));
+        state.set_style(MarkdownStyle::neutral(true));
         state.push_tab(Document::from_source(Path::new("t.md"), src));
         let mut rt = Runtime::new(state, crate::view, viewport, Env::new(true, 2.0));
         rt.on_key = Some(crate::on_key);

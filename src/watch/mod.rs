@@ -349,6 +349,24 @@ impl Watcher {
         self.roots.remove(i);
     }
 
+    /// Smette di guardare `root`, anche se è una cartella osservata (ricorsiva): la si toglie
+    /// dalle impostazioni. Le radici non ricorsive sotto, che `add_root` non aveva aggiunto,
+    /// le rimette chi le usa (`Live::remove_tree`).
+    pub fn remove_tree(&mut self, root: &Path) {
+        let root = root.canonicalize().unwrap_or_else(|_| root.to_owned());
+        let Some(i) = self.roots.iter().position(|r| r.path == root) else { return };
+        if let Some(notify) = self.notify.as_mut() {
+            let _ = notify.unwatch(&root);
+        }
+        self.roots.remove(i);
+    }
+
+    /// Le radici guardate e se con le sottocartelle.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn watched(&self) -> Vec<(PathBuf, bool)> {
+        self.roots.iter().map(|r| (r.path.clone(), r.recursive)).collect()
+    }
+
     fn drop_missing_roots(&mut self) {
         let Some(notify) = self.notify.as_mut() else { return };
         self.roots.retain(|root| {

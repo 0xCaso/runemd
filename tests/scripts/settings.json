@@ -1,0 +1,16 @@
+[
+ {"t": 0.5, "type": "key", "name": ",", "cmd": true},
+ {"t": 1.0, "type": "mark", "name": "open"},
+ {"t": 1.6, "type": "tap", "key": "set-font-American Typewriter"},
+ {"t": 1.8, "type": "tap", "key": "set-bigger"},
+ {"t": 2.2, "type": "mark", "name": "font"},
+ {"t": 2.6, "type": "tap", "key": "set-theme-Chiaro"},
+ {"t": 3.0, "type": "mark", "name": "light"},
+ {"t": 3.6, "type": "tap", "key": "set-add-root"},
+ {"t": 3.9, "type": "file-dialog", "path": "ADDROOT"},
+ {"t": 4.4, "type": "mark", "name": "added"},
+ {"t": 4.6, "type": "tap", "key": "set-root-0-remove"},
+ {"t": 5.1, "type": "mark", "name": "removed"},
+ {"t": 5.3, "type": "key", "name": "Escape"},
+ {"t": 5.7, "type": "mark", "name": "closed"}
+]

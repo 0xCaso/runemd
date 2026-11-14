@@ -25,9 +25,6 @@ use crate::watch::FsEvent;
 
 pub use scan::{Access, scan_in_background};
 
-/// Le cartelle osservate finché non arrivano le impostazioni (task 27), relative alla home.
-pub const DEFAULT_ROOTS: [&str; 1] = ["Desktop/GitHub"];
-
 /// Ogni quanto, al massimo, si riscrive la cache dopo un evento. La scansione all'avvio
 /// ricostruisce comunque tutto: perdere gli ultimi secondi alla chiusura non costa nulla.
 const SAVE_EVERY: Duration = Duration::from_secs(30);
@@ -254,17 +251,28 @@ fn merge(a: Vec<Entry>, b: Vec<Entry>) -> Vec<Entry> {
     }
 }
 
-/// Le cartelle osservate: `RUNEMD_ROOTS` (separate da `:`) se c'è, altrimenti `DEFAULT_ROOTS`
-/// sotto la home. Canoniche, come i percorsi che riporta FSEvents.
+/// Le cartelle osservate di default (`settings::default_roots`), o quelle di `RUNEMD_ROOTS`.
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn roots() -> Vec<PathBuf> {
-    let raw: Vec<PathBuf> = match std::env::var_os("RUNEMD_ROOTS") {
-        Some(v) => std::env::split_paths(&v).filter(|p| !p.as_os_str().is_empty()).collect(),
-        None => {
-            let Some(home) = std::env::var_os("HOME") else { return Vec::new() };
-            DEFAULT_ROOTS.iter().map(|r| PathBuf::from(&home).join(r)).collect()
-        }
-    };
-    raw.into_iter().map(|p| p.canonicalize().unwrap_or(p)).collect()
+    roots_from(&crate::settings::default_roots())
+}
+
+/// Le cartelle osservate: `RUNEMD_ROOTS` (separate da `:`) se c'è, altrimenti `chosen` (dalle
+/// impostazioni). Canoniche, come i percorsi che riporta FSEvents.
+pub fn roots_from(chosen: &[PathBuf]) -> Vec<PathBuf> {
+    let raw: Vec<PathBuf> = env_roots().unwrap_or_else(|| chosen.to_vec());
+    raw.into_iter().map(|p| canonical(&p)).collect()
+}
+
+/// Le cartelle di `RUNEMD_ROOTS`, se c'è: le prove e le misure non toccano le impostazioni.
+pub fn env_roots() -> Option<Vec<PathBuf>> {
+    let v = std::env::var_os("RUNEMD_ROOTS")?;
+    Some(std::env::split_paths(&v).filter(|p| !p.as_os_str().is_empty()).collect())
+}
+
+/// `p` canonico se esiste, altrimenti com'è.
+pub fn canonical(p: &Path) -> PathBuf {
+    p.canonicalize().unwrap_or_else(|_| p.to_owned())
 }
 
 /// Dove si salva l'indice: `~/Library/Application Support/RuneMD/index.json` (sotto
@@ -307,6 +315,36 @@ impl Library {
     /// Le cartelle osservate.
     pub fn roots(&self) -> &[PathBuf] {
         &self.roots
+    }
+
+    /// Una cartella osservata in più (dalle impostazioni): entra nell'indice e si scandisce su
+    /// un altro thread, se l'app è partita. Vero se è nuova.
+    pub fn add_root(&mut self, root: PathBuf) -> bool {
+        if self.roots.iter().any(|r| r == &root) {
+            return false;
+        }
+        self.roots.push(root.clone());
+        self.index.set_roots(self.roots.clone());
+        if self.waker.is_some() {
+            self.queued.push(root);
+            self.launch();
+        }
+        true
+    }
+
+    /// Una cartella osservata in meno: le sue voci escono subito dall'indice (e da Recenti). Una
+    /// scansione in corso che la copre non le rimette: `finish_scan` tiene solo ciò che le
+    /// cartelle coprono. Vero se c'era.
+    pub fn remove_root(&mut self, root: &Path) -> bool {
+        let before = self.roots.len();
+        self.roots.retain(|r| r != root);
+        if self.roots.len() == before {
+            return false;
+        }
+        self.queued.retain(|q| !q.starts_with(root));
+        self.index.set_roots(self.roots.clone());
+        self.dirty = true;
+        true
     }
 
     /// Fa partire la scansione su un thread a parte; il thread sveglia l'app quando ha finito.

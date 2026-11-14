@@ -3,7 +3,8 @@
 use rune::{Color, Family, TextStyle};
 use rune_kit::{Kit, MarkdownStyle};
 
-use super::theme::{COLUMN, FIND_RING, FIND_RING_ACTIVE, ROW_PAD_X, Theme, flatten};
+use super::theme::{BODY_LEADING, BODY_TEXT, CODE_TEXT, COLUMN, FIND_RING, FIND_RING_ACTIVE, ROW_PAD_X, Theme, flatten};
+use crate::fonts::Typeface;
 
 /// I colori dei diagrammi Mermaid (DESIGN.md, "Contrasto"): tutti token del tema. Il diagramma sta sul
 /// pannello senza card; nodi e note hanno il riempimento `sel` già composto sul pannello (opaco,
@@ -36,11 +37,25 @@ pub fn diagram_tokens(theme: &Theme) -> DiagramTokens {
     }
 }
 
-/// La famiglia viene da `Family::Sans`, cioè dallo slot sans di `AppSpec::families` ("Inter").
-/// `MarkdownStyle` ha un solo colore di testo: corpo, titoli e grassetto usano `theme.body`.
+/// Lo stile in Inter (lo slot sans di `AppSpec::families`) con il corpo a `body_size` (i test).
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn style(theme: &Theme, body_size: f32) -> MarkdownStyle {
-    let body = TextStyle::new(body_size, 400.0).lh(body_size * 1.62);
-    let heading = |size: f32, weight: f32, lh: f32, tracking_em: f32| TextStyle::new(size, weight).lh(size * lh).tracking(size * tracking_em);
+    style_with(theme, Typeface { family: Family::Sans, size: body_size })
+}
+
+/// Lo stile con la famiglia e la dimensione delle impostazioni: corpo, titoli e tabelle nella
+/// famiglia scelta; il codice resta monospaziato. Titoli, tabelle e codice scalano con il corpo
+/// (DESIGN.md, "Typography": 28, 19, 15,5, 14 e 13,5 con il corpo a 15,5).
+/// `MarkdownStyle` ha un solo colore di testo: corpo, titoli e grassetto usano `theme.body`.
+pub fn style_with(theme: &Theme, face: Typeface) -> MarkdownStyle {
+    let body_size = face.size;
+    let k = body_size / BODY_TEXT;
+    let family = face.family;
+    let body = TextStyle::new(body_size, 400.0).lh(body_size * BODY_LEADING).family(family);
+    let heading = |size: f32, weight: f32, lh: f32, tracking_em: f32| {
+        let size = size * k;
+        TextStyle::new(size, weight).lh(size * lh).tracking(size * tracking_em).family(family)
+    };
     // Il testo dei diagrammi non ha un setter su `MarkdownStyle`: viene dal kit. Si parte dal kit
     // neutro con testo e testo smorzato del tema, e si rimette ciò che ne dipende e che non deve
     // cambiare (riempimento del codice in linea, testo dei diff) ai valori del kit neutro.
@@ -67,10 +82,10 @@ pub fn style(theme: &Theme, body_size: f32) -> MarkdownStyle {
         .heading_font(1, heading(28.0, 680.0, 1.2, -0.015))
         .heading_font(2, heading(19.0, 640.0, 1.3, -0.005))
         .heading_font(3, heading(15.5, 640.0, 1.3, 0.0))
-        .code_block_font(TextStyle::new(13.5, 400.0).family(Family::Mono))
-        .inline_code_font(13.5 / body_size, 400.0)
+        .code_block_font(TextStyle::new(CODE_TEXT * k, 400.0).family(Family::Mono))
+        .inline_code_font(CODE_TEXT / BODY_TEXT, 400.0)
         .strong_weight(620.0)
-        .table_font(TextStyle::new(14.0, 400.0))
+        .table_font(TextStyle::new(14.0 * k, 400.0).family(family))
         .table_tabular_figures(true)
         .table_header_text(theme.fg2)
         .table_header_weight(560.0)
@@ -162,6 +177,17 @@ mod tests {
             assert_eq!(d.surface.a, 1.0, "fondo opaco");
             assert_eq!(d.node_fill.a, 1.0, "riempimento opaco");
         }
+    }
+
+    /// Il font e la dimensione delle impostazioni cambiano lo stile; Inter a 15,5 è lo stile di
+    /// sempre.
+    #[test]
+    fn font_and_size_change_the_style() {
+        let t = Theme::for_mode(true);
+        let base = h(&style(&t, BODY_TEXT));
+        assert_eq!(base, h(&style_with(&t, Typeface::of("Inter", 15.5))));
+        assert_ne!(base, h(&style_with(&t, Typeface::of("New York", 15.5))));
+        assert_ne!(base, h(&style_with(&t, Typeface::of("Inter", 17.0))));
     }
 
     /// Il diagramma prende il testo dal tema: lo stile cambia se cambia il testo del diagramma.

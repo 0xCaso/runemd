@@ -13,18 +13,23 @@
 //! - Con `MDSPIKE_LOG` si scrivono anche il costo della cache dell'indice (`index_cache_ms`) e
 //!   quando la scansione finisce (`index_scan_epoch_ms`).
 //!
-//! `RUNEMD_ROOTS=dir1:dir2` sostituisce le cartelle osservate (default `~/Desktop/GitHub`);
-//! `RUNE_DIRS_ROOT` sposta la cache dell'indice.
+//! Le impostazioni (Cmd+,) stanno in `~/Library/Application Support/RuneMD/prefs.json`
+//! (`settings`). `RUNEMD_ROOTS=dir1:dir2` sostituisce le cartelle osservate e fa girare l'app con
+//! impostazioni in memoria, che non si leggono né si salvano (prove e misure);
+//! `RUNEMD_THEME=light|dark` vince sul tema scelto; `RUNE_DIRS_ROOT` sposta la cache dell'indice
+//! e le impostazioni.
 
 mod app;
 mod doc;
 mod edit;
+mod fonts;
 mod fx;
 mod index;
 mod live;
 mod open;
 mod probe;
 mod repo;
+mod settings;
 mod ui;
 mod watch;
 
@@ -35,11 +40,6 @@ use rune::{AppSpec, Cx, El, Tx, Waker, el};
 
 pub use app::App;
 
-/// Tema scuro, salvo `RUNEMD_THEME=light` (finché il tema di sistema non è collegato: serve agli snap).
-fn dark_mode() -> bool {
-    std::env::var("RUNEMD_THEME").map_or(true, |v| v != "light")
-}
-
 fn init() -> App {
     let mut paths = open::cli_paths(rune::extra_args());
     if paths.is_empty() {
@@ -47,10 +47,13 @@ fn init() -> App {
     }
     // La cache dell'indice si legge prima del primo frame (costo in `docs/perf.md`); la
     // scansione parte in `setup`, su un thread a parte.
+    // Le impostazioni danno le cartelle osservate; con `RUNEMD_ROOTS` restano in memoria.
+    let prefs = if index::env_roots().is_some() { rune::prefs::Prefs::memory() } else { rune::prefs::Prefs::open(settings::APP_ID) };
+    let settings = settings::Settings::load(&prefs);
     let t = Instant::now();
-    let library = index::Library::load(index::roots(), index::cache_path());
+    let library = index::Library::load(index::roots_from(&settings.roots), index::cache_path());
     probe::index_cached(t.elapsed(), library.index.len());
-    let mut app = App::new(library, dark_mode());
+    let mut app = App::new(library, settings, prefs);
     app.scroll = probe::ScrollRun::from_env();
     // Recenti dalla cache: la sidebar è piena dal primo frame.
     app.sidebar.refresh(&app.library.index, &[], SystemTime::now());
@@ -66,7 +69,8 @@ fn setup(s: &mut App, waker: Waker) {
 }
 
 fn view(s: &App, cx: &mut Cx<App>) -> El {
-    let dark = dark_mode();
+    // Il tema delle impostazioni (Sistema, Chiaro, Scuro): cambia dal vivo, la vista rigira.
+    let dark = s.dark(cx.system_dark());
     let theme = ui::theme::Theme::for_mode(dark);
     let reduced = cx.is_reduced_motion();
     // Il fuoco della tastiera come quello di Rune (3 pt, attaccato al bordo), ma pieno
@@ -81,17 +85,18 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
         }
         Some(tab) => {
             // Il dither: una barra alta una riga e larga come il testo, nello spazio sotto l'ultimo blocco.
-            let tail = tab.dither_since.map(|since| fx::dither::slot(el().w_full().h(ui::theme::BODY_LINE), since, dark, reduced));
+            let tail = tab.dither_since.map(|since| fx::dither::slot(el().w_full().h(s.settings.size * ui::theme::BODY_LEADING), since, dark, reduced));
             let signals = ui::doc_view::Signals { marked: App::is_marked, mark: theme.mark, tail, hits: App::find_hits, edge: App::doc_edge };
-            let doc = ui::doc_view::view(s, App::active_document, &s.style, App::visible_rows, signals);
+            let doc = ui::doc_view::view(s, App::active_document, s.style(dark), App::visible_rows, signals);
             // L'indice dei titoli a destra, solo se la finestra è larga almeno sidebar + colonna
             // + 200 (prima del primo layout non si sa: niente indice). La vista la legge da Rune,
             // che la rigira quando la soglia si attraversa; `App::wide` ne è la copia per i
             // gestori, che non hanno `Cx`. Il contenitore è sempre lo stesso, con o senza indice:
             // attraversando la soglia il documento non cambia posto nell'albero e tiene scroll e
             // stato.
+            // Con le impostazioni aperte l'indice lascia il posto al pannello.
             let wide = cx.layout_with("app", |r| r[2] >= ui::theme::OUTLINE_MIN_WINDOW).unwrap_or(false);
-            let outline = if wide { ui::outline::view(tab, hooks, &theme, reduced, !cx.hover_none()) } else { None };
+            let outline = if wide && !s.settings_panel.open { ui::outline::view(tab, hooks, &theme, reduced, !cx.hover_none()) } else { None };
             rune::row().key("doc-pane").w_full().grow(1.0).min_h(0.0).child(el().grow(1.0).min_w(0.0).h_full().child(doc)).children(outline)
         }
         None => el().grow(1.0),
@@ -99,6 +104,10 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
     // Pannello pieno con la barra delle schede e il documento, a `FRAME` dai bordi alto, destro e
     // basso; a sinistra la sidebar, tutto sul vetro di sistema.
     let bar = ui::tabs::view(s, hooks, &theme, reduced, !cx.hover_none());
+    // Il pannello delle impostazioni (Cmd+,) a destra del documento. Il contenitore c'è sempre,
+    // così aprirlo non sposta il documento nell'albero e non ne perde lo scroll.
+    let aside = s.settings_panel.open.then(|| ui::settings::view(s, hooks, &theme, reduced, !cx.hover_none()));
+    let body = rune::row().key("body").w_full().grow(1.0).min_h(0.0).child(el().grow(1.0).min_w(0.0).h_full().child(body)).children(aside);
     let content = rune::col().w_full().h_full().child(bar).child(body);
     let mut panel = el().w_full().h_full().fill(theme.panel).radius(ui::theme::R_PANEL).clip_rounded(ui::theme::R_PANEL).child(content);
     // Il fuoco della scheda davanti: una fascia sul fondo del pannello, sopra il documento, con
@@ -107,11 +116,7 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
     // fiamme. Sta sulla base calda del fuoco, quasi bianca nei due temi: il testo prende un
     // grigio scuro dei token (`panel` nello scuro, `fg` nel chiaro).
     if let Some((since, count)) = s.tab().filter(|t| matches!(t.mode, app::Mode::Read)).and_then(|t| Some((t.fire_since?, t.below.count()))) {
-        let band = |key: &str| rune::col().key(key).pin(Some(0.0), None, Some(0.0), Some(0.0)).h(fx::fire::FIRE_H);
-        panel = panel.child(fx::fire::slot(band("fire"), since, dark, reduced, s.window_active));
-        let ink = if dark { theme.panel } else { theme.fg };
-        let label = rune::text(ui::doc_view::fire_label(count)).font(rune::TextStyle::new(ui::theme::UI_TEXT, 400.0)).color(ink);
-        panel = panel.child(band("fire-label").items_center().justify_end().pb(ui::theme::FIRE_LABEL_BOTTOM).child(label));
+        panel = panel.children(fire_band(since, count, s.settings.fire, dark, &theme, reduced, s.window_active));
     }
     // L'anello "sta scrivendo" sta sulla scheda del file (`ui::tabs`) e sulle sue righe in
     // Recenti e nell'albero.
@@ -125,6 +130,25 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
     };
     rune::row().key("app").on_layout_tx(width).w_full().h_full().system_material(rune::SystemMaterial::Glass).fill(theme.glass).child(sidebar).child(main)
         .on_window_focus(|s: &mut App, focused, _| s.window_active = focused)
+}
+
+/// Il fuoco e la sua etichetta sul fondo del pannello. Con il fuoco spento dalle impostazioni
+/// (`Settings::fire`) resta solo l'etichetta, in `fg2` su una fascia `panel` con la linea `line`
+/// sopra: senza le fiamme sotto, il testo del documento non deve passarle dietro.
+#[allow(clippy::too_many_arguments)]
+fn fire_band(since: f64, count: usize, fire: bool, dark: bool, theme: &ui::theme::Theme, reduced: bool, active: bool) -> Vec<El> {
+    let label = |ink| rune::text(ui::doc_view::fire_label(count)).key("fire-text").font(rune::TextStyle::new(ui::theme::UI_TEXT, ui::theme::UI_WEIGHT)).color(ink);
+    if !fire {
+        let line = el().w_full().h(ui::theme::HAIRLINE).fill(theme.line);
+        let strip = rune::col().w_full().h(ui::theme::TAB_BAR_H).fill(theme.panel).items_center().justify_center().child(label(theme.fg2));
+        return vec![rune::col().key("fire-label").pin(Some(0.0), None, Some(0.0), Some(0.0)).child(line).child(strip)];
+    }
+    let band = |key: &str| rune::col().key(key).pin(Some(0.0), None, Some(0.0), Some(0.0)).h(fx::fire::FIRE_H);
+    let ink = if dark { theme.panel } else { theme.fg };
+    let flames = fx::fire::slot(band("fire"), since, dark, reduced, active);
+    let text = band("fire-label").items_center().justify_end().pb(ui::theme::FIRE_LABEL_BOTTOM).child(label(ink));
+    // Due fasce sorelle: lo slot prima, l'etichetta dopo (Rune la dipinge sopra le fiamme).
+    vec![flames, text]
 }
 
 /// I tasti delle schede: Cmd+W chiude quella davanti (con modifiche non salvate chiede,
@@ -161,6 +185,14 @@ fn tab_key(s: &mut App, key: &rune::KeyEvent, tx: &mut Tx) -> bool {
 
 /// Ogni tasto non preso da un controllo, prima della selezione di Rune: il Cmd+A va segnato.
 fn on_key(s: &mut App, key: &rune::KeyEvent, tx: &mut Tx) -> bool {
+    // Cmd+,: apre e chiude le impostazioni; Esc le chiude.
+    if matches!(key.key, rune::Key::Command(',')) && key.mods.cmd && !key.mods.shift && !key.mods.alt && !key.mods.ctrl && !tx.key_repeat() {
+        s.toggle_settings();
+        return true;
+    }
+    if matches!(key.key, rune::Key::Escape) && !key.mods.cmd && !key.mods.shift && !key.mods.alt && !key.mods.ctrl && s.settings_panel.close() {
+        return true;
+    }
     // Cmd+P: il fuoco nel campo "Apri file" della sidebar. Un solo campo aperto alla volta.
     if matches!(key.key, rune::Key::Command('p')) && key.mods.cmd && !key.mods.shift && !key.mods.alt && !tx.key_repeat() {
         s.find.close();

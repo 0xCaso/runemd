@@ -171,6 +171,33 @@ impl Live {
         }
     }
 
+    /// Una cartella osservata nuova (dalle impostazioni): il watcher la guarda con le
+    /// sottocartelle. Le cartelle dei file aperti che ora stanno sotto escono dal watcher, così
+    /// i loro eventi non arrivano due volte (restano contate per le schede).
+    pub fn add_tree(&mut self, root: &Path) {
+        let Some(w) = self.watcher.as_mut() else { return };
+        w.add_root(root.to_owned(), true);
+        for open in self.roots.keys().filter(|r| r.starts_with(root)) {
+            w.remove_root(open);
+        }
+    }
+
+    /// Una cartella osservata tolta: il watcher smette di guardarla, e le cartelle dei file
+    /// aperti che stavano sotto tornano guardate da sole.
+    pub fn remove_tree(&mut self, root: &Path) {
+        let Some(w) = self.watcher.as_mut() else { return };
+        w.remove_tree(root);
+        for open in self.roots.keys().filter(|r| r.starts_with(root)) {
+            w.add_root(open.clone(), false);
+        }
+    }
+
+    /// Le radici del watcher e se con le sottocartelle (vuoto prima di `start`).
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn watched_roots(&self) -> Vec<(PathBuf, bool)> {
+        self.watcher.as_ref().map(Watcher::watched).unwrap_or_default()
+    }
+
     /// Le radici aggiunte per i file aperti (per i test e la misura della memoria).
     #[cfg(test)]
     pub fn open_roots(&self) -> Vec<PathBuf> {

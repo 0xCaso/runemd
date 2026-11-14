@@ -195,6 +195,11 @@ linee solo decorative e i riempimenti. I test falliscono se un minimo non è ris
 | Anello "sta scrivendo" sul riempimento `sel` della scheda (pixel) | — | 3,44 | — | — | 3 nello scuro |
 | Fuoco della tastiera su vetro | 1,77 | 3,24 | 1,68 | 3,15 | 3 |
 | Fuoco della tastiera su panel | 2,13 | 5,36 | 1,97 | 4,72 | 3 |
+| Impostazioni: scelta fatta e sua spunta (`fg`) su panel + `sel` | — | 12,53 | — | 14,94 | 4,5 |
+| Impostazioni: scelte e bottoni (`fg-2`) su panel + `sel` (hover) | — | 8,30 | — | 9,38 | 4,5 |
+| Impostazioni: casella spenta, bordo `fg-3` su panel | — | 7,88 | — | 7,34 | 3 |
+| Impostazioni: casella accesa (`fg-2`) e sua spunta (`panel`) | — | 11,19 | — | 10,71 | 3 |
+| Etichetta del fuoco spento (`fg-2`) su panel | — | 11,19 | — | 10,71 | 4,5 |
 | `line` su panel (linee decorative) | 1,19 | 1,44 | 1,22 | 1,22 | — |
 | `line` su vetro (bordo dei campi) | 1,28 | 1,55 | 1,21 | 1,21 | — |
 | `sel` su panel | 1,23 | 1,35 | 1,14 | 1,14 | — |
@@ -312,6 +317,18 @@ salvataggio non scrive. Alla chiusura (⌘W o clic centrale su una scheda con mo
 davanti e la stessa riga chiede "Salvare le modifiche a <nome file>?" con "Salva" (anche Invio), "Non salvare" e
 "Annulla" (anche Esc); il campo tiene il fuoco. Senza modifiche ⌘W chiude subito. Chiudere la finestra o uscire
 salva tutto, senza chiedere (Rune non può annullare la chiusura). Nessun accento.
+
+**Impostazioni (⌘,).** Nessun mockup: solo token. Colonna larga come la sidebar (248, `sidebar`) a destra del
+documento, nel pannello, al posto dell'indice dei titoli, separata da una linea di 0,5 in `line`; ⌘, la apre e la
+chiude, Esc la chiude. Titolo "Impostazioni" (UI, 600, `fg`), poi sezioni con etichetta come quelle della sidebar:
+"Cartelle osservate" (icona cartella in `fg-3`, percorso in `fg-2` con la home come "~", "Togli" a destra;
+"Aggiungi cartella…" apre il dialogo delle cartelle), "Font" (Inter, SF Pro, New York se installato col suo nome,
+poi le famiglie installate; lista che scorre dopo 8 righe), "Dimensione" ("−", "15,5 pt", "+"; titoli, tabelle e
+codice scalano col corpo), "Tema" ("Sistema", "Chiaro", "Scuro"), e la casella "Fuoco per il testo nuovo". Le
+righe sono quelle della sidebar (28, raggio 6, hover `sel`, scala 0,98). La scelta fatta ha riempimento `sel`,
+testo `fg` e una spunta in `fg`; le altre testo `fg-2`. La casella ha il bordo di 1 in `fg-3`; accesa è piena in
+`fg-2` con la spunta in `panel`. Con il fuoco spento l'etichetta "N paragrafi nuovi più in basso" resta, in `fg-2`
+su una fascia `panel` alta 44 con la linea `line` sopra. Tutto cambia subito, senza riavvio.
 
 **Segnali live (effetti GPU di Rune).** Ognuno ha un solo significato, e nessun altro elemento lo usa.
 
