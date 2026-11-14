@@ -284,15 +284,19 @@ impl App {
     }
 
     /// Chiude la scheda davanti; davanti va quella che stava alla sua destra, o l'ultima. Le
-    /// radici guardate solo per quel file escono dal watcher.
-    pub fn close_active(&mut self) {
-        self.close(self.active);
+    /// radici guardate solo per quel file escono dal watcher. Vero se si è chiusa.
+    pub fn close_active(&mut self) -> bool {
+        self.close(self.active)
     }
 
-    /// Chiude la scheda `i` (Cmd+W per quella davanti, il bottone × per le altre).
-    pub fn close(&mut self, i: usize) {
-        if i >= self.tabs.len() {
-            return;
+    /// Chiude la scheda `i` (Cmd+W per quella davanti, il clic centrale per le altre). Una scheda
+    /// nel sorgente con modifiche le salva prima, come Cmd+E; con un conflitto (il file è cambiato
+    /// su disco) resta aperta nel sorgente. Vero se si è chiusa.
+    pub fn close(&mut self, i: usize) -> bool {
+        let Some(tab) = self.tabs.get_mut(i) else { return false };
+        if matches!(&tab.mode, Mode::Source(s) if s.dirty) && edit::save(tab, &mut self.live.own).is_err() {
+            conflict(tab);
+            return false;
         }
         let tab = self.tabs.remove(i);
         self.live.unfollow(tab.follow);
@@ -304,6 +308,18 @@ impl App {
             self.sidebar.clear_open();
         } else if front {
             self.fronted();
+        }
+        true
+    }
+
+    /// La finestra si chiude o l'app esce (`on_close`, `on_quit`): ogni scheda nel sorgente con
+    /// modifiche le salva. Rune non lascia annullare la chiusura: con un conflitto il file su
+    /// disco resta quello di fuori e le modifiche si perdono (lo si dice sul terminale).
+    pub fn save_all(&mut self) {
+        for tab in &mut self.tabs {
+            if matches!(&tab.mode, Mode::Source(s) if s.dirty) && edit::save(tab, &mut self.live.own).is_err() {
+                conflict(tab);
+            }
         }
     }
 
@@ -730,6 +746,56 @@ mod tests {
         assert_eq!((tab.fire_since, tab.fire_armed, tab.below.count()), (None, None, 0), "nessun fuoco");
         assert_eq!(tab.dither_since, None, "nessun dither");
         assert!(app.live.writing_left(tab.path(), Instant::now()).is_none() && !app.ring_lit(), "nessun anello");
+    }
+
+    /// Mette la scheda `i` nel sorgente con il testo `text` modificato.
+    fn edit_tab(app: &mut App, i: usize, text: &str) {
+        let tab = &mut app.tabs[i];
+        let mut src = edit::enter(&tab.doc);
+        src.edit = TextEdit::new(text);
+        src.dirty = true;
+        tab.mode = Mode::Source(Box::new(src));
+    }
+
+    /// Chiudere una scheda con modifiche le salva prima, come Cmd+E.
+    #[test]
+    fn closing_a_tab_with_edits_saves_them() {
+        let (_dir, p) = files(&["a.md", "b.md"]);
+        let mut app = empty_app();
+        app.open_paths(p.clone());
+        edit_tab(&mut app, 0, "# a.md\n\nmio\n");
+        assert!(app.close(0), "chiusa");
+        assert_eq!(fs::read_to_string(&p[0]).unwrap(), "# a.md\n\nmio\n");
+        assert_eq!(app.tabs.len(), 1);
+    }
+
+    /// Con il file cambiato su disco la scheda non si chiude: resta nel sorgente con le modifiche
+    /// e il file resta quello dell'agente.
+    #[test]
+    fn closing_a_tab_with_a_disk_conflict_keeps_it() {
+        let (_dir, p) = files(&["a.md"]);
+        let mut app = empty_app();
+        app.open_paths(p.clone());
+        edit_tab(&mut app, 0, "# a.md\n\nmio\n");
+        fs::write(&p[0], "# a.md\n\ndell'agente\n").unwrap();
+        assert!(!app.close(0), "non chiusa");
+        app.close_active();
+        assert_eq!(app.tabs.len(), 1);
+        assert!(matches!(&app.tabs[0].mode, Mode::Source(s) if s.dirty && s.edit.text == "# a.md\n\nmio\n"));
+        assert_eq!(fs::read_to_string(&p[0]).unwrap(), "# a.md\n\ndell'agente\n");
+    }
+
+    /// All'uscita dall'app (`on_close`, `on_quit`) le modifiche di ogni scheda si salvano.
+    #[test]
+    fn quitting_saves_every_tab() {
+        let (_dir, p) = files(&["a.md", "b.md"]);
+        let mut app = empty_app();
+        app.open_paths(p.clone());
+        edit_tab(&mut app, 0, "# a.md\n\nuno\n");
+        edit_tab(&mut app, 1, "# b.md\n\ndue\n");
+        app.save_all();
+        assert_eq!(fs::read_to_string(&p[0]).unwrap(), "# a.md\n\nuno\n");
+        assert_eq!(fs::read_to_string(&p[1]).unwrap(), "# b.md\n\ndue\n");
     }
 
     /// Nel sorgente la scheda non si ricarica; tornata alla lettura senza modifiche, rilegge e

@@ -62,8 +62,7 @@ fn tab_row(s: &App, hooks: Hooks<App>, i: usize, tab: &crate::app::Tab, theme: &
         .on_middle_press(move |s: &mut App, tx: &mut Tx| {
             let Some(i) = s.tabs.iter().position(|t| t.doc.id == id) else { return };
             let front = i == s.active;
-            s.close(i);
-            if front {
+            if s.close(i) && front {
                 s.restore_view(tx);
             }
         });

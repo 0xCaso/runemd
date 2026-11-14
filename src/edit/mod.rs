@@ -154,6 +154,28 @@ mod tests {
         assert_eq!(fs::read_to_string(&path).unwrap(), "# a\n\nuno\n");
     }
 
+    /// Scritto e poi cancellato: `dirty` resta vero ma il testo è quello di partenza, niente si scrive.
+    #[test]
+    fn leave_with_the_text_back_to_the_start_does_not_write() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("a.md");
+        fs::write(&path, "# a\n\nuno\n").unwrap();
+        let old = std::time::SystemTime::now() - std::time::Duration::from_secs(3600);
+        fs::File::options().write(true).open(&path).unwrap().set_modified(old).unwrap();
+        let mut tab = tab_on(&path);
+        tab.mode = Mode::Source(Box::new(enter(&tab.doc)));
+        let s = source(&mut tab);
+        s.edit.insert("X");
+        s.dirty = true;
+        s.edit.set_selection(0, 1);
+        s.edit.insert("");
+        assert_eq!(s.edit.text, "# a\n\nuno\n");
+        assert!(s.dirty);
+        assert_eq!(leave(&mut tab, &mut OwnWrites::default()), Ok(()));
+        assert!(matches!(tab.mode, Mode::Read));
+        assert_eq!(mtime(&path), old, "file non scritto");
+    }
+
     #[test]
     fn save_writes_and_remembers_hash() {
         let dir = tempfile::tempdir().unwrap();

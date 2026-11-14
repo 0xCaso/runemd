@@ -114,8 +114,7 @@ fn tab_key(s: &mut App, key: &rune::KeyEvent, tx: &mut Tx) -> bool {
             if s.tabs.is_empty() {
                 return false;
             }
-            s.close_active();
-            true
+            s.close_active()
         }
         rune::Key::Command(c @ '1'..='9') if m.cmd && !m.shift && !m.alt && !m.ctrl => {
             let n = c as usize - '1' as usize;
@@ -240,5 +239,6 @@ fn main() {
     probe::mark_start();
     // Lo slot mono di default è Inter: il codice va in SF Mono.
     let spec = AppSpec { setup: Some(setup), poll: Some(poll), on_key: Some(on_key), families: ("Inter", "ui-monospace, Menlo"), ..AppSpec::new("runemd", (900.0, 1000.0), init, view) };
-    rune::App::new(spec).compositor(fx::FxCompositor::default()).on_frame_encoded(probe::on_frame).run();
+    // Chiudere la finestra o uscire salva le modifiche aperte nel sorgente.
+    rune::App::new(spec).on_close(|s, _| s.save_all()).on_quit(|s, _| s.save_all()).compositor(fx::FxCompositor::default()).on_frame_encoded(probe::on_frame).run();
 }
