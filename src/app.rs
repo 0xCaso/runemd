@@ -235,6 +235,12 @@ impl Tab {
     }
 }
 
+/// `RUNEMD_GLASS` letto: un'opacità del vetro in percento (`60` → 0,60), fra 0 e 100; altro o
+/// assente, `None` (il vetro di `Theme`).
+fn glass_env(v: Option<&str>) -> Option<f32> {
+    v?.trim().parse::<f32>().ok().filter(|p| (0.0..=100.0).contains(p)).map(|p| p / 100.0)
+}
+
 /// Un passo del trascinamento del bordo di `pane`: `d.data` tiene la larghezza alla pressione,
 /// `delta` è lo spostamento che la allarga. Vero quando la larghezza va salvata (lasciato).
 fn drag_pane(pane: &mut crate::panes::Pane, limits: crate::panes::Limits, d: &mut rune::Drag, delta: f32, room: f32) -> bool {
@@ -324,6 +330,9 @@ pub struct App {
     /// `RUNEMD_REDUCE_MOTION` (`1` o `0`), letto una volta all'avvio: vince sulla preferenza di
     /// sistema "riduci movimento".
     pub(crate) motion_env: Option<bool>,
+    /// `RUNEMD_GLASS` (opacità del vetro in percento, `glass_env`), letto una volta all'avvio:
+    /// solo per le foto, il default resta quello di `Theme`.
+    pub(crate) glass_env: Option<f32>,
     /// "Riduci movimento" come l'ha vista l'ultima vista (`poll` non ha `Cx`): il fuoco a riposo
     /// chiede i suoi risvegli solo se si muove.
     pub(crate) reduced_seen: std::cell::Cell<bool>,
@@ -370,6 +379,7 @@ impl App {
             },
             reduced_seen: std::cell::Cell::new(false),
             motion_env: crate::fx::reduce_motion_env(std::env::var("RUNEMD_REDUCE_MOTION").ok().as_deref()),
+            glass_env: glass_env(std::env::var("RUNEMD_GLASS").ok().as_deref()),
             scroll: None,
             live: Live::default(),
             rings: BTreeMap::new(),
@@ -1144,6 +1154,15 @@ mod tests {
     use crate::live;
 
     use super::*;
+
+    #[test]
+    fn glass_env_reads_a_percentage() {
+        assert_eq!(glass_env(Some("60")), Some(0.6));
+        assert_eq!(glass_env(Some(" 40 ")), Some(0.4));
+        assert_eq!(glass_env(Some("140")), None);
+        assert_eq!(glass_env(Some("vetro")), None);
+        assert_eq!(glass_env(None), None);
+    }
 
     pub(crate) fn empty_app() -> App {
         App::bare(index::Library::load(Vec::new(), None))

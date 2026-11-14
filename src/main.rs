@@ -17,7 +17,8 @@
 //! (`settings`). `RUNEMD_ROOTS=dir1:dir2` sostituisce le cartelle osservate e fa girare l'app con
 //! impostazioni in memoria, che non si leggono né si salvano (prove e misure);
 //! `RUNEMD_THEME=light|dark` vince sul tema scelto; `RUNEMD_REDUCE_MOTION=1|0` vince su "riduci
-//! movimento" di sistema (headless Rune non la legge); `RUNE_DIRS_ROOT` sposta la cache dell'indice
+//! movimento" di sistema (headless Rune non la legge); `RUNEMD_GLASS=60` dà al vetro il 60 % di
+//! opacità (foto; il default resta); `RUNE_DIRS_ROOT` sposta la cache dell'indice
 //! e le impostazioni.
 
 mod app;
@@ -75,7 +76,14 @@ fn setup(s: &mut App, waker: Waker) {
 fn view(s: &App, cx: &mut Cx<App>) -> El {
     // Il tema delle impostazioni (Sistema, Chiaro, Scuro): cambia dal vivo, la vista rigira.
     let dark = s.dark(cx.system_dark());
-    let theme = ui::theme::Theme::for_mode(dark);
+    let mut theme = ui::theme::Theme::for_mode(dark);
+    // `RUNEMD_GLASS` (foto): l'opacità del vetro, al posto di quella del tema. Nella finestra vera
+    // Rune non dipinge il riempimento di un materiale di sistema (lo sostituisce il vetro nativo):
+    // con `RUNEMD_GLASS` la tinta va anche in uno strato sopra il vetro (`tint` sotto), così la
+    // foto la mostra. Senza, niente cambia.
+    if let Some(a) = s.glass_env {
+        theme.glass = theme.glass.alpha(a);
+    }
     // "Riduci movimento": la preferenza di macOS, o `RUNEMD_REDUCE_MOTION`. L'override va anche a
     // Rune, così le sue transizioni (hover, scala premuta, scroll) seguono gli effetti.
     let reduced = s.reduced_motion(cx.system_reduced_motion());
@@ -150,7 +158,8 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
         s.set_window_width(r[2]);
         tx.live_only();
     };
-    rune::row().key("app").on_layout_tx(width).w_full().h_full().system_material(rune::SystemMaterial::Glass).fill(theme.glass).child(sidebar).child(main).child(sidebar_edge)
+    let tint = s.glass_env.map(|_| el().key("glass-tint").pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0)).fill(theme.glass));
+    rune::row().key("app").on_layout_tx(width).w_full().h_full().system_material(rune::SystemMaterial::Glass).fill(theme.glass).children(tint).child(sidebar).child(main).child(sidebar_edge)
         .on_window_focus(|s: &mut App, focused, _| s.window_active = focused)
 }
 
@@ -382,5 +391,10 @@ fn main() {
     let spec = AppSpec { setup: Some(setup), poll: Some(poll), on_key: Some(on_key), families: ("Inter", "ui-monospace, Menlo"), ..AppSpec::new("runemd", (900.0, 1000.0), init, view) };
     // Chiudere la finestra o uscire salva le modifiche aperte nel sorgente (o ne fa una copia di
     // recupero). Cmd+Q fa `on_quit` e poi `on_close`: il secondo, a uscita già partita, salta.
-    rune::App::new(spec).on_close(|s, _| if !rune::quitting() { s.save_all() }).on_quit(|s, _| s.save_all()).compositor(fx::FxCompositor::default()).on_frame_encoded(probe::on_frame).run();
+    // `RUNEMD_GLASS` (foto): finestra trasparente, così sotto la tinta c'è il vetro di sistema
+    // (Rune lo accende solo nelle finestre trasparenti), e in alto a sinistra a (200, 120), sopra
+    // lo sfondo della foto. Senza, la finestra resta com'è.
+    let photo = std::env::var_os("RUNEMD_GLASS").is_some();
+    let options = rune::WindowOptions { transparent: photo, position: photo.then_some((200, 120)), ..rune::WindowOptions::default() };
+    rune::App::new(spec).window_options(options).on_close(|s, _| if !rune::quitting() { s.save_all() }).on_quit(|s, _| s.save_all()).compositor(fx::FxCompositor::default()).on_frame_encoded(probe::on_frame).run();
 }
