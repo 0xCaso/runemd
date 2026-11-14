@@ -26,6 +26,12 @@ use crate::repo::{self, Repo};
 
 /// Righe di Recenti al massimo (spec, "Sidebar": 20, ipotesi).
 pub const RECENT_MAX: usize = 20;
+/// Recenti prende al massimo questa parte dell'altezza della sidebar e poi scorre (D1).
+pub const RECENT_SHARE: f32 = 0.4;
+/// Lo spazio fra le righe di Recenti, con o senza anelli (`recent-gap`, D2).
+pub const RECENT_GAP: f32 = 3.0;
+/// Sopra e sotto le due righe della riga del repo (nome e branch, D3).
+const REPO_PAD_Y: f32 = 4.0;
 
 /// La linea guida del livello 0 sta sotto il centro dell'icona del repo; ogni livello ne aggiunge
 /// una `TREE_INDENT` più a destra, sotto la freccia della cartella sopra.
@@ -112,6 +118,8 @@ pub struct Sidebar {
     pub quick_rows: Vec<RecentRow>,
     /// Cmd+N: il campo "Nuovo file" al posto di quello di Cmd+P.
     pub new_file: super::new_file::NewFile,
+    /// La riga dell'albero da portare in vista (il file appena aperto, D1); la prende `poll`.
+    reveal: Option<String>,
 }
 
 impl Sidebar {
@@ -131,6 +139,7 @@ impl Sidebar {
         if let Some(id) = self.open_id() {
             self.tree.expand_to(&id);
             self.tree.select(&id);
+            self.reveal = Some(id.clone());
             let mut dir = Path::new(&id).parent();
             while let Some(d) = dir.filter(|d| !d.as_os_str().is_empty()) {
                 self.open_dirs.insert(d.to_string_lossy().into_owned());
@@ -138,6 +147,12 @@ impl Sidebar {
             }
             self.tree_version += 1;
         }
+    }
+
+    /// La riga dell'albero del file appena aperto, da portare in vista una volta
+    /// (`Tx::scroll_into_view_in("tree", …)`: lo scroll si muove solo se serve).
+    pub fn take_reveal(&mut self) -> Option<String> {
+        self.reveal.take()
     }
 
     /// Nessun file aperto (l'ultima scheda chiusa): "Repo del file" sparisce con il suo albero e
@@ -374,11 +389,20 @@ pub fn view<S: 'static>(s: &S, hooks: Hooks<S>, theme: &Theme, reduced: bool, ho
         return side.child(quick_open::view(sb, hooks, theme, motion));
     }
     if !sb.recent.is_empty() {
-        side = side.child(section("Recenti", theme));
-        for (i, r) in sb.recent.iter().enumerate() {
+        // Al massimo `RECENT_SHARE` dell'altezza della sidebar, poi scorre (con la barra del
+        // sistema, a scomparsa): "Repo del file" resta in vista anche con molti Recenti (D1).
+        // Lo scroll taglia ciò che esce dai suoi bordi: dentro c'è `RING_ROOM` per gli anelli, e
+        // il margine negativo tiene le righe dove erano.
+        let cap = rune::memo::layout_with("sidebar", |r| (r[3] * RECENT_SHARE).floor());
+        let rows = col().w_full().gap(RECENT_GAP).padding(RING_ROOM).children(sb.recent.iter().enumerate().map(|(i, r)| {
             let label = sb.labels.get(i).cloned().unwrap_or_default();
-            side = side.child(recent_row(s, hooks, i, r, label, theme, motion));
+            recent_row(s, hooks, i, r, label, theme, motion)
+        }));
+        let mut list = col().key("recent").mx(-RING_ROOM).my(-RING_ROOM).shrink().min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(rows);
+        if let Some(cap) = cap {
+            list = list.max_h(cap);
         }
+        side = side.child(section("Recenti", theme)).child(list);
     }
     if let Some(repo) = &sb.repo {
         side = side.child(section("Repo del file", theme)).child(repo_row(repo, theme)).child(tree(sb, hooks, theme, motion));
@@ -472,7 +496,7 @@ pub fn row_meta(theme: &Theme) -> Color {
 /// Il nome del file e, se un'altra riga ha lo stesso nome, il repo o la cartella in
 /// [`row_meta`]: la riga prende `sel` in hover o scelta.
 pub(super) fn name_cell(name: &str, qualifier: Option<&str>, theme: &Theme) -> El {
-    let mut cell = row().gap(QUALIFIER_GAP).center_y().grow(1.0).shrink().min_w(0.0).child(text(name.to_owned()).font(ui_font()).color(theme.fg).truncate().shrink().min_w(0.0));
+    let mut cell = row().gap(QUALIFIER_GAP).center_y().grow(1.0).shrink().min_w(0.0).child(text(name.to_owned()).font(ui_font()).color(theme.fg).truncate_middle().shrink().min_w(0.0));
     if let Some(q) = qualifier {
         cell = cell.child(text(q.to_owned()).font(small_font()).color(row_meta(theme)).truncate().shrink().min_w(0.0));
     }
@@ -498,19 +522,18 @@ fn recent_row<S: 'static>(s: &S, hooks: Hooks<S>, i: usize, r: &RecentRow, label
     ring_host(e, Mark::RecentRing(i as u32), since, motion.reduced).key(key)
 }
 
-/// La riga del repo: icona cartella, nome 600, branch in `fg3`. Non sta al livello dei suoi file.
+/// La riga del repo: icona cartella e nome 600; sotto il nome il branch, più piccolo (12) e a
+/// peso normale, in `fg3` (D3: la riga non ha hover, e `fg3` sul vetro sta sopra 4,5:1). Alta
+/// almeno `FIELD_H`. Non sta al livello dei suoi file.
 fn repo_row(repo: &Repo, theme: &Theme) -> El {
-    let mut e = row()
-        .key("repo")
-        .h(FIELD_H)
-        .px(ROW_PAD)
+    let name = row()
         .gap(ROW_GAP)
         .center_y()
         .child(icon(&glyphs::FOLDER, ICON).color(theme.fg3))
-        .child(text(repo.name.clone()).font(TextStyle::new(UI_TEXT, UI_STRONG_WEIGHT)).color(theme.fg).truncate().shrink().min_w(0.0))
-        .child(el().grow(1.0));
+        .child(text(repo.name.clone()).key("repo-name").font(TextStyle::new(UI_TEXT, UI_STRONG_WEIGHT)).color(theme.fg).truncate().shrink().min_w(0.0));
+    let mut e = col().key("repo").w_full().min_h(FIELD_H).px(ROW_PAD).py(REPO_PAD_Y).justify_center().child(name);
     if let Some(b) = &repo.branch {
-        e = e.child(text(b.clone()).font(small_font()).color(theme.fg3).truncate().shrink().min_w(0.0));
+        e = e.child(text(b.clone()).key("repo-branch").font(TextStyle::new(UI_SMALL, UI_WEIGHT).features("'tnum' 1")).color(theme.fg3).truncate_middle().shrink().min_w(0.0).ml(ICON + ROW_GAP));
     }
     e
 }
@@ -555,7 +578,7 @@ fn tree_row<S: 'static>(s: &S, hooks: Hooks<S>, i: usize, theme: &Theme, motion:
         .gap(ROW_GAP)
         .center_y()
         .child(el().size(CHEVRON, CHEVRON).center().child(chevron))
-        .child(text(node.name.clone()).font(ui_font()).color(color).truncate().shrink().min_w(0.0));
+        .child(text(node.name.clone()).font(ui_font()).color(color).truncate_middle().shrink().min_w(0.0));
     if r.selected {
         e = e.fill(theme.sel);
     }
@@ -639,6 +662,50 @@ mod tests {
         for e in rows {
             assert!(e.rect[0] + e.rect[2] <= right + 0.5, "{} esce dall'albero: {:?}, bordo destro {right}", e.path, e.rect);
         }
+    }
+
+    /// D1, D2, D3 e D5 (`docs/decisions/2026-11-14-sidebar-schede-nomi-lunghi.md`), con 60 file
+    /// in una cartella e nomi lunghi: Recenti ≤ 40 % dell'altezza della sidebar e 3 pt fra le
+    /// righe; l'albero scorre fino al file aperto; il branch sotto il nome del repo; la scheda
+    /// larga al massimo 240.
+    #[test]
+    fn long_lists_and_names_keep_their_bounds() {
+        let long = "2026-11-14-architettura-del-sistema-di-sincronizzazione-offline-v2-definitiva";
+        let files: Vec<String> = (1..=60).map(|n| format!("docs/molti/{long}-{n:02}.md")).collect();
+        let refs: Vec<&str> = files.iter().map(String::as_str).collect();
+        let (_d, root) = repo_with(&refs);
+        let open = root.join(&files[59]);
+        let mut app = crate::App::bare(crate::index::Library::load(vec![root.clone()], None));
+        app.library.index = Index::from_entries(files.iter().enumerate().map(|(i, f)| entry(&root.join(f), i as u64)).collect());
+        app.open_paths(vec![open.clone()]);
+        app.sidebar.refresh(&app.library.index, &[], SystemTime::now());
+        let mut rt = rune::Runtime::new(app, crate::view, (1280.0, 800.0), rune::Env::new(true, 2.0));
+        rt.poll = Some(crate::poll);
+        rt.frame(0.0);
+        for _ in 0..400 {
+            if !rt.frame(1.0 / 120.0) {
+                break;
+            }
+        }
+        let els = rt.elements();
+        let rect = |key: &str| els.iter().find(|e| e.key.as_deref() == Some(key) && !e.exiting).unwrap_or_else(|| panic!("{key} non c'è")).rect;
+        let side = rect("sidebar");
+        let recent = rect("recent");
+        assert!(recent[3] <= side[3] * RECENT_SHARE + 0.5, "Recenti alto {} su {}", recent[3], side[3]);
+        let mut rows: Vec<[f32; 4]> = els.iter().filter(|e| !e.exiting && e.key.as_deref().is_some_and(|k| k.starts_with("recent-"))).map(|e| e.rect).collect();
+        rows.sort_by(|a, b| a[1].total_cmp(&b[1]));
+        assert!(rows.len() >= 3);
+        for w in rows.windows(2) {
+            assert!((w[1][1] - (w[0][1] + w[0][3]) - RECENT_GAP).abs() < 0.5, "spazio fra le righe: {w:?}");
+        }
+        let (name, branch) = (rect("repo-name"), rect("repo-branch"));
+        assert!(branch[1] >= name[1] + name[3] - 0.5, "branch sotto il nome: {name:?} {branch:?}");
+        let tree = rect("tree");
+        let id = files[59].clone();
+        let row = rect(&id);
+        assert!(row[1] >= tree[1] - 0.5 && row[1] + row[3] <= tree[1] + tree[3] + 0.5, "riga del file aperto fuori vista: {row:?} in {tree:?}");
+        let tab = rect(&format!("t-{:x}", rt.state.tabs[0].doc.id));
+        assert!(tab[2] <= crate::ui::theme::TAB_MAX_W + 0.5, "scheda larga {}", tab[2]);
     }
 
     /// Due righe con lo stesso nome: accanto al nome il repo (worktree), o la cartella se il

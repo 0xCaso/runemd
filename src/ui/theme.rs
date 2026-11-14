@@ -64,6 +64,8 @@ pub const OUTLINE_LABEL_GAP: f32 = 4.0;
 /// Sotto questa larghezza della finestra l'indice si nasconde: sidebar + colonna + 200.
 pub const OUTLINE_MIN_WINDOW: f32 = SIDEBAR + COLUMN + 200.0;
 
+/// La scheda più larga (`tab-max`, D5): un nome più lungo si taglia in mezzo.
+pub const TAB_MAX_W: f32 = 240.0;
 /// Sidebar (DESIGN.md, `spacing`): spazio sopra il campo per i semafori, margini ai lati e in fondo.
 pub const SIDEBAR_TOP: f32 = 44.0;
 pub const SIDEBAR_PAD: f32 = 8.0;
@@ -183,6 +185,8 @@ mod tests {
     #[test]
     fn tokens_match_design_md() {
         assert_eq!((FIND_RING, FIND_RING_ACTIVE), (1.0, 2.0), "DESIGN.md, spacing.find-ring e find-ring-active");
+        assert_eq!(TAB_MAX_W, 240.0, "DESIGN.md, spacing.tab-max");
+        assert_eq!((crate::ui::sidebar::RECENT_GAP, crate::ui::sidebar::RECENT_SHARE), (3.0, 0.4), "DESIGN.md, spacing.recent-gap e recent-share");
         let dark = Theme::for_mode(true);
         assert_eq!(dark.fg2, oklcha(0.82, 0.006, 270.0, 1.0));
         assert_eq!(dark.fg3, oklcha(0.72, 0.008, 270.0, 1.0));

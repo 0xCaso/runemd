@@ -1,5 +1,6 @@
 //! La barra delle schede in cima al pannello (DESIGN.md, "Scheda"; mockup `scheda`): i nomi dei
-//! file aperti, ogni scheda larga quanto il suo nome con `ROW_PAD` ai lati, quella davanti con
+//! file aperti, ogni scheda larga quanto il suo nome con `ROW_PAD` ai lati (al massimo 240, il nome
+//! tagliato in mezzo), quella davanti con
 //! riempimento `sel`, l'anello "sta scrivendo" attorno alla scheda del file, "⌘E sorgente" a
 //! destra.
 //!
@@ -15,7 +16,7 @@
 use rune::{El, TextStyle, Tx, el, row, text};
 
 use super::sidebar::{self, Hooks, Motion};
-use super::theme::{HAIRLINE, KBD_PAD_X, KBD_PAD_Y, KBD_TEXT, KBD_WEIGHT, R_KBD, R_ROW, ROW, ROW_GAP, ROW_PAD, TAB_BAR_H, TAB_BAR_PAD_X, TAB_GAP, Theme};
+use super::theme::{HAIRLINE, KBD_PAD_X, KBD_PAD_Y, KBD_TEXT, KBD_WEIGHT, R_KBD, R_ROW, ROW, ROW_GAP, ROW_PAD, TAB_BAR_H, TAB_BAR_PAD_X, TAB_GAP, TAB_MAX_W, Theme};
 use crate::app::App;
 use crate::fx::ring::RING_W;
 use crate::fx::{self, Mark};
@@ -49,8 +50,11 @@ fn tab_row(s: &App, hooks: Hooks<App>, i: usize, tab: &crate::app::Tab, theme: &
     let key = format!("t-{:x}", tab.doc.id);
     let title = tab.title();
     let id = tab.doc.id;
-    let label = text(title.clone()).key(format!("{key}-label")).font(sidebar::ui_font()).color(if front { theme.fg } else { theme.fg2 }).a11y_hidden();
+    let label = text(title.clone()).key(format!("{key}-label")).font(sidebar::ui_font()).color(if front { theme.fg } else { theme.fg2 }).truncate_middle().shrink().min_w(0.0).a11y_hidden();
+    // Al massimo `TAB_MAX_W`, il nome tagliato in mezzo (D5): una scheda lunga non spinge fuori
+    // le altre.
     let mut e = row()
+        .max_w(TAB_MAX_W)
         .h(ROW)
         .px(ROW_PAD)
         .center_y()

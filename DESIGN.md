@@ -94,6 +94,9 @@ spacing:
   tab-bar: "44px"
   tab-bar-pad: "0 10px"
   tab-gap: "2px"
+  tab-max: "240px"
+  recent-gap: "3px"
+  recent-share: "40%"
   find-field: "240px"
   find-ring: "1px"
   find-ring-active: "2px"
@@ -247,8 +250,13 @@ Il grassetto nel corpo è peso 620 in `fg`. I titoli non sono enormi: la gerarch
 - Finestra: sidebar di vetro larga 248 px a sinistra; il pannello del documento sta a 8 px dai bordi alto,
   destro e basso, e il vetro lo circonda su tutti e quattro i lati.
 - Sidebar, dall'alto: semafori; campo "Apri file ⌘P"; sezione "Recenti" (nome file e tempo relativo a
-  destra); sezione "Repo del file" (riga intestazione del repo con icona cartella, nome e branch, poi i file
-  indentati di 16 px con linea guida verticale).
+  destra); sezione "Repo del file" (riga intestazione del repo con icona cartella e nome, branch sotto il nome,
+  poi i file indentati di 16 px con linea guida verticale).
+- Recenti prende al massimo il 40 % dell'altezza della sidebar (`recent-share`) e poi scorre, con la barra del
+  sistema (sottile, a scomparsa); 3 px fra le righe (`recent-gap`), con o senza anelli. Aprendo un file l'albero
+  scorre quanto basta per mostrarne la riga. (D1, D2: `docs/decisions/2026-11-14-sidebar-schede-nomi-lunghi.md`.)
+- Nomi lunghi di file (Recenti, albero, schede, ⌘P) e il branch si tagliano in mezzo: restano la fine e
+  l'estensione (`2026-11-14-arc…definitiva.md`). Il nome del repo si taglia in fondo. (D4)
 - Pannello: barra delle schede in alto (nomi dei file aperti, "⌘E sorgente" a destra); colonna del documento
   larga al massimo 680 px e centrata; indice "In questo file" a destra, separato da una linea.
 - L'indice "In questo file" si nasconde quando la finestra è più stretta di sidebar + colonna + 200 (1128 pt,
@@ -276,6 +284,10 @@ con 14 sopra e 6 sotto. Il riempimento `sel` dell'hover entra ed esce in 120 ms 
 riga premuta va e torna in 160 ms con la curva `motion.ease-out`. Con "riduci movimento" tutti e due sono
 immediati.
 
+**Riga del repo.** Icona cartella in `fg-3` e nome 13/600 in `fg`; sotto il nome, allineato al nome, il branch in
+UI piccola 12 a peso 400 (non grassetto) in `fg-3`. La riga non ha hover, quindi `fg-3` sta sul vetro (4,76:1 /
+4,89:1). Alta almeno 30, 4 sopra e sotto. (D3)
+
 **Campo "Apri file".** Alto 30 px, raggio 7, riempimento `field`, bordo interno 0,5 px in `line`. Icona,
 testo e "⌘P" in `fg-2` (deve leggersi: commento di Matteo). Il tasto "⌘P" è testo `kbd` (11 px, 400) con
 bordo 0,5 px in `line`, raggio 4 e margine interno `kbd-pad`; il campo ha margine `field-margin`.
@@ -286,7 +298,8 @@ raggio 6, hover `sel`, scala 0,98 premuta); la riga scelta con le frecce ha riem
 doppio mostra repo o cartella in `fg-2`, come in Recenti. Invio apre, Esc svuota e chiude, nessuna animazione di
 apertura (azione da tastiera). Nessun accento: caret `fg`, selezione `sel`. Nessun risultato: "Nessun file" in `fg-3`.
 
-**Scheda.** Una riga come quelle della sidebar, larga quanto il nome del file: alta 28 (`row`), raggio 6, testo UI
+**Scheda.** Una riga come quelle della sidebar, larga quanto il nome del file fino a 240 (`tab-max`, D5; oltre,
+il nome si taglia in mezzo): alta 28 (`row`), raggio 6, testo UI
 13 px con 10 ai lati (`row-pad`), hover `sel`, scala 0,98 premuta. La scheda del file attivo ha riempimento `sel` e
 testo `fg`; le altre testo `fg-2`. Barra alta 44 (`tab-bar`), margine 10 ai lati (`tab-bar-pad`), 2 fra le schede
 (`tab-gap`), linea di 0,5 in `line` sotto; nessun separatore né icona. Troppe schede: la riga scorre di lato. "⌘E
