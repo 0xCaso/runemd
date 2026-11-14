@@ -88,6 +88,12 @@ pub fn editable(path: &Path) -> bool {
     !matches!(disk(path), Ok((_, _, false)))
 }
 
+/// Il file su disco non ha più il contenuto `base_hash` (quello da cui parte la modifica, o del
+/// nostro ultimo salvataggio): l'ha scritto qualcun altro. Un file che non si legge non conta.
+pub fn changed_on_disk(path: &Path, base_hash: u64) -> bool {
+    disk(path).is_ok_and(|(_, h, _)| h != base_hash)
+}
+
 /// Entra in modifica: il sorgente è il file com'è adesso su disco (il documento tiene solo i
 /// blocchi, non le righe vuote fra l'uno e l'altro), con il cursore all'inizio e il fuoco nel
 /// campo. Se il file non si legge (sparito durante un rename) si parte dai blocchi del documento.

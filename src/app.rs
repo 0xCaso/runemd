@@ -1027,8 +1027,13 @@ impl App {
         let (mut changed, mut wakes) = (false, Vec::new());
         for (i, tab) in self.tabs.iter_mut().enumerate() {
             // Nel sorgente la vista non si ricarica da sola: gli eventi di questo file si perdono
-            // e `edit::leave` lo fa rileggere.
-            if matches!(tab.mode, Mode::Source(_)) {
+            // e `edit::leave` lo fa rileggere. Una scrittura di fuori (il disco non ha più il
+            // contenuto da cui parte la modifica, né quello del nostro ultimo salvataggio) accende
+            // comunque "sta scrivendo", così si vede prima del conflitto al salvataggio.
+            if let Mode::Source(src) = &tab.mode {
+                if self.live.changed(tab.follow.path()) && edit::changed_on_disk(tab.follow.path(), src.base_hash) {
+                    self.live.touch_open(tab.follow.path(), now);
+                }
                 continue;
             }
             let (reloaded, recheck) = self.live.poll(&mut tab.follow, &mut tab.doc, now);
@@ -1642,6 +1647,37 @@ mod tests {
         let found = copies(&rec);
         assert_eq!(found.len(), 1);
         assert_eq!(fs::read_to_string(&found[0]).unwrap(), "# a.md\n\nmio\n");
+    }
+
+    /// I2: un agente che scrive il file in modifica (Cmd+E) accende "sta scrivendo" come in
+    /// lettura, prima che il salvataggio trovi il conflitto; il nostro salvataggio no.
+    #[test]
+    fn an_external_write_during_source_lights_the_ring_and_our_save_does_not() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().canonicalize().unwrap().join("a.md");
+        fs::write(&p, "# a\n").unwrap();
+        let mut app = empty_app();
+        app.open_paths(vec![p.clone()]);
+        app.live.start(std::sync::Arc::new(|| {}), Vec::new());
+        edit_tab(&mut app, 0, "# a\n\nmio\n");
+        std::thread::sleep(Duration::from_millis(300));
+        // Il nostro salvataggio: l'evento arriva, ma l'anello resta spento.
+        assert!(app.save_source());
+        let t0 = Instant::now();
+        while t0.elapsed() < Duration::from_millis(1500) {
+            app.poll_tabs(1.0, Instant::now());
+            assert!(app.live.writing_left(&p, Instant::now()).is_none(), "la nostra scrittura non accende l'anello");
+            std::thread::sleep(Duration::from_millis(16));
+        }
+        // L'agente scrive: l'anello si accende, la scheda resta nel sorgente con le modifiche.
+        fs::write(&p, "# a\n\ndell'agente\n").unwrap();
+        let t0 = Instant::now();
+        while app.live.writing_left(&p, Instant::now()).is_none() {
+            assert!(t0.elapsed() < Duration::from_secs(5), "anello mai acceso");
+            app.poll_tabs(1.0, Instant::now());
+            std::thread::sleep(Duration::from_millis(16));
+        }
+        assert!(matches!(&app.tabs[0].mode, Mode::Source(s) if s.text() == "# a\n\nmio\n"));
     }
 
     /// Nel sorgente la scheda non si ricarica; tornata alla lettura senza modifiche, rilegge e

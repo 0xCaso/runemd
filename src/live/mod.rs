@@ -226,6 +226,17 @@ impl Live {
         self.step(f, doc, changed, now)
     }
 
+    /// L'ultimo `drain` ha un `Changed` di `path` (canonico).
+    pub fn changed(&self, path: &Path) -> bool {
+        self.drained.iter().any(|e| matches!(e, FsEvent::Changed(p) if p == path))
+    }
+
+    /// Un file aperto nel sorgente (Cmd+E), che non passa dalla ricarica, è stato scritto da
+    /// fuori: "sta scrivendo" si accende come per una ricarica applicata.
+    pub fn touch_open(&mut self, path: &Path, now: Instant) {
+        self.activity.touch(path, now);
+    }
+
     /// Gli eventi del watcher svuotati dall'ultimo `drain`.
     pub fn drained(&self) -> &[FsEvent] {
         &self.drained
