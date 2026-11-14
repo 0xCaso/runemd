@@ -3,6 +3,7 @@
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use super::{blocks, ids};
 use super::select_all::SelectAllFlag;
@@ -21,8 +22,15 @@ pub struct Change {
     pub removed: Vec<u64>,
 }
 
+/// Il prossimo id di documento: uno solo per tutta l'app, mai riusato.
+static NEXT_DOC: AtomicU64 = AtomicU64::new(1);
+
 #[derive(Debug)]
 pub struct Document {
+    /// Unico nell'app: ogni `Document` letto ne prende uno nuovo, anche lo stesso file riaperto.
+    /// Le chiavi delle righe lo usano (due schede non condividono le altezze misurate da Rune) e
+    /// `commit` rifiuta un aggiornamento preparato per un altro documento.
+    pub id: u64,
     pub path: PathBuf,
     pub revision: u64,
     pub blocks: Vec<Block>,
@@ -44,6 +52,7 @@ impl Document {
 
     pub fn from_source(path: &Path, source: &str) -> Document {
         let mut doc = Document {
+            id: NEXT_DOC.fetch_add(1, Ordering::Relaxed),
             path: path.to_owned(),
             revision: 0,
             blocks: Vec::new(),
@@ -63,13 +72,13 @@ impl Document {
 
     /// Quanto serve per preparare un aggiornamento su un altro thread (`Snapshot::prepare`).
     pub fn snapshot(&self) -> Snapshot {
-        Snapshot { revision: self.revision, file_hash: self.file_hash, blocks: self.blocks.clone(), next_id: self.next_id }
+        Snapshot { doc: self.id, revision: self.revision, file_hash: self.file_hash, blocks: self.blocks.clone(), next_id: self.next_id }
     }
 
-    /// Applica un aggiornamento preparato. `None` se il documento è cambiato dopo lo snapshot:
-    /// il chiamante rilegge.
+    /// Applica un aggiornamento preparato. `None` se il documento è cambiato dopo lo snapshot
+    /// (il chiamante rilegge) o se è stato preparato per un altro documento.
     pub fn commit(&mut self, p: Prepared) -> Option<Change> {
-        if p.revision != self.revision {
+        if p.doc != self.id || p.revision != self.revision {
             return None;
         }
         self.blocks = p.blocks;
@@ -85,6 +94,8 @@ impl Document {
 /// `Arc<str>`).
 #[derive(Debug, Clone)]
 pub struct Snapshot {
+    /// L'id del `Document` da cui viene.
+    doc: u64,
     revision: u64,
     pub file_hash: u64,
     blocks: Vec<Block>,
@@ -102,17 +113,36 @@ impl Snapshot {
     pub fn prepare(&self, source: &str) -> Prepared {
         let mut next_id = self.next_id;
         let (blocks, change) = ids::assign(&self.blocks, ids::hash_sources(blocks::split(source)), &mut next_id);
-        Prepared { revision: self.revision, blocks, change, file_hash: ids::hash_str(source), last_open: crate::live::arriving::last_block_open(source), next_id }
+        Prepared { doc: self.doc, revision: self.revision, blocks, change, file_hash: ids::hash_str(source), last_open: crate::live::arriving::last_block_open(source), next_id }
     }
 }
 
 /// Un aggiornamento pronto per `Document::commit`.
 #[derive(Debug)]
 pub struct Prepared {
+    doc: u64,
     revision: u64,
     blocks: Vec<Block>,
     change: Change,
     file_hash: u64,
     last_open: bool,
     next_id: u64,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Una ricarica preparata per la scheda A non entra mai nella scheda B, anche con la stessa
+    /// revisione e lo stesso percorso (una scheda chiusa e un'altra aperta sullo stesso file).
+    #[test]
+    fn a_reload_prepared_for_another_document_is_refused() {
+        let p = Path::new("/r/a.md");
+        let a = Document::from_source(p, "# a\n");
+        let mut b = Document::from_source(p, "# a\n");
+        assert_ne!(a.id, b.id, "id unici");
+        let prepared = a.snapshot().prepare("# a\n\nnuovo\n");
+        assert!(b.commit(prepared).is_none());
+        assert_eq!(b.revision, 0);
+    }
 }
