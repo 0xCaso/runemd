@@ -10,10 +10,14 @@ colors:
   fg2-dark: "oklch(0.82 0.006 270)"
   fg3-light: "oklch(0.45 0.008 270)"
   fg3-dark: "oklch(0.72 0.008 270)"
+  fg2-glass-light: "oklch(0.25 0.008 270)"
+  fg2-glass-dark: "oklch(0.90 0.006 270)"
+  fg3-glass-light: "oklch(0.28 0.008 270)"
+  fg3-glass-dark: "oklch(0.86 0.008 270)"
   body-light: "oklch(0.28 0.006 270)"
   body-dark: "oklch(0.90 0.004 270)"
-  glass-light: "oklch(0.965 0.004 260 / 0.86)"
-  glass-dark: "oklch(0.18 0.01 260 / 0.84)"
+  glass-light: "oklch(0.965 0.004 260 / 0.60)"
+  glass-dark: "oklch(0.18 0.01 260 / 0.60)"
   line-light: "oklch(0 0 0 / 0.09)"
   line-dark: "oklch(1 0 0 / 0.14)"
   sel-light: "oklch(0 0 0 / 0.06)"
@@ -161,23 +165,43 @@ Una scala di grigi OKLCH a bassissimo croma, in due temi. In Rune si scrivono ug
 | `body` | 0.28 | 0.90 | Corpo del documento |
 | `fg-2` | 0.36 | 0.82 | Intestazioni di tabella, campo "Apri file" |
 | `fg-3` | 0.45 | 0.72 | Branch, etichette di sezione, meta del file (fuori dalle righe con hover: lì `fg-2`) |
-| `glass` | 0.965 / 86 % | 0.18 / 84 % | Cornice e sidebar, con blur 40 e saturazione 1,6 |
+| `glass` | 0.965 / 60 % | 0.18 / 60 % | Tinta sopra il vetro di sistema, su cornice e sidebar (scelta di Matteo, 14/11/2026) |
 | `line` | nero 9 % | bianco 14 % | Linee solo decorative: righe di tabella, linee guida dell'albero, bordi dei campi |
 | `sel` | nero 6 % | bianco 12 % | Riga selezionata, hover, selezione, riempimento dei risultati di Cerca |
 | `mark` | `fg-3` chiaro al 70 % | `fg-3` scuro al 65 % | Segni con un significato: anello dei risultati di Cerca, segno "cambiato" |
 
-**Contrasto.** I rapporti di ogni token sono nella sezione "Contrasto" qui sotto. Abbassare l'opacità del vetro
-sotto 86 % / 84 % fa scendere `fg-3` sotto 4,5:1 (misurato sui mockup del 13/11/2026: 2,1:1 con opacità 0,62).
+**Contrasto.** I rapporti di ogni token sono nella sezione "Contrasto" qui sotto. Con la tinta al 60 % i grigi del
+pannello sul vetro scendono sotto i minimi (misure sotto, "Vetro vero al 60 %"): sul vetro, cioè in tutta la sidebar
+(`Theme::on_glass`), `fg-2` e `fg-3` sono i token `-glass`, più forti; il pannello del documento tiene i suoi.
 
-Nell'app il vetro è `El::system_material` (Liquid Glass su macOS 26+): il sistema decide la tinta. Se il
-contrasto di `fg-3` scende sotto 4,5:1 sul materiale vero, si alza `fg-3`, non si toglie il vetro.
+Nell'app il vetro è `El::system_material` (Liquid Glass su macOS 26+) in una finestra trasparente: Rune accende il
+vetro di sistema solo lì, e quando c'è non dipinge il riempimento dell'elemento. La tinta `glass` sta quindi in uno
+strato sopra il vetro, a tutta finestra. Senza vetro di sistema (headless, materiale spento) la radice è la tinta
+piena (`Theme::glass_fallback`): dark `0f1216`, light `f2f3f6`, come prima. `RUNEMD_GLASS=<percento>` cambia la
+tinta per le foto. Se il contrasto di `fg-3` scende sotto 4,5:1 sul materiale vero, si alza `fg-3`, non si toglie
+il vetro.
+
+**Vetro vero al 60 %** (14/11/2026, finestra vera, fondo della sidebar misurato su 40×40 px e rapporti WCAG con i
+token): sfondo bianco nel tema scuro (vetro `3c3e40`): `fg` 9,28, `fg-2` 6,15, `fg-3` 4,33, `fg-2` su vetro + `sel`
+4,27. Sfondo nero nel tema chiaro (`999a9c`): `fg` 6,15, `fg-2` 3,86, `fg-3` 2,64, `fg-2` su vetro + `sel` 3,44.
+Sfondo Sonoma: scuro (`354416`) `fg-3` 4,25, `fg-2` + `sel` 4,23; chiaro (`becb9d`) `fg-3` 4,33, `fg-2` + `sel` 5,57.
+Questi erano i grigi del pannello. Misurato una seconda volta, il vetro varia di qualche punto (scuro `3e3f40` e
+`374618`, chiaro `9e9fa1` e `bfcd9f`): il test usa la misura più difficile di ogni caso. Con i token `-glass`
+(scuro `fg-2` 0.90, `fg-3` 0.86; chiaro `fg-2` 0.25, `fg-3` 0.28):
+
+| Fondo misurato | `fg` | `fg-2` | `fg-3` | `fg-2` + `sel` | `fg-3` + `sel` | Fuoco |
+|---|---|---|---|---|---|---|
+| Scuro, scrivania bianca (`3e3f40`) | 9,12 | 7,83 | 6,89 | 5,45 | 4,80 | 3,66 |
+| Scuro, Sonoma (`374618`) | 8,84 | 7,59 | 6,69 | 5,34 | 4,70 | 3,55 |
+| Chiaro, scrivania nera (`999a9c`) | 6,15 | 5,68 | 5,18 | 5,06 | 4,61 | 3,17 |
+| Chiaro, Sonoma (`becb9d`) | 10,08 | 9,31 | 8,49 | 8,21 | 7,49 | 5,19 |
 
 ### Contrasto
 
 Rapporti WCAG calcolati da `src/ui/contrast.rs` (`cargo test --profile perf contrast_table -- --nocapture`), con
-il colore composto sullo sfondo, alpha inclusa, in sRGB codificato come lo compone la finestra. "Vetro" è il token
-`glass` sul fondo peggiore della scrivania (bianco nel tema scuro, nero nel chiaro): il materiale di sistema vero
-sta meglio di così. Minimi: 4,5:1 per il testo, 3:1 per i segni con un significato in tutti e due i temi, nessuno per le
+il colore composto sullo sfondo, alpha inclusa, in sRGB codificato come lo compone la finestra. "Vetro" è il fondo
+della sidebar misurato nella finestra vera sul fondo peggiore della scrivania (bianco nel tema scuro, `3e3f40`; nero
+nel chiaro, `999a9c`; `contrast::GLASS_GROUNDS`, che misura anche Sonoma), con il testo in `Theme::on_glass`. Minimi: 4,5:1 per il testo, 3:1 per i segni con un significato in tutti e due i temi, nessuno per le
 linee solo decorative e i riempimenti. I test falliscono se un minimo non è rispettato o se il tema chiaro peggiora.
 "Prima" è il 13/11/2026, "dopo" il fix del 14/11/2026 (`docs/decisions/2026-11-14-cerca-contrasto-scuro.md`).
 
@@ -187,10 +211,12 @@ linee solo decorative e i riempimenti. I test falliscono se un minimo non è ris
 | `body` su panel | 14,50 | 14,50 | 14,39 | 14,39 | 4,5 |
 | `fg-2` su panel | 10,46 | 11,19 | 10,71 | 10,71 | 4,5 |
 | `fg-3` su panel | 7,04 | 7,88 | 7,34 | 7,34 | 4,5 |
-| `fg-3` su vetro | 4,26 | 4,76 | 4,89 | 4,89 | 4,5 |
-| `fg-2` su vetro | 6,32 | 6,77 | 7,13 | 7,13 | 4,5 |
-| Nome doppio della riga scelta su vetro + `sel` (`fg-3` prima, `fg-2` dopo) | 3,22 | 4,66 | 4,30 | 6,28 | 4,5 |
-| Testo piccolo delle righe premibili (tempo di Recenti, nome doppio, "Apri Impostazioni di Sistema") su vetro + `sel` (hover; `fg-3` prima, `fg-2` dopo) | 3,22 | 4,66 | 4,30 | 6,28 | 4,5 |
+| `fg-3` su vetro (`fg-3-glass` dopo) | 4,26 | 6,89 | 4,89 | 5,18 | 4,5 |
+| `fg-2` su vetro (`fg-2-glass` dopo) | 6,32 | 7,83 | 7,13 | 5,68 | 4,5 |
+| `fg-3-glass` su vetro + `sel` (hover) | — | 4,80 | — | 4,61 | 4,5 |
+| `fg-2-glass` su vetro + `sel` (hover) | — | 5,45 | — | 5,06 | 4,5 |
+| Nome doppio della riga scelta su vetro + `sel` (`fg-3` prima, `fg-2-glass` dopo) | 3,22 | 5,45 | 4,30 | 5,06 | 4,5 |
+| Testo piccolo delle righe premibili (tempo di Recenti, nome doppio, "Apri Impostazioni di Sistema") su vetro + `sel` (hover; `fg-3` prima, `fg-2-glass` dopo) | 3,22 | 5,45 | 4,30 | 5,06 | 4,5 |
 | Titolo evidenziato dell'indice (`fg`) su panel + `sel` (hover) | — | 12,53 | — | 14,94 | 4,5 |
 | Titoli dell'indice (`fg-2`) su panel + `sel` (hover) | — | 8,30 | — | 9,38 | 4,5 |
 | `mark` su panel (anello dei risultati di Cerca, segno "cambiato") | 1,19 | 3,89 | 1,22 | 3,52 | 3 |
@@ -198,8 +224,8 @@ linee solo decorative e i riempimenti. I test falliscono se un minimo non è ris
 | Anello del risultato attivo su `sel` (`fg-3` prima, `fg-2` dopo) | 5,73 | 8,30 | 6,42 | 9,38 | 3 |
 | Anello "sta scrivendo" sulla barra delle schede (pixel, minimo; vedi sotto) | — | 4,62 | 3,17 | 4,86 | 3 |
 | Anello "sta scrivendo" sul riempimento `sel` della scheda (pixel, minimo) | — | 3,44 | 2,78 | 4,26 | 3 |
-| Fuoco della tastiera su vetro | 1,77 | 3,24 | 1,68 | 3,15 | 3 |
-| Fuoco della tastiera su panel | 2,13 | 5,36 | 1,97 | 4,72 | 3 |
+| Fuoco della tastiera su vetro | 1,77 | 3,66 | 1,68 | 3,17 | 3 |
+| Fuoco della tastiera su panel | 2,13 | 6,78 | 1,97 | 8,80 | 3 |
 | Impostazioni: scelta fatta e sua spunta (`fg`) su panel + `sel` | — | 12,53 | — | 14,94 | 4,5 |
 | Impostazioni: scelte e bottoni (`fg-2`) su panel + `sel` (hover) | — | 8,30 | — | 9,38 | 4,5 |
 | Impostazioni: casella spenta, bordo `fg-3` su panel | — | 7,88 | — | 7,34 | 3 |
@@ -214,13 +240,14 @@ linee solo decorative e i riempimenti. I test falliscono se un minimo non è ris
 | × della scheda (`fg-2`) su panel + `sel` | — | 8,30 | — | 9,38 | 3 |
 | × della scheda (`fg-2`) in hover su panel + `sel` + `sel` | — | 5,67 | — | 8,22 | 3 |
 | `line` su panel (linee decorative) | 1,19 | 1,44 | 1,22 | 1,22 | — |
-| `line` su vetro (bordo dei campi) | 1,28 | 1,55 | 1,21 | 1,21 | — |
+| `line` su vetro (bordo dei campi) | 1,28 | 1,52 | 1,21 | 1,19 | — |
 | `sel` su panel | 1,23 | 1,35 | 1,14 | 1,14 | — |
 | `sel` accanto al codice in linea | 1,04 | 1,15 | 1,03 | 1,03 | — |
 
 - Il fuoco della tastiera è il colore del sistema (`Cx::focus_color`, AppKit lo dà al 50 %), 3 pt, pieno in
-  tutti e due i temi; nel chiaro è anche scurito del 20 % verso il nero (in luce lineare), perché il blu pieno
-  sul vetro chiaro arriva solo a 2,6:1. Misurato con il blu predefinito.
+  tutti e due i temi; nel chiaro è anche scurito del 68 % verso il nero e nello scuro schiarito del 10 % verso il
+  bianco (in luce lineare), perché sul vetro vero al 60 % il blu scurito del 20 % dava 1,70:1 nel chiaro e il blu
+  pieno 2,94:1 nello scuro. Misurato con il blu predefinito.
 - I bordi dei campi restano in `line`: il campo si riconosce dall'icona e dal segnaposto in `fg-2`, non dal bordo.
 - L'anello "sta scrivendo" è metallo liquido di Rune (`LiquidMetalParams::chrome`), non un token: non ha un
   colore nostro da regolare. Misurato sui pixel di `docs/proof/contrast-dark-after.png` (scala 2, un fotogramma):
@@ -237,8 +264,8 @@ linee solo decorative e i riempimenti. I test falliscono se un minimo non è ris
   (mediane 10,66 e 7,93).
 - Il nome doppio (repo o cartella) è in `fg-2` sulla riga scelta di ⌘P: in `fg-3` sul `sel` scendeva a 3,2:1.
 - Ogni testo piccolo dentro una riga che prende `sel` in hover sul vetro (tempo di Recenti, nome doppio, link
-  "Apri Impostazioni di Sistema") è in `fg-2` (`sidebar::row_meta`): con i token di oggi `fg-3` su vetro + `sel`
-  dà 3,28:1 nello scuro e 4,30:1 nel chiaro (review finale I4). `fg-3` resta solo fuori dalle righe premibili:
+  "Apri Impostazioni di Sistema") è in `fg-2` (`sidebar::row_meta`): con i grigi del pannello `fg-3` su vetro + `sel`
+  dava 3,28:1 nello scuro e 4,30:1 nel chiaro (review finale I4); oggi anche `fg-3-glass` + `sel` passa (4,80 / 4,61). `fg-3` resta solo fuori dalle righe premibili:
   etichette di sezione, branch della riga del repo (che non ha hover), "⌘E sorgente" sul pannello.
 
 ## Typography
@@ -298,8 +325,8 @@ riga premuta va e torna in 160 ms con la curva `motion.ease-out`. Con "riduci mo
 immediati.
 
 **Riga del repo.** Icona cartella in `fg-3` e nome 13/600 in `fg`; sotto il nome, allineato al nome, il branch in
-UI piccola 12 a peso 400 (non grassetto) in `fg-3`. La riga non ha hover, quindi `fg-3` sta sul vetro (4,76:1 /
-4,89:1). Alta almeno 30, 4 sopra e sotto. (D3)
+UI piccola 12 a peso 400 (non grassetto) in `fg-3`. La riga non ha hover, quindi `fg-3` sta sul vetro (`fg-3-glass`,
+6,89:1 / 5,18:1 sul fondo peggiore misurato). Alta almeno 30, 4 sopra e sotto. (D3)
 
 **Campo "Apri file".** Alto 30 px, raggio 7, riempimento `field`, bordo interno 0,5 px in `line`. Icona,
 testo e "⌘P" in `fg-2` (deve leggersi: commento di Matteo). Il tasto "⌘P" è testo `kbd` (11 px, 400) con

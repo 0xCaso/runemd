@@ -149,15 +149,21 @@ pub fn flatten(fg: Color, bg: Color) -> Color {
 
 /// Il colore del fuoco della tastiera (`Cx::focus_ring`), dal colore del sistema `system`
 /// (`Cx::focus_color`, che AppKit dà al 50 %), pieno in tutti e due i temi: al 50 % sul vetro
-/// resta sotto 3:1 (DESIGN.md, "Contrasto"). Nel tema chiaro è anche scurito del 20 % verso il
-/// nero (in luce lineare): il blu pieno sul vetro chiaro arriva solo a 2,6:1.
+/// resta sotto 3:1 (DESIGN.md, "Contrasto"). Nel tema chiaro è anche scurito del `FOCUS_DARKEN`
+/// verso il nero (in luce lineare): sul vetro vero al 60 % (scrivania nera, fondo `999a9c`) il blu
+/// scurito del 20 % dava 1,70:1. Nel tema scuro è
+/// schiarito del `FOCUS_LIGHTEN` verso il bianco: sul vetro vero al 60 % (scrivania bianca) il blu
+/// pieno dava 2,94:1.
 pub fn focus_ring(system: Color, dark: bool) -> Color {
     let solid = system.alpha(1.0);
-    if dark { solid } else { solid.mix(Color::BLACK, FOCUS_DARKEN) }
+    if dark { solid.mix(Color::WHITE, FOCUS_LIGHTEN) } else { solid.mix(Color::BLACK, FOCUS_DARKEN) }
 }
 
+/// Quanto si schiarisce il fuoco della tastiera nel tema scuro.
+pub const FOCUS_LIGHTEN: f32 = 0.1;
+
 /// Quanto si scurisce il fuoco della tastiera nel tema chiaro.
-pub const FOCUS_DARKEN: f32 = 0.2;
+pub const FOCUS_DARKEN: f32 = 0.68;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Theme {
@@ -180,6 +186,24 @@ impl Theme {
         crate::ui::doc_view::Meta { text: self.fg2, fill: self.sel.alpha(self.sel.a * 0.5) }
     }
 
+    /// I colori del testo sul vetro (sidebar): `fg2` e `fg3` più forti che sul pannello, perché
+    /// con la tinta al 60 % il vetro vero lascia passare la scrivania. Valgono ≥ 4,5:1 sui fondi
+    /// misurati (`contrast::GLASS_GROUNDS`), anche sotto `sel`; `fg` > `fg2` > `fg3` resta. Il
+    /// pannello del documento tiene i suoi.
+    pub fn on_glass(&self) -> Theme {
+        if self.dark {
+            Theme { fg2: oklcha(0.90, 0.006, 270.0, 1.0), fg3: oklcha(0.86, 0.008, 270.0, 1.0), ..*self }
+        } else {
+            Theme { fg2: oklcha(0.25, 0.008, 270.0, 1.0), fg3: oklcha(0.28, 0.008, 270.0, 1.0), ..*self }
+        }
+    }
+
+    /// Il riempimento della finestra quando il vetro di sistema non c'è (headless, materiale
+    /// spento): la tinta del vetro piena, così non si vede la scrivania senza sfocatura.
+    pub fn glass_fallback(&self) -> Color {
+        self.glass.alpha(1.0)
+    }
+
     pub fn for_mode(dark: bool) -> Theme {
         if dark {
             Theme {
@@ -189,7 +213,7 @@ impl Theme {
                 body: oklcha(0.90, 0.004, 270.0, 1.0),
                 fg2: oklcha(0.82, 0.006, 270.0, 1.0),
                 fg3: oklcha(0.72, 0.008, 270.0, 1.0),
-                glass: oklcha(0.18, 0.01, 260.0, 0.84),
+                glass: oklcha(0.18, 0.01, 260.0, 0.60),
                 line: oklcha(1.0, 0.0, 0.0, 0.14),
                 sel: oklcha(1.0, 0.0, 0.0, 0.12),
                 field: oklcha(0.0, 0.0, 0.0, 0.22),
@@ -203,7 +227,7 @@ impl Theme {
                 body: oklcha(0.28, 0.006, 270.0, 1.0),
                 fg2: oklcha(0.36, 0.008, 270.0, 1.0),
                 fg3: oklcha(0.45, 0.008, 270.0, 1.0),
-                glass: oklcha(0.965, 0.004, 260.0, 0.86),
+                glass: oklcha(0.965, 0.004, 260.0, 0.60),
                 line: oklcha(0.0, 0.0, 0.0, 0.09),
                 sel: oklcha(0.0, 0.0, 0.0, 0.06),
                 field: oklcha(1.0, 0.0, 0.0, 0.55),
@@ -229,6 +253,7 @@ mod tests {
         assert_eq!(dark.sel, oklcha(1.0, 0.0, 0.0, 0.12));
         assert_eq!(dark.mark, oklcha(0.72, 0.008, 270.0, 0.65));
         assert_eq!(Theme::for_mode(false).mark, oklcha(0.45, 0.008, 270.0, 0.70));
-        assert_eq!(Theme::for_mode(false).glass, oklcha(0.965, 0.004, 260.0, 0.86));
+        assert_eq!(Theme::for_mode(false).glass, oklcha(0.965, 0.004, 260.0, 0.60));
+        assert_eq!(dark.glass, oklcha(0.18, 0.01, 260.0, 0.60));
     }
 }

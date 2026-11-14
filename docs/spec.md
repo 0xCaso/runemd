@@ -55,7 +55,7 @@ soggetto di un post (Rune contro Swift, `docs/spike/post/card.html`: primo frame
   spike (`Cargo.toml`). Ogni aggiornamento di Rune può rompere qualcosa: si aggiorna solo con un motivo scritto.
 - Repo nuovo `~/Desktop/GitHub/runemd`, solo locale, senza push (proposto nel giro "approcci", nessuna obiezione).
   Dallo spike si portano `src/blocks.rs`, la base di `src/main.rs`, `fixtures/`, `bench/` e i documenti citati sopra.
-- macOS 26+ (Liquid Glass via `El::system_material`).
+- macOS 26+ (Liquid Glass via `El::system_material`, finestra trasparente, tinta `glass` al 60 % sopra).
 - Inter va nel bundle (macOS non lo ha); `AppSpec.families = ("Inter", "ui-monospace, Menlo")`.
 
 ## Approcci

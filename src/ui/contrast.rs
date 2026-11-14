@@ -21,13 +21,21 @@ pub fn ratio(fg: Color, bg: Color) -> f32 {
     (a.max(b) + 0.05) / (a.min(b) + 0.05)
 }
 
-/// I fondi su cui si misura: il pannello (anche sotto `sel`), e il vetro composto sul fondo peggiore della scrivania
-/// (bianco nel tema scuro, nero nel chiaro). Il vetro vero è il materiale di sistema, più scuro
-/// o più chiaro di così: questo è il caso peggiore. In ordine: panel, panel + sel, vetro, vetro + sel.
-pub fn grounds(t: &Theme) -> [Color; 4] {
-    let desk = if t.dark { Color::WHITE } else { Color::BLACK };
-    let glass = over(t.glass, desk);
+/// Il fondo della sidebar misurato nella finestra vera, vetro di sistema più tinta `glass` al 60 %
+/// (14/11/2026, media di 40×40 px; di due misure la più difficile; DESIGN.md "Vetro vero al 60 %"):
+/// `[scuro, chiaro]`, ognuno sul fondo peggiore della scrivania (bianco nel tema scuro, nero nel
+/// chiaro) e sullo sfondo Sonoma.
+pub const GLASS_GROUNDS: [[&str; 2]; 2] = [["#3e3f40", "#374618"], ["#999a9c", "#becb9d"]];
+
+/// I fondi su cui si misura: il pannello (anche sotto `sel`) e il vetro misurato `glass` (uno di
+/// `GLASS_GROUNDS`), anche sotto `sel`. In ordine: panel, panel + sel, vetro, vetro + sel.
+pub fn grounds(t: &Theme, glass: Color) -> [Color; 4] {
     [t.panel, over(t.sel, t.panel), glass, over(t.sel, glass)]
+}
+
+/// I fondi del vetro misurati per il tema `t`.
+pub fn glass_grounds(t: &Theme) -> [Color; 2] {
+    GLASS_GROUNDS[usize::from(!t.dark)].map(|h| rune::color::hex(h).expect("esadecimale"))
 }
 
 /// Una riga della tabella: cosa si misura, il colore e lo sfondo, e il minimo richiesto.
@@ -54,14 +62,17 @@ impl Rings {
     /// Quelli dell'app: anello attivo in `fg2` (`markdown_style`), fuoco da [`focus_ring`] con
     /// l'accento di sistema predefinito (blu).
     pub fn of(t: &Theme) -> Rings {
-        Rings { active: t.fg2, focus: focus_ring(rune::SystemAccent::DEFAULT.focus(t.dark), t.dark), chosen: t.fg2, row_meta: super::sidebar::row_meta(t) }
+        let glass = t.on_glass();
+        Rings { active: t.fg2, focus: focus_ring(rune::SystemAccent::DEFAULT.focus(t.dark), t.dark), chosen: glass.fg2, row_meta: super::sidebar::row_meta(&glass) }
     }
 }
 
 /// I segni e i testi del tema `t`, ognuno sul suo sfondo, con il minimo (4,5 testo, 3 segni con
-/// significato, 1 le linee solo decorative e i riempimenti).
-pub fn rows(t: &Theme, rings: &Rings) -> Vec<Row> {
-    let [panel, panel_sel, glass, glass_sel] = grounds(t);
+/// significato, 1 le linee solo decorative e i riempimenti). `glass` è il fondo del vetro misurato
+/// (`glass_grounds`); sul vetro il testo usa `Theme::on_glass`.
+pub fn rows(t: &Theme, rings: &Rings, glass: Color) -> Vec<Row> {
+    let [panel, panel_sel, glass, glass_sel] = grounds(t, glass);
+    let g = t.on_glass();
     let mark = 3.0;
     let row = |what, fg, bg, min| Row { what, fg, bg, min };
     vec![
@@ -69,8 +80,11 @@ pub fn rows(t: &Theme, rings: &Rings) -> Vec<Row> {
         row("body su panel", t.body, panel, 4.5),
         row("fg2 su panel", t.fg2, panel, 4.5),
         row("fg3 su panel", t.fg3, panel, 4.5),
-        row("fg3 su vetro", t.fg3, glass, 4.5),
-        row("fg2 su vetro", t.fg2, glass, 4.5),
+        row("fg su vetro", t.fg, glass, 4.5),
+        row("fg3 su vetro", g.fg3, glass, 4.5),
+        row("fg2 su vetro", g.fg2, glass, 4.5),
+        row("fg3 su vetro + sel (hover)", g.fg3, glass_sel, 4.5),
+        row("fg2 su vetro + sel (hover)", g.fg2, glass_sel, 4.5),
         row("nome doppio della riga scelta su vetro + sel (fg3 prima, fg2 dopo)", rings.chosen, glass_sel, 4.5),
         row("testo piccolo delle righe premibili (tempo di Recenti, nome doppio, link) su vetro + sel (hover)", rings.row_meta, glass_sel, 4.5),
         row("titolo evidenziato dell'indice (fg) su panel + sel (hover)", t.fg, panel_sel, 4.5),
@@ -119,9 +133,11 @@ mod tests {
         Rings { active: before(dark).fg3, focus: rune::SystemAccent::DEFAULT.focus(dark), chosen: before(dark).fg3, row_meta: before(dark).fg3 }
     }
 
-    fn table(dark: bool) -> (Vec<Row>, Vec<Row>) {
+    /// Prima e dopo sul vetro misurato `k` (0: scrivania peggiore, 1: Sonoma).
+    fn table(dark: bool, k: usize) -> (Vec<Row>, Vec<Row>) {
         let now = Theme::for_mode(dark);
-        (rows(&before(dark), &rings_before(dark)), rows(&now, &Rings::of(&now)))
+        let glass = glass_grounds(&now)[k];
+        (rows(&before(dark), &rings_before(dark), glass), rows(&now, &Rings::of(&now), glass))
     }
 
     /// I token prima del fix del 14/11/2026 (DESIGN.md, "Contrasto", colonna "prima").
@@ -144,10 +160,12 @@ mod tests {
     #[test]
     fn contrast_table() {
         for dark in [true, false] {
-            println!("{}", if dark { "scuro" } else { "chiaro" });
-            let (old, new) = table(dark);
-            for (b, a) in old.iter().zip(new) {
-                println!("| {} | {:.2} | {:.2} | {} |", a.what, ratio(b.fg, b.bg), ratio(a.fg, a.bg), a.min);
+            for (k, ground) in GLASS_GROUNDS[usize::from(!dark)].iter().enumerate() {
+                println!("{} {ground}", if dark { "scuro" } else { "chiaro" });
+                let (old, new) = table(dark, k);
+                for (b, a) in old.iter().zip(new) {
+                    println!("| {} | {:.2} | {:.2} | {} |", a.what, ratio(b.fg, b.bg), ratio(a.fg, a.bg), a.min);
+                }
             }
         }
     }
@@ -155,16 +173,18 @@ mod tests {
     #[test]
     fn every_row_meets_its_minimum() {
         for dark in [true, false] {
-            for r in table(dark).1 {
-                let c = ratio(r.fg, r.bg);
-                assert!(c >= r.min, "{} ({}): {c:.2} < {}", r.what, if dark { "scuro" } else { "chiaro" }, r.min);
+            for k in 0..2 {
+                for r in table(dark, k).1 {
+                    let c = ratio(r.fg, r.bg);
+                    assert!(c >= r.min, "{} ({}, vetro {k}): {c:.2} < {}", r.what, if dark { "scuro" } else { "chiaro" }, r.min);
+                }
             }
         }
     }
 
     #[test]
     fn light_theme_gets_no_worse() {
-        let (old, new) = table(false);
+        let (old, new) = table(false, 0);
         for (b, a) in old.iter().zip(new) {
             assert!(ratio(a.fg, a.bg) >= ratio(b.fg, b.bg) - 1e-4, "{}", a.what);
         }
@@ -185,6 +205,19 @@ mod tests {
         for dark in [true, false] {
             let t = Theme::for_mode(dark);
             assert!(ratio(Rings::of(&t).active, t.panel) > ratio(t.mark, t.panel) + 2.0);
+        }
+    }
+
+    /// Sul vetro la gerarchia resta: `fg` > `fg2` > `fg3` in contrasto, sui due fondi misurati.
+    #[test]
+    fn glass_text_keeps_its_hierarchy() {
+        for dark in [true, false] {
+            let t = Theme::for_mode(dark);
+            let g = t.on_glass();
+            for bg in glass_grounds(&t) {
+                assert!(ratio(t.fg, bg) > ratio(g.fg2, bg) && ratio(g.fg2, bg) > ratio(g.fg3, bg) + 0.3, "scuro {dark}");
+            }
+            assert_eq!((g.fg, g.body, g.panel, g.glass), (t.fg, t.body, t.panel, t.glass), "solo fg2 e fg3 cambiano");
         }
     }
 

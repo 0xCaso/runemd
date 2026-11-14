@@ -380,6 +380,9 @@ pub(super) fn small_font() -> TextStyle {
 pub fn view<S: 'static>(s: &S, hooks: Hooks<S>, width: f32, theme: &Theme, reduced: bool, hover: bool) -> El {
     let sb = (hooks.get)(s);
     let motion = Motion { reduced, hover };
+    // Tutto ciò che sta nella sidebar sta sul vetro: i suoi grigi (`Theme::on_glass`).
+    let glass = theme.on_glass();
+    let theme = &glass;
     let mut side = col().key("sidebar").w(width).h_full().pt(SIDEBAR_TOP).px(SIDEBAR_PAD).pb(SIDEBAR_BOTTOM).child(if sb.new_file.open { super::new_file::field(sb, hooks, theme) } else { quick_open::field(sb, hooks, theme) });
     if sb.no_access {
         side = side.child(no_access(sb, hooks, theme, motion));
