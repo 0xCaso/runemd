@@ -1,3 +1,35 @@
+# v1: tutte le soglie (task 28)
+
+14/11 15:56–15:59, `make app` a `7698fa5`, Mac sbloccato con un solo schermo attivo (esterno 3440×1440 a 100 Hz,
+lo stesso delle misure del 13/11; lo schermo Retina non era attivo), app di Matteo aperte (Spotify, browser, T3 Code).
+Il load average non è sceso sotto 3: dopo 20 minuti di attesa (minimo 6,9) si è misurato lo stesso. Ogni riga ha
+il load average a 1 minuto (`sysctl vm.loadavg`) prima e dopo la corsa. Compositor, sidebar e watcher attivi;
+l'app vera usa le cartelle osservate delle impostazioni (`~/Desktop/GitHub`, 6986 file nell'indice). WORKDIR
+`/tmp/runemd-bench` con `build/RuneMD.app`, `fixtures/normal.md`, `fixtures/big.md`. Spike: numeri di
+`rune-md-spike/docs/spike/2026-11-13-rune-vs-md-light.md`, macchina scarica.
+
+| soglia | comando | load | v1 | spike | esito |
+|---|---|---|---|---|---|
+| avvio warm ≤ 350 ms (p50), normal | `bench/startup.sh /tmp/runemd-bench 5 warm` | 7,1 → 19,3 | p50 **293** [280–1394] | 302 [269–953] | sì |
+| avvio warm ≤ 350 ms (p50), big | idem | idem | p50 **297** [281–330] | 295 [279–320] | sì |
+| sidebar riempita ≤ 1 s dopo il primo frame | `RUNE_DIRS_ROOT=<tmp> MDSPIKE_LOG=… runemd normal.md`, 4 lanci, il primo senza cache | 17,6 → 18,0 | con la cache: 6986 voci lette prima del primo frame (3,0–3,4 ms), Recenti pieni **al primo frame**; scansione finita 1,0–1,9 s dopo. Senza cache: scansione 0,84 s dopo il primo frame | — (lo spike non aveva sidebar) | sì |
+| refresh persi in scroll ≤ 3 %, normal | `bench/scroll.sh /tmp/runemd-bench 3` | 17,3 → 18,6 | **8,6–11,5 %**; dt p95 19,2–19,4 ms | 2,4 % | **no** |
+| refresh persi in scroll ≤ 3 %, big | idem | idem | **12,5–14,3 %**; dt p95 19,5–19,7 ms | 2,6 % | **no** |
+| memoria a riposo su big ≤ 100 MB | `bench/memory.sh /tmp/runemd-bench 3` | 19,3 → 17,2 | **87–90 MB** (normal 68–89) | 78 [73–97] | sì |
+| scrittura → frame ≤ 150 ms | finestra vera, `MDSPIKE_LATENCY`, 25 append a una copia di big.md ogni 200 ms | 17,6 → 17,2 | p50 90,4, **p95 105,6**, max 110,1 (25 campioni) | — | sì |
+| modifica p95 ≤ 8 ms per frame su big | `bench/edit_big.sh` (headless) | 17,2 | p50 1,43, **p95 2,42**, max 4,15 | p95 5,6 (paragrafo di 6 KB) | sì |
+
+Percentuale dei refresh persi come nelle misure del 13/11: `missed_refreshes / (frames + missed_refreshes)` per
+corsa, dalle righe di `scroll_summary.log` (stessa formula: le corse del 13/11 danno 1,3–4,3 % e 4,0–6,5 %).
+
+**Scroll: soglia mancata.** Il 13/11 (task 2), sullo stesso schermo a 100 Hz e con load average 72–79, le stesse
+corse davano 3,0 % e 5,3 %; oggi 9,8 % e 13,2 % (medie), con dt p95 di 19 ms contro 13–16. Il tempo CPU dei frame
+non lo spiega: `bench/outline_scroll.sh` (headless, big, 1280×800, stesso momento, load 17,2) dà p50 0,85, p95
+4,16, max 15,3 ms, sotto il periodo di 10 ms. Ipotesi, non verificata: il costo è nella presentazione (GPU e
+WindowServer, al 43 % di CPU nel campione di `ps` delle 15:35), per esempio il vetro di sistema (`El::system_material`, da `320df94`) o il
+carico degli altri processi. Da rimisurare a macchina scarica e, se resta, confrontare con il binario di `c727ff7`
+(prima del vetro) sulla stessa macchina.
+
 # Perf: compositor rune-fx a riposo (task 2)
 
 Build `make app` (profilo perf), WORKDIR `/tmp/runemd-bench` (fuori da Desktop: TCC), Mac con schermo bloccato.
