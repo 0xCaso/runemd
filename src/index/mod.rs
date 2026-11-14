@@ -134,10 +134,16 @@ impl Index {
     /// Le voci sotto `dir` sono contigue nell'ordine per componenti: un intervallo, senza
     /// scorrere tutto l'indice.
     fn drop_under(&mut self, dir: &Path) -> bool {
+        let range = self.range_under(dir);
+        let any = !range.is_empty();
+        self.entries.drain(range);
+        any
+    }
+
+    fn range_under(&self, dir: &Path) -> std::ops::Range<usize> {
         let start = self.entries.partition_point(|e| e.path.as_path() < dir);
         let len = self.entries[start..].iter().take_while(|e| e.path.starts_with(dir)).count();
-        self.entries.drain(start..start + len);
-        len > 0
+        start..start + len
     }
 
     /// Mette (`Some`) o toglie (`None`) la voce di `path`. Vero se è cambiato qualcosa.
@@ -202,7 +208,6 @@ impl Index {
     }
 
     /// Le `n` voci cambiate più di recente, dalla più nuova (a parità di mtime, per percorso).
-    #[cfg_attr(not(test), allow(dead_code))] // letto da Recenti (task 16); oggi solo dai test
     pub fn recent(&self, n: usize) -> Vec<&Entry> {
         let newest_first = |a: &&Entry, b: &&Entry| b.mtime.cmp(&a.mtime).then_with(|| a.path.cmp(&b.path));
         let mut out: Vec<&Entry> = self.entries.iter().collect();
@@ -212,6 +217,12 @@ impl Index {
         }
         out.sort_by(newest_first);
         out
+    }
+
+    /// Le voci sotto `dir`, in ordine di percorso: un intervallo dell'indice, senza scorrerlo
+    /// tutto (l'albero del repo del file).
+    pub fn under(&self, dir: &Path) -> &[Entry] {
+        &self.entries[self.range_under(dir)]
     }
 
     /// Tutti i percorsi, in ordine alfabetico (Cmd+P, albero del repo).

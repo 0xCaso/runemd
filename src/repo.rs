@@ -3,7 +3,6 @@
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(not(test), allow(dead_code))] // letto dalla sidebar (task 16)
 pub struct Repo {
     pub root: PathBuf,
     pub name: String,
@@ -12,7 +11,6 @@ pub struct Repo {
 
 /// Cerca la prima cartella con `.git` risalendo dalla cartella del file;
 /// se non c'è, la radice è la cartella del file e il branch è `None`.
-#[cfg_attr(not(test), allow(dead_code))] // usata dalla sidebar (task 16)
 pub fn of(file: &Path) -> Repo {
     let dir = file.parent().unwrap_or(file);
     let root = dir
@@ -24,14 +22,18 @@ pub fn of(file: &Path) -> Repo {
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_default();
-    let branch = head_path(&root)
-        .and_then(|h| std::fs::read_to_string(h).ok())
-        .and_then(|t| parse_head(&t));
+    let branch = branch(&root);
     Repo { root, name, branch }
 }
 
+/// Il branch del repo con radice `root` (sha corto con HEAD staccato); `None` se non si legge.
+pub fn branch(root: &Path) -> Option<String> {
+    head_path(root)
+        .and_then(|h| std::fs::read_to_string(h).ok())
+        .and_then(|t| parse_head(&t))
+}
+
 /// File HEAD realmente usato dal repo; con `.git` file (worktree) segue `gitdir:`.
-#[cfg_attr(not(test), allow(dead_code))] // usata dal watcher (task 16)
 pub fn head_path(root: &Path) -> Option<PathBuf> {
     let git = root.join(".git");
     if git.is_dir() {

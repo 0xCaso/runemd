@@ -50,18 +50,26 @@ enum Key {
 /// scrive `HEAD`; pull e `reset --hard` spostano solo i ref, ma scrivono `ORIG_HEAD` e
 /// `FETCH_HEAD`. Per l'app sono tutti "il repo ha cambiato HEAD" (`FsEvent::GitHead`).
 ///
-/// Limite noto: riconosce solo un genitore chiamato `.git`. Nei worktree `.git` è un file
-/// (`gitdir: ...`) e nei submodule HEAD sta in `.git/modules/<m>/HEAD`: in entrambi i casi non
-/// esce `GitHead`. Il task che mostra il ramo aggiungerà il supporto.
+/// In un worktree `.git` è un file (`gitdir: ...`) e HEAD sta in
+/// `<repo principale>/.git/worktrees/<nome>/HEAD`: la radice è la cartella del worktree, letta
+/// dal file `gitdir` accanto (che punta al `.git` del worktree). Limite noto: nei submodule HEAD
+/// sta in `.git/modules/<m>/HEAD` e non esce `GitHead`.
 fn git_head_root(path: &Path) -> Option<PathBuf> {
     if !["HEAD", "ORIG_HEAD", "FETCH_HEAD"].iter().any(|n| path.file_name() == Some(n.as_ref())) {
         return None;
     }
     let git = path.parent()?;
-    if git.file_name()? != ".git" {
+    if git.file_name()? == ".git" {
+        return git.parent().map(Path::to_path_buf);
+    }
+    let worktrees = git.parent()?;
+    if worktrees.file_name()? != "worktrees" || worktrees.parent()?.file_name()? != ".git" {
         return None;
     }
-    git.parent().map(Path::to_path_buf)
+    let target = std::fs::read_to_string(git.join("gitdir")).ok()?;
+    let dot_git = git.join(target.trim());
+    let root = dot_git.parent()?;
+    Some(root.canonicalize().unwrap_or_else(|_| root.to_owned()))
 }
 
 /// La logica senza thread né notify, per provarla con un orologio finto.
@@ -787,5 +795,23 @@ mod tests {
         let mut core = Core::new();
         core.observe(PathBuf::from("/r/.git/ORIG_HEAD"), t0);
         assert_eq!(core.drain(t0 + Duration::from_millis(60)), vec![FsEvent::GitHead(PathBuf::from("/r"))]);
+    }
+
+    /// In un worktree HEAD sta nel repo principale: l'evento porta la radice del worktree,
+    /// letta dal file `gitdir`. Una cartella `worktrees` fuori da `.git` non conta.
+    #[test]
+    fn worktree_head_is_a_head_event_of_the_worktree() {
+        let d = tempfile::tempdir().unwrap();
+        let base = d.path().canonicalize().unwrap();
+        let admin = base.join("main/.git/worktrees/wt");
+        fs::create_dir_all(&admin).unwrap();
+        let wt = base.join("wt");
+        fs::create_dir_all(&wt).unwrap();
+        fs::write(admin.join("gitdir"), format!("{}\n", wt.join(".git").display())).unwrap();
+        assert_eq!(git_head_root(&admin.join("HEAD")), Some(wt.clone()));
+        fs::write(admin.join("gitdir"), "../../../../wt/.git\n").unwrap();
+        assert_eq!(git_head_root(&admin.join("HEAD")), Some(wt), "gitdir relativo");
+        assert_eq!(git_head_root(&base.join("x/worktrees/wt/HEAD")), None);
+        assert_eq!(git_head_root(&base.join("main/.git/worktrees/missing/HEAD")), None, "senza gitdir");
     }
 }

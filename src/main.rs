@@ -26,8 +26,9 @@ mod repo;
 mod ui;
 mod watch;
 
-use std::path::PathBuf;
-use std::time::{Duration, Instant};
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant, SystemTime};
 
 use rune::{App, AppSpec, Cx, El, Tx, Waker, el};
 use rune_kit::MarkdownStyle;
@@ -43,12 +44,14 @@ pub struct Doc {
     generation: u64,
     /// Watcher e rilettura del file aperto.
     live: live::Live,
-    /// L'orologio di Rune (`poll`) a cui si è acceso l'anello "sta scrivendo" del file aperto;
-    /// `None` quando è spento.
-    ring_since: Option<f64>,
+    /// I file che "stanno scrivendo" e l'orologio di Rune (`poll`) a cui si è acceso il loro
+    /// anello: le loro righe in Recenti e nell'albero lo mostrano.
+    rings: BTreeMap<PathBuf, f64>,
     /// L'indice dei Markdown nelle cartelle osservate (Recenti, Cmd+P).
     library: index::Library,
-    /// Il risveglio armato per spegnere l'anello: uno per finestra, non uno a frame.
+    /// Recenti e il repo del file aperto.
+    sidebar: ui::sidebar::Sidebar,
+    /// Il risveglio armato per spegnere il primo anello che scade: uno per fine, non uno a frame.
     ring_wake: Option<Wake>,
     /// Il fuoco: i blocchi nuovi o cambiati sotto la vista.
     below: live::below::Below,
@@ -100,9 +103,9 @@ fn rearm(wake: &mut Option<Wake>, left: Option<Duration>, clock: f64, now: Insta
 }
 
 impl Doc {
-    /// L'anello "sta scrivendo" è acceso: il compositor scorre le istanze solo allora.
+    /// Un anello "sta scrivendo" è acceso: il compositor scorre le istanze solo allora.
     pub fn ring_lit(&self) -> bool {
-        self.ring_since.is_some()
+        !self.rings.is_empty()
     }
 
     /// Un effetto per slot è acceso (anello, fuoco o dither): il compositor scorre le istanze
@@ -187,23 +190,37 @@ impl Doc {
         self.below.count() != before || self.fire_since != was
     }
 
-    /// Accende o spegne l'anello secondo `Live` a `now`; vero se è cambiato. Ritorna anche il
-    /// risveglio da chiedere: a fine finestra `poll` lo spegne anche se nessun frame è passato
+    /// Accende o spegne gli anelli secondo `Live` a `now`; vero se è cambiato. Ritorna anche il
+    /// risveglio da chiedere: a fine finestra `poll` li spegne anche se nessun frame è passato
     /// in mezzo (con "riduci movimento" non ne passano).
     fn update_ring(&mut self, clock: f64, now: Instant) -> (bool, Option<Duration>) {
-        self.ring_step(self.live.writing_left(now), clock, now)
+        self.ring_step(&self.live.writing(now), clock, now)
     }
 
-    /// `update_ring` con `left` (fra quanto finisce la finestra, a `now`) già calcolato; il
-    /// risveglio viene da [`rearm`].
-    fn ring_step(&mut self, left: Option<Duration>, clock: f64, now: Instant) -> (bool, Option<Duration>) {
-        let wake = rearm(&mut self.ring_wake, left, clock, now);
-        let lit = left.is_some();
-        if lit == self.ring_lit() {
-            return (false, wake);
+    /// `update_ring` con i file che stanno scrivendo e fra quanto smettono (a `now`) già
+    /// calcolati. Un file già acceso tiene il suo orologio; il risveglio, per il primo che
+    /// scade, viene da [`rearm`].
+    fn ring_step(&mut self, writing: &[(PathBuf, Duration)], clock: f64, now: Instant) -> (bool, Option<Duration>) {
+        let wake = rearm(&mut self.ring_wake, writing.iter().map(|(_, d)| *d).min(), clock, now);
+        let rings: BTreeMap<PathBuf, f64> = writing.iter().map(|(p, _)| (p.clone(), self.rings.get(p).copied().unwrap_or(clock))).collect();
+        let changed = rings != self.rings;
+        self.rings = rings;
+        (changed, wake)
+    }
+
+    /// L'orologio a cui si è acceso l'anello di `path`, se "sta scrivendo" (per la sidebar).
+    fn ring_of(&self, path: &Path) -> Option<f64> {
+        self.rings.get(path).copied()
+    }
+
+    /// Un clic su una riga della sidebar: il file va nel lettore (per ora al posto di quello
+    /// aperto; le schede sono il task 19). Il file già aperto non si ricarica.
+    fn open_from_sidebar(&mut self, path: PathBuf, tx: &mut Tx) {
+        let same = self.document.as_ref().is_some_and(|d| d.path == path || d.path.canonicalize().ok().as_ref() == Some(&path));
+        if !same {
+            self.open_paths(vec![path]);
+            tx.scroll_to_instant("doc", 0.0, 0.0);
         }
-        self.ring_since = lit.then_some(clock);
-        (true, wake)
     }
 
     /// Apre i percorsi ricevuti (Finder, riga di comando). Per ora un solo documento: vale
@@ -217,6 +234,7 @@ impl Doc {
         match Document::load(path) {
             Ok(document) => {
                 self.live.watch(path);
+                self.sidebar.set_open(path, &self.library.index);
                 self.document = Some(document);
                 self.generation += 1;
                 // Un altro file: niente fuoco e nessuna ancora finché la vista non riporta righe.
@@ -249,7 +267,9 @@ fn init() -> Doc {
     let t = Instant::now();
     let library = index::Library::load(index::roots(), index::cache_path());
     probe::index_cached(t.elapsed(), library.index.len());
-    let mut doc = Doc { document: None, style: ui::markdown_style::style(&ui::theme::Theme::for_mode(dark_mode()), 15.5), scroll: probe::ScrollRun::from_env(), generation: 0, live: live::Live::default(), library, ring_since: None, ring_wake: None, below: live::below::Below::default(), visible_last: 0, fire_since: None, fire_armed: None, window_active: true, changed: live::arriving::Changed::default(), mark_wake: None, dither_since: None };
+    let mut doc = Doc { document: None, style: ui::markdown_style::style(&ui::theme::Theme::for_mode(dark_mode()), 15.5), scroll: probe::ScrollRun::from_env(), generation: 0, live: live::Live::default(), library, sidebar: ui::sidebar::Sidebar::default(), rings: BTreeMap::new(), ring_wake: None, below: live::below::Below::default(), visible_last: 0, fire_since: None, fire_armed: None, window_active: true, changed: live::arriving::Changed::default(), mark_wake: None, dither_since: None };
+    // Recenti dalla cache: la sidebar è piena dal primo frame.
+    doc.sidebar.refresh(&doc.library.index, SystemTime::now());
     doc.open_paths(paths);
     doc
 }
@@ -276,7 +296,8 @@ fn view(s: &Doc, cx: &mut Cx<Doc>) -> El {
     } else {
         el()
     };
-    // Vetro di sistema attorno, pannello pieno a `FRAME` dai bordi con il documento.
+    // Pannello pieno con il documento, a `FRAME` dai bordi alto, destro e basso; a sinistra la
+    // sidebar, tutto sul vetro di sistema.
     let mut panel = el().w_full().h_full().fill(theme.panel).radius(ui::theme::R_PANEL).clip_rounded(ui::theme::R_PANEL).child(body);
     // Il fuoco: una fascia sul fondo del pannello, sopra il documento, con l'etichetta. Fuori
     // dal flusso, così il documento e il suo scroll non si muovono quando compare.
@@ -290,17 +311,12 @@ fn view(s: &Doc, cx: &mut Cx<Doc>) -> El {
         let label = rune::text(ui::doc_view::fire_label(s.below.count())).font(rune::TextStyle::new(ui::theme::UI_TEXT, 400.0)).color(ink);
         panel = panel.child(band("fire-label").items_center().justify_end().pb(ui::theme::FIRE_LABEL_BOTTOM).child(label));
     }
-    // L'anello "sta scrivendo" sta in uno slot attorno al pannello, sempre presente perché la
-    // struttura (e lo scroll del documento) non cambi quando si accende.
-    // TODO(task 16/19): ospite temporaneo. L'anello va sulla scheda del file (task 19), sulla sua
-    // riga in Recenti e nell'albero (task 16), con `fx::ring::slot` e `Mark::TabRing`,
-    // `RecentRing`, `TreeRing`; il pannello del lettore poi non ne ha più.
-    let host = el().w_full().h_full().radius(ui::theme::R_PANEL).child(panel);
-    let host = match s.ring_since {
-        Some(since) => fx::ring::slot(host, fx::Mark::TabRing(0), since, cx.is_reduced_motion()),
-        None => host,
-    };
-    el().w_full().h_full().system_material(rune::SystemMaterial::Glass).fill(theme.glass).padding(ui::theme::FRAME).child(host)
+    // L'anello "sta scrivendo" sta sulle righe del file in Recenti e nell'albero; la scheda è il
+    // task 19.
+    let hooks = ui::sidebar::Hooks { get: |s: &Doc| &s.sidebar, get_mut: |s: &mut Doc| &mut s.sidebar, open: Doc::open_from_sidebar, ring: Doc::ring_of };
+    let sidebar = ui::sidebar::view(s, hooks, &theme, cx.is_reduced_motion(), !cx.hover_none());
+    let main = el().key("main").grow(1.0).min_w(0.0).h_full().pt(ui::theme::FRAME).pr(ui::theme::FRAME).pb(ui::theme::FRAME).child(panel);
+    rune::row().w_full().h_full().system_material(rune::SystemMaterial::Glass).fill(theme.glass).child(sidebar).child(main)
         .on_window_focus(|s: &mut Doc, focused, _| s.window_active = focused)
 }
 
@@ -327,12 +343,23 @@ fn poll(s: &mut Doc, clock: f64, tx: &mut Tx) -> bool {
     if let Some(r) = &reloaded {
         probe::reloaded(r);
     }
-    // L'indice legge gli stessi eventi. Nessuna vista lo mostra ancora (task 16): un suo cambio
-    // non chiede un frame.
+    // L'indice legge gli stessi eventi; Recenti e l'albero si ricalcolano solo se cambia.
     let was_scanned = s.library.scanned;
-    s.library.poll(s.live.drained(), Instant::now());
+    let indexed = s.library.poll(s.live.drained(), Instant::now());
     if s.library.scanned && !was_scanned {
         probe::index_scanned(s.library.index.len());
+    }
+    let wall = SystemTime::now();
+    let mut side = if indexed { s.sidebar.refresh(&s.library.index, wall) } else { s.sidebar.tick(wall) };
+    // Il branch: un cambio di HEAD del repo del file aperto (worktree compresi, `repo::head_path`).
+    for ev in s.live.drained() {
+        if let watch::FsEvent::GitHead(root) = ev {
+            side |= s.sidebar.git_head(root);
+        }
+    }
+    // I tempi di Recenti cambiano col tempo: un risveglio al prossimo cambio, non frame continui.
+    if let Some(d) = s.sidebar.label_wake(wall, clock) {
+        tx.wake_after(d);
     }
     let fire = reloaded.as_ref().is_some_and(|r| s.note_reload(&r.change, clock));
     // Il fuoco si accende dopo una ricarica che porta testo sotto la vista (`note_reload`, o il
@@ -353,7 +380,7 @@ fn poll(s: &mut Doc, clock: f64, tx: &mut Tx) -> bool {
     if let Some(d) = wake {
         tx.wake_after(d);
     }
-    let changed = opened || reloaded.is_some() || ring || fire || dither || marks;
+    let changed = opened || reloaded.is_some() || ring || fire || dither || marks || side;
     let Some(run) = s.scroll.as_mut() else { return changed };
     if let Some(y) = run.step(clock) {
         tx.scroll_to_instant("doc", 0.0, y);
@@ -382,7 +409,7 @@ mod tests {
     use super::*;
 
     fn empty_doc() -> Doc {
-        Doc { document: None, style: ui::markdown_style::style(&ui::theme::Theme::for_mode(true), 15.5), scroll: None, generation: 0, live: live::Live::default(), library: index::Library::load(Vec::new(), None), ring_since: None, ring_wake: None, below: live::below::Below::default(), visible_last: 0, fire_since: None, fire_armed: None, window_active: true, changed: live::arriving::Changed::default(), mark_wake: None, dither_since: None }
+        Doc { document: None, style: ui::markdown_style::style(&ui::theme::Theme::for_mode(true), 15.5), scroll: None, generation: 0, live: live::Live::default(), library: index::Library::load(Vec::new(), None), sidebar: ui::sidebar::Sidebar::default(), rings: BTreeMap::new(), ring_wake: None, below: live::below::Below::default(), visible_last: 0, fire_since: None, fire_armed: None, window_active: true, changed: live::arriving::Changed::default(), mark_wake: None, dither_since: None }
     }
 
     /// Con "riduci movimento" non passa nessun frame: `poll` gira solo ai risvegli. Rune misura
@@ -395,19 +422,20 @@ mod tests {
         let ms = |n| Duration::from_millis(n);
         let window = live::activity::WRITING_WINDOW;
         let mut doc = empty_doc();
+        let w = |d| vec![(PathBuf::from("/r/a.md"), d)];
         // Ricarica applicata a t0, al clock 100 s; il frame finisce 5 ms dopo l'inizio.
-        let (changed, wake) = doc.ring_step(Some(window), 100.0, t0);
+        let (changed, wake) = doc.ring_step(&w(window), 100.0, t0);
         assert!(changed && doc.ring_lit());
         let wake = wake.expect("un risveglio alla fine");
         // Nessun frame in mezzo: solo il risveglio, che arriva 5 ms prima della fine sul muro.
         let clock = 100.0 + wake.as_secs_f64();
         let now = t0 + window - ms(5);
-        let (changed, again) = doc.ring_step(Some(ms(5)), clock, now);
+        let (changed, again) = doc.ring_step(&w(ms(5)), clock, now);
         assert!(!changed && doc.ring_lit());
         let again = again.expect("il risveglio in anticipo ne arma un altro");
         assert!(again >= ms(5));
         // Al secondo risveglio la finestra è finita.
-        let (changed, last) = doc.ring_step(None, clock + again.as_secs_f64(), now + again);
+        let (changed, last) = doc.ring_step(&[], clock + again.as_secs_f64(), now + again);
         assert!(changed && !doc.ring_lit(), "spento a fine finestra");
         assert_eq!(last, None, "nessun altro risveglio");
     }
@@ -418,11 +446,31 @@ mod tests {
         let t0 = Instant::now();
         let window = live::activity::WRITING_WINDOW;
         let mut doc = empty_doc();
-        assert!(doc.ring_step(Some(window), 0.0, t0).1.is_some());
+        let w = |d| vec![(PathBuf::from("/r/a.md"), d)];
+        assert!(doc.ring_step(&w(window), 0.0, t0).1.is_some());
         let dt = Duration::from_millis(16);
-        assert_eq!(doc.ring_step(Some(window - dt), 0.016, t0 + dt).1, None);
+        assert_eq!(doc.ring_step(&w(window - dt), 0.016, t0 + dt).1, None);
         // Una nuova scrittura allunga la finestra: un risveglio per la fine nuova.
-        assert!(doc.ring_step(Some(window), 0.032, t0 + 2 * dt).1.is_some());
+        assert!(doc.ring_step(&w(window), 0.032, t0 + 2 * dt).1.is_some());
+    }
+
+    /// Due file che scrivono: ognuno tiene l'orologio a cui si è acceso, il risveglio è per il
+    /// primo che finisce, e quando finisce si spegne solo il suo anello.
+    #[test]
+    fn each_writing_file_has_its_own_ring() {
+        let t0 = Instant::now();
+        let window = live::activity::WRITING_WINDOW;
+        let ms = |n| Duration::from_millis(n);
+        let (a, b) = (PathBuf::from("/r/a.md"), PathBuf::from("/r/b.md"));
+        let mut doc = empty_doc();
+        doc.ring_step(&[(a.clone(), window)], 1.0, t0);
+        let (changed, wake) = doc.ring_step(&[(a.clone(), window - ms(2000)), (b.clone(), window)], 3.0, t0 + ms(2000));
+        assert!(changed);
+        assert_eq!(wake, None, "il primo che finisce è ancora `a`: il risveglio armato vale");
+        assert_eq!((doc.ring_of(&a), doc.ring_of(&b)), (Some(1.0), Some(3.0)));
+        let (changed, wake) = doc.ring_step(&[(b.clone(), ms(2000))], 11.0, t0 + window);
+        assert!(changed && doc.ring_of(&a).is_none() && doc.ring_of(&b) == Some(3.0));
+        assert_eq!(wake, Some(ms(2001)), "poi quello di `b`");
     }
 
     /// Come l'anello: il risveglio per il segno che scade arriva in anticipo sul muro, ne arma
@@ -478,7 +526,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let f = dir.join("a.md");
         std::fs::write(&f, "# a\n\nb\n").unwrap();
-        let mut doc = Doc { document: None, style: ui::markdown_style::style(&ui::theme::Theme::for_mode(true), 15.5), scroll: None, generation: 0, live: live::Live::default(), library: index::Library::load(Vec::new(), None), ring_since: None, ring_wake: None, below: live::below::Below::default(), visible_last: 0, fire_since: None, fire_armed: None, window_active: true, changed: live::arriving::Changed::default(), mark_wake: None, dither_since: None };
+        let mut doc = Doc { document: None, style: ui::markdown_style::style(&ui::theme::Theme::for_mode(true), 15.5), scroll: None, generation: 0, live: live::Live::default(), library: index::Library::load(Vec::new(), None), sidebar: ui::sidebar::Sidebar::default(), rings: BTreeMap::new(), ring_wake: None, below: live::below::Below::default(), visible_last: 0, fire_since: None, fire_armed: None, window_active: true, changed: live::arriving::Changed::default(), mark_wake: None, dither_since: None };
         doc.open_paths(vec![f.clone()]);
         // Rune rilegge le chiavi solo se la versione cambia: anche lo stesso file invariato,
         // riaperto, deve cambiare versione e chiavi.

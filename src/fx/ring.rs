@@ -17,11 +17,11 @@ pub const RING_W: f32 = 1.5;
 pub const ENTER: f32 = 0.22;
 /// Un giro dello studio riflesso ogni 3 s.
 pub const TURN: f32 = 3.0;
-#[cfg_attr(not(test), allow(dead_code))] // le righe dei task 16 e 19; oggi l'ospite è il pannello
+#[cfg_attr(not(test), allow(dead_code))] // il compositor usa `layer_rounded` col raggio dello slot
 /// Raggio della riga (`theme::R_ROW`): l'anello lo allarga di `RING_W`.
 pub const ROW_RADIUS: f32 = crate::ui::theme::R_ROW;
 
-#[cfg_attr(not(test), allow(dead_code))] // le righe dei task 16 e 19; oggi l'ospite è il pannello
+#[cfg_attr(not(test), allow(dead_code))] // il compositor usa `layer_rounded` col raggio dello slot
 /// L'anello attorno a `rect` (la riga, in pt), `t` secondi dopo che si è acceso.
 /// `.border` dipinge dentro la forma (rune-fx README, "Fills"): la forma è il rect allargato di
 /// `RING_W` per lato, così la banda sta tutta fuori dalla riga. Con `reduced` è fermo e
@@ -30,7 +30,7 @@ pub fn layer(rect: Rect, t: f32, reduced: bool) -> FxLayer {
     layer_rounded(rect, ROW_RADIUS, t, reduced)
 }
 
-/// Come [`layer`], per una riga con raggio `radius` (il pannello del lettore, oggi).
+/// Come [`layer`], per uno slot con raggio `radius` (le righe della sidebar; la scheda, task 19).
 pub fn layer_rounded(rect: Rect, radius: f32, t: f32, reduced: bool) -> FxLayer {
     let t = if reduced { 0.0 } else { t.max(0.0) };
     let base = LiquidMetalParams::chrome();

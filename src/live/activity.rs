@@ -1,7 +1,9 @@
 //! Stato "sta scrivendo": quali file un agente ha scritto da poco.
 //!
-//! `Live` chiama `touch` solo per una ricarica esterna applicata (mai per le scritture dell'app,
-//! le letture saltate o quelle sospette trattenute) e `git_head` per ogni cambio di `.git/HEAD`.
+//! `Live` chiama `touch` per una ricarica esterna applicata del file aperto (mai per le scritture
+//! dell'app, le letture saltate o quelle sospette trattenute), per un `Changed` di un altro file
+//! scritto da poco (le righe di Recenti e dell'albero, task 16) e `git_head` per ogni cambio di
+//! `.git/HEAD`.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -47,9 +49,15 @@ impl Activity {
         self.heads.insert(repo.to_owned(), now);
     }
 
-    #[cfg_attr(not(test), allow(dead_code))] // le righe di Recenti e albero (task 16)
+    #[cfg_attr(not(test), allow(dead_code))] // le righe leggono `writing`; qui per i test
     pub fn is_writing(&self, path: &Path, now: Instant) -> bool {
         self.left(path, now).is_some()
+    }
+
+    /// I file che "stanno scrivendo" a `now` e fra quanto smettono (le righe di Recenti e
+    /// dell'albero).
+    pub fn writing(&self, now: Instant) -> impl Iterator<Item = (&Path, Duration)> {
+        self.touched.keys().filter_map(move |p| Some((p.as_path(), self.left(p, now)?)))
     }
 
     /// Fra quanto `path` smette di essere "sta scrivendo", se lo è ora.

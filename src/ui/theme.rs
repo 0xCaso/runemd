@@ -11,6 +11,8 @@ pub const TREE_ROW: f32 = 26.0;
 pub const TREE_INDENT: f32 = 16.0;
 /// Testo UI (DESIGN.md, `typography.ui`): 13 pt, peso 400.
 pub const UI_TEXT: f32 = 13.0;
+/// UI piccola (DESIGN.md, `typography.ui-small`): 12 pt, peso 500. Tempi, sezioni, branch.
+pub const UI_SMALL: f32 = 12.0;
 /// L'etichetta del fuoco sta a questa distanza dal fondo del pannello.
 pub const FIRE_LABEL_BOTTOM: f32 = 10.0;
 /// Corpo del documento (DESIGN.md, `typography.doc-body`): 15,5 pt, interlinea 1,62.

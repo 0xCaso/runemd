@@ -76,20 +76,27 @@ struct Job {
     timed: bool,
 }
 
-/// La radice del repo di `path`: la cartella più vicina, sopra il file, che contiene `.git/`.
-/// Worktree e submodule (`.git` file) non si riconoscono: stesso limite del watcher.
-fn repo_of(path: &Path) -> Option<PathBuf> {
-    path.ancestors().skip(1).find(|d| d.join(".git").is_dir()).map(Path::to_path_buf)
-}
-
-/// Guarda la cartella di `path` e il `.git` del suo repo (per `.git/HEAD`), senza sottocartelle.
+/// Guarda la cartella di `path` e la cartella del file HEAD del suo repo, senza sottocartelle:
+/// `.git/` in un repo, `<repo principale>/.git/worktrees/<nome>/` in un worktree (`repo::head_path`).
 fn watch_roots(watcher: &mut Watcher, path: &Path) {
     if let Some(root) = root_of(path) {
         watcher.add_root(root, false);
     }
-    if let Some(repo) = repo_of(path) {
-        watcher.add_root(repo.join(".git"), false);
+    if let Some(dir) = head_dir(path) {
+        watcher.add_root(dir, false);
     }
+}
+
+/// La cartella del file HEAD del repo di `path`; `None` fuori da un repo.
+fn head_dir(path: &Path) -> Option<PathBuf> {
+    crate::repo::head_path(&crate::repo::of(path).root)?.parent().map(Path::to_path_buf)
+}
+
+/// Vero se `path` è cambiato da meno della finestra "sta scrivendo": un `Changed` che rilegge i
+/// file noti dopo eventi persi (`Core::rescan`) non accende l'anello di file fermi da ore.
+fn written_recently(path: &Path) -> bool {
+    let modified = std::fs::metadata(path).and_then(|m| m.modified());
+    modified.is_ok_and(|m| SystemTime::now().duration_since(m).unwrap_or_default() < activity::WRITING_WINDOW)
 }
 
 /// La cartella da guardare per `path` (non ricorsiva).
@@ -150,11 +157,19 @@ impl Live {
         self.activity.left(self.watched.as_deref()?, now)
     }
 
-    /// Gli eventi che non sono ricariche: un cambio di `.git/HEAD`.
+    /// I file che "stanno scrivendo" a `now`, aperto compreso, e fra quanto smettono.
+    pub fn writing(&self, now: Instant) -> Vec<(PathBuf, Duration)> {
+        self.activity.writing(now).map(|(p, d)| (p.to_owned(), d)).collect()
+    }
+
+    /// Gli eventi che non sono ricariche del file aperto: un cambio di `.git/HEAD`, o un altro
+    /// file scritto da poco (lo scrive un agente: l'app scrive solo il file aperto).
     fn note(&mut self, events: &[FsEvent], now: Instant) {
         for e in events {
-            if let FsEvent::GitHead(repo) = e {
-                self.activity.git_head(repo, now);
+            match e {
+                FsEvent::GitHead(repo) => self.activity.git_head(repo, now),
+                FsEvent::Changed(p) if self.watched.as_ref() != Some(p) && written_recently(p) => self.activity.touch(p, now),
+                _ => {}
             }
         }
     }
@@ -480,13 +495,37 @@ mod tests {
     }
 
     #[test]
-    fn repo_root_is_the_nearest_folder_with_git() {
+    fn head_dir_is_git_or_the_worktree_gitdir() {
         let dir = tempfile::tempdir().unwrap();
-        fs::create_dir_all(dir.path().join(".git")).unwrap();
-        fs::create_dir_all(dir.path().join("docs/sub")).unwrap();
-        assert_eq!(repo_of(&dir.path().join("docs/sub/a.md")).as_deref(), Some(dir.path()));
+        fs::create_dir_all(dir.path().join("main/.git/worktrees/wt")).unwrap();
+        fs::create_dir_all(dir.path().join("main/docs/sub")).unwrap();
+        assert_eq!(head_dir(&dir.path().join("main/docs/sub/a.md")), Some(dir.path().join("main/.git")));
+        let wt = dir.path().join("wt");
+        fs::create_dir_all(&wt).unwrap();
+        fs::write(wt.join(".git"), "gitdir: ../main/.git/worktrees/wt\n").unwrap();
+        assert_eq!(head_dir(&wt.join("a.md")), Some(wt.join("../main/.git/worktrees/wt")));
         let other = tempfile::tempdir().unwrap();
-        assert_eq!(repo_of(&other.path().join("a.md")), None);
+        assert_eq!(head_dir(&other.path().join("a.md")), None);
+    }
+
+    /// Un altro file scritto da poco "sta scrivendo" (righe di Recenti e albero); uno fermo da
+    /// ore riportato da un rescan no; il file aperto passa solo dalla ricarica.
+    #[test]
+    fn other_files_written_recently_are_writing() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("a.md");
+        fs::write(&path, "# a\n").unwrap();
+        let (mut live, _doc) = sync_live(&path);
+        let fresh = dir.path().join("b.md");
+        fs::write(&fresh, "# b\n").unwrap();
+        let old = dir.path().join("c.md");
+        fs::write(&old, "# c\n").unwrap();
+        fs::File::options().write(true).open(&old).unwrap().set_modified(SystemTime::now() - Duration::from_secs(3600)).unwrap();
+        let now = Instant::now();
+        let watched = live.watched.clone().unwrap();
+        live.note(&[FsEvent::Changed(fresh.clone()), FsEvent::Changed(old), FsEvent::Changed(watched)], now);
+        let writing: Vec<PathBuf> = live.writing(now).into_iter().map(|(p, _)| p).collect();
+        assert_eq!(writing, vec![fresh]);
     }
 
     #[test]
