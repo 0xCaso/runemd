@@ -184,7 +184,7 @@ disegna ogni frame con `FxRenderer`, più `El::effect(mark)` sugli elementi.
   aperto; i percorsi vengono dall'indice (solo cartelle con `.md`).
 - **Permessi**: `~/Desktop` è protetta (TCC). Il `.app` si firma sempre con lo stesso certificato locale, così il
   permesso resta dopo ogni build. Se l'accesso è negato, la sidebar lo dice ("Nessun accesso a Desktop") con il
-  link alle impostazioni di sistema.
+  link "Apri Impostazioni di Sistema" alle impostazioni di sistema.
 
 ### Schede
 
