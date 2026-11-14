@@ -7,7 +7,7 @@ colors:
   fg-light: "oklch(0.22 0.006 270)"
   fg-dark: "oklch(0.95 0.003 270)"
   fg2-light: "oklch(0.36 0.008 270)"
-  fg2-dark: "oklch(0.80 0.006 270)"
+  fg2-dark: "oklch(0.82 0.006 270)"
   fg3-light: "oklch(0.45 0.008 270)"
   fg3-dark: "oklch(0.72 0.008 270)"
   body-light: "oklch(0.28 0.006 270)"
@@ -142,17 +142,15 @@ Una scala di grigi OKLCH a bassissimo croma, in due temi. In Rune si scrivono ug
 | `panel` | 0.995 | 0.155 | Pannello del documento |
 | `fg` | 0.22 | 0.95 | Titoli, nomi file, testo forte |
 | `body` | 0.28 | 0.90 | Corpo del documento |
-| `fg-2` | 0.36 | 0.80 | Intestazioni di tabella, campo "Apri file" |
+| `fg-2` | 0.36 | 0.82 | Intestazioni di tabella, campo "Apri file" |
 | `fg-3` | 0.45 | 0.72 | Tempi, branch, etichette di sezione, meta del file |
 | `glass` | 0.965 / 86 % | 0.18 / 84 % | Cornice e sidebar, con blur 40 e saturazione 1,6 |
 | `line` | nero 9 % | bianco 14 % | Linee solo decorative: righe di tabella, linee guida dell'albero, bordi dei campi |
 | `sel` | nero 6 % | bianco 12 % | Riga selezionata, hover, selezione, riempimento dei risultati di Cerca |
 | `mark` | nero 9 % | `fg-3` scuro al 65 % | Segni con un significato: anello dei risultati di Cerca, segno "cambiato" |
 
-**Contrasto misurato** (WCAG, sui pixel degli screenshot `shots/scheda-{light,dark}-lettura.png`, 13/11/2026):
-`fg-3` sul pannello 5,4:1 in entrambi i temi; `fg-3` sul vetro della sidebar ≥ 4,5:1 nei punti peggiori dello
-sfondo (con `--glass` all'86 % / 84 %). Abbassare l'opacità del vetro sotto questi valori fa scendere `fg-3`
-sotto 4,5:1 (misurato: 2,1:1 con opacità 0,62).
+**Contrasto.** I rapporti di ogni token sono nella sezione "Contrasto" qui sotto. Abbassare l'opacità del vetro
+sotto 86 % / 84 % fa scendere `fg-3` sotto 4,5:1 (misurato sui mockup del 13/11/2026: 2,1:1 con opacità 0,62).
 
 Nell'app il vetro è `El::system_material` (Liquid Glass su macOS 26+): il sistema decide la tinta. Se il
 contrasto di `fg-3` scende sotto 4,5:1 sul materiale vero, si alza `fg-3`, non si toglie il vetro.
@@ -170,14 +168,16 @@ linee solo decorative e i riempimenti. I test falliscono se un minimo non è ris
 |---|---|---|---|---|---|
 | `fg` su panel | 16,89 | 16,89 | 17,07 | 17,07 | 4,5 |
 | `body` su panel | 14,50 | 14,50 | 14,39 | 14,39 | 4,5 |
-| `fg-2` su panel | 10,46 | 10,46 | 10,71 | 10,71 | 4,5 |
+| `fg-2` su panel | 10,46 | 11,19 | 10,71 | 10,71 | 4,5 |
 | `fg-3` su panel | 7,04 | 7,88 | 7,34 | 7,34 | 4,5 |
 | `fg-3` su vetro | 4,26 | 4,76 | 4,89 | 4,89 | 4,5 |
-| `fg-2` su vetro | 6,32 | 6,32 | 7,13 | 7,13 | 4,5 |
-| `fg-3` su vetro + `sel` (nome doppio della riga scelta) | 3,22 | 3,28 | 4,30 | 4,30 | — |
+| `fg-2` su vetro | 6,32 | 6,77 | 7,13 | 7,13 | 4,5 |
+| Nome doppio della riga scelta su vetro + `sel` (`fg-3` prima, `fg-2` dopo) | 3,22 | 4,66 | 4,30 | 6,28 | 4,5 |
 | `mark` su panel (anello dei risultati di Cerca, segno "cambiato") | 1,19 | 3,89 | 1,22 | 1,22 | 3 nello scuro |
 | `mark` su `sel` (anello di Cerca, lato interno) | 1,27 | 3,34 | 1,22 | 1,22 | 3 nello scuro |
-| Anello del risultato attivo su `sel` (`fg-3` prima, `fg-2` dopo) | 5,73 | 7,76 | 6,42 | 9,38 | 3 |
+| Anello del risultato attivo su `sel` (`fg-3` prima, `fg-2` dopo) | 5,73 | 8,30 | 6,42 | 9,38 | 3 |
+| Anello "sta scrivendo" sulla barra delle schede (pixel, vedi sotto) | — | 4,62 | — | — | 3 nello scuro |
+| Anello "sta scrivendo" sul riempimento `sel` della scheda (pixel) | — | 3,44 | — | — | 3 nello scuro |
 | Fuoco della tastiera su vetro | 1,77 | 3,24 | 1,68 | 1,68 | 3 nello scuro |
 | Fuoco della tastiera su panel | 2,13 | 5,36 | 1,97 | 1,97 | 3 nello scuro |
 | `line` su panel (linee decorative) | 1,19 | 1,44 | 1,22 | 1,22 | — |
@@ -188,7 +188,12 @@ linee solo decorative e i riempimenti. I test falliscono se un minimo non è ris
 - Il fuoco della tastiera è il colore del sistema (`Cx::focus_color`, AppKit lo dà al 50 %), 3 pt: nel tema
   scuro è pieno, nel chiaro resta al 50 %. Misurato con il blu predefinito.
 - I bordi dei campi restano in `line`: il campo si riconosce dall'icona e dal segnaposto in `fg-2`, non dal bordo.
-- L'anello "sta scrivendo" è metallo liquido (GPU), non un token: non è in tabella.
+- L'anello "sta scrivendo" è metallo liquido di Rune (`LiquidMetalParams::chrome`), non un token: non ha un
+  colore nostro da regolare. Misurato sui pixel di `docs/proof/contrast-dark-after.png` (scala 2, un fotogramma):
+  per ogni punto dei lati dritti attorno alla scheda si prende il pixel più contrastato sui 3 px di spessore; il
+  minimo è 4,62:1 sul pannello e 3,44:1 sul `sel` della scheda (mediane 11,37 e 8,46), cioè ≥ 3:1 su tutto il
+  perimetro. Lo studio riflesso gira, quindi un altro fotogramma dà valori un po' diversi.
+- Il nome doppio (repo o cartella) è in `fg-2` sulla riga scelta di ⌘P: in `fg-3` sul `sel` scendeva a 3,2:1.
 
 ## Typography
 
@@ -246,7 +251,7 @@ bordo 0,5 px in `line`, raggio 4 e margine interno `kbd-pad`; il campo ha margin
 **Apri veloce (⌘P).** Il campo "Apri file" è un campo di testo: ⌘P gli dà il fuoco. Finché la ricerca non è
 vuota, la lista dei risultati prende il posto di Recenti e dell'albero. Le righe sono quelle della sidebar (28 px,
 raggio 6, hover `sel`, scala 0,98 premuta); la riga scelta con le frecce ha riempimento `sel` e testo `fg`. Un nome
-doppio mostra repo o cartella in `fg-3`, come in Recenti. Invio apre, Esc svuota e chiude, nessuna animazione di
+doppio mostra repo o cartella in `fg-3`, come in Recenti, e in `fg-2` sulla riga scelta. Invio apre, Esc svuota e chiude, nessuna animazione di
 apertura (azione da tastiera). Nessun accento: caret `fg`, selezione `sel`. Nessun risultato: "Nessun file" in `fg-3`.
 
 **Scheda.** Una riga come quelle della sidebar, larga quanto il nome del file: alta 28 (`row`), raggio 6, testo UI

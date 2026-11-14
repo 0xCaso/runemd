@@ -115,7 +115,7 @@ impl Theme {
                 panel: oklcha(0.155, 0.004, 270.0, 1.0),
                 fg: oklcha(0.95, 0.003, 270.0, 1.0),
                 body: oklcha(0.90, 0.004, 270.0, 1.0),
-                fg2: oklcha(0.80, 0.006, 270.0, 1.0),
+                fg2: oklcha(0.82, 0.006, 270.0, 1.0),
                 fg3: oklcha(0.72, 0.008, 270.0, 1.0),
                 glass: oklcha(0.18, 0.01, 260.0, 0.84),
                 line: oklcha(1.0, 0.0, 0.0, 0.14),
@@ -148,6 +148,7 @@ mod tests {
     #[test]
     fn tokens_match_design_md() {
         let dark = Theme::for_mode(true);
+        assert_eq!(dark.fg2, oklcha(0.82, 0.006, 270.0, 1.0));
         assert_eq!(dark.fg3, oklcha(0.72, 0.008, 270.0, 1.0));
         assert_eq!(dark.line, oklcha(1.0, 0.0, 0.0, 0.14));
         assert_eq!(dark.sel, oklcha(1.0, 0.0, 0.0, 0.12));

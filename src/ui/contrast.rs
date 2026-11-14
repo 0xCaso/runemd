@@ -48,17 +48,19 @@ pub struct Row {
     pub min: f32,
 }
 
-/// I colori che non sono token: l'anello del risultato attivo di Cerca e il fuoco della tastiera.
+/// I colori che non sono token: l'anello del risultato attivo di Cerca, il fuoco della tastiera e
+/// il nome doppio della riga scelta (`sidebar::name_cell`).
 pub struct Rings {
     pub active: Color,
     pub focus: Color,
+    pub chosen: Color,
 }
 
 impl Rings {
     /// Quelli dell'app: anello attivo in `fg2` (`markdown_style`), fuoco da [`focus_ring`] con
     /// l'accento di sistema predefinito (blu).
     pub fn of(t: &Theme) -> Rings {
-        Rings { active: t.fg2, focus: focus_ring(rune::SystemAccent::DEFAULT.focus(t.dark), t.dark) }
+        Rings { active: t.fg2, focus: focus_ring(rune::SystemAccent::DEFAULT.focus(t.dark), t.dark), chosen: t.fg2 }
     }
 }
 
@@ -75,7 +77,7 @@ pub fn rows(t: &Theme, rings: &Rings) -> Vec<Row> {
         row("fg3 su panel", t.fg3, panel, 4.5),
         row("fg3 su vetro", t.fg3, glass, 4.5),
         row("fg2 su vetro", t.fg2, glass, 4.5),
-        row("fg3 su vetro + sel (nome doppio scelto)", t.fg3, glass_sel, 1.0),
+        row("nome doppio della riga scelta su vetro + sel (fg3 prima, fg2 dopo)", rings.chosen, glass_sel, 4.5),
         row("mark su panel (anello Cerca, segno cambiato)", t.mark, panel, mark),
         row("mark su sel (anello Cerca, lato interno)", t.mark, panel_sel, mark),
         row("anello Cerca attivo su sel", rings.active, panel_sel, 3.0),
@@ -101,7 +103,7 @@ mod tests {
 
     /// Gli anelli prima del fix: attivo in `fg3`, fuoco del sistema al 50 %.
     fn rings_before(dark: bool) -> Rings {
-        Rings { active: before(dark).fg3, focus: rune::SystemAccent::DEFAULT.focus(dark) }
+        Rings { active: before(dark).fg3, focus: rune::SystemAccent::DEFAULT.focus(dark), chosen: before(dark).fg3 }
     }
 
     fn table(dark: bool) -> (Vec<Row>, Vec<Row>) {
@@ -114,6 +116,7 @@ mod tests {
         let now = Theme::for_mode(dark);
         if dark {
             Theme {
+                fg2: oklcha(0.80, 0.006, 270.0, 1.0),
                 fg3: oklcha(0.69, 0.008, 270.0, 1.0),
                 line: oklcha(1.0, 0.0, 0.0, 0.08),
                 sel: oklcha(1.0, 0.0, 0.0, 0.09),

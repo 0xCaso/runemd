@@ -463,18 +463,21 @@ fn ring_host(row: El, mark: Mark, since: Option<f64>, reduced: bool) -> El {
     }
 }
 
-/// Il nome del file e, se un'altra riga ha lo stesso nome, il repo o la cartella in `fg3`.
-pub(super) fn name_cell(name: &str, qualifier: Option<&str>, theme: &Theme) -> El {
+/// Il nome del file e, se un'altra riga ha lo stesso nome, il repo o la cartella in `fg3`; in
+/// `fg2` sulla riga scelta (`selected`), dove il riempimento `sel` porterebbe `fg3` sotto 4,5:1
+/// (DESIGN.md, "Contrasto").
+pub(super) fn name_cell(name: &str, qualifier: Option<&str>, selected: bool, theme: &Theme) -> El {
     let mut cell = row().gap(QUALIFIER_GAP).center_y().grow(1.0).shrink().min_w(0.0).child(text(name.to_owned()).font(ui_font()).color(theme.fg).truncate().shrink().min_w(0.0));
     if let Some(q) = qualifier {
-        cell = cell.child(text(q.to_owned()).font(small_font()).color(theme.fg3).truncate().shrink().min_w(0.0));
+        let color = if selected { theme.fg2 } else { theme.fg3 };
+        cell = cell.child(text(q.to_owned()).font(small_font()).color(color).truncate().shrink().min_w(0.0));
     }
     cell
 }
 
 #[allow(clippy::too_many_arguments)]
 fn recent_row<S: 'static>(s: &S, hooks: Hooks<S>, i: usize, r: &RecentRow, label: String, theme: &Theme, motion: Motion) -> El {
-    let name = name_cell(&r.name, r.qualifier.as_deref(), theme);
+    let name = name_cell(&r.name, r.qualifier.as_deref(), false, theme);
     let path = r.path.clone();
     let e = row()
         .w_full()
