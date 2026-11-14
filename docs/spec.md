@@ -194,7 +194,7 @@ disegna ogni frame con `FxRenderer`, più `El::effect(mark)` sugli elementi.
 
 - `TabStrip` di rune-kit, sempre `status(None)` (i suoi pallini e spinner sono vietati da `DESIGN.md`); l'anello va
   con `TabItem::decorate`.
-- Cmd+W chiude; Cmd+1…9 e Ctrl+Tab cambiano scheda [mia scelta, convenzione Mac].
+- Cmd+W chiude, e così la × sulla scheda davanti o in hover (v1.1) e il clic centrale; Cmd+1…9 e Ctrl+Tab cambiano scheda [mia scelta, convenzione Mac].
 
 ### Modifica (Cmd+E)
 

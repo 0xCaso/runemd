@@ -701,10 +701,46 @@ mod tests {
         let pad = crate::ui::theme::ROW_PAD;
         for (tab, label) in [(a, la), (b, lb)] {
             assert!((label[0] - tab[0] - pad).abs() <= 0.5, "testo a {pad} dal bordo: {tab:?} {label:?}");
-            assert!((tab[0] + tab[2] - label[0] - label[2] - pad).abs() <= 0.5, "e a {pad} dalla fine: {tab:?} {label:?}");
+            // Dopo il nome, la × (sempre il suo posto): 4 + 16 + 6.
+            let tail = 4.0 + crate::ui::tabs::CLOSE + 6.0;
+            assert!((tab[0] + tab[2] - label[0] - label[2] - tail).abs() <= 0.5, "e la × in fondo: {tab:?} {label:?}");
         }
         assert!(b[2] > a[2] + 100.0, "larghe quanto il nome: {a:?} {b:?}");
         assert_eq!(a[3], crate::ui::theme::ROW);
+    }
+
+    /// La × per chiudere: sulla scheda davanti sempre, sulle altre solo in hover; il posto è
+    /// riservato, così il nome non si sposta. Etichetta "Chiudi <nome>"; un clic chiude come Cmd+W.
+    #[test]
+    fn the_close_button_shows_on_the_front_and_hovered_tab_and_closes() {
+        let mut rt = open("# a\n");
+        rt.update(|s, _| s.push_tab(Document::from_source(Path::new("b.md"), "# b\n")));
+        settle(&mut rt);
+        let ids: Vec<u64> = rt.state.tabs.iter().map(|t| t.doc.id).collect();
+        let key = |i: usize, part: &str| format!("t-{:x}{part}", ids[i]);
+        let el = |rt: &Runtime<Doc>, k: &str| rt.elements().into_iter().find(|e| e.key.as_deref() == Some(k) && !e.exiting).unwrap_or_else(|| panic!("{k}"));
+        // b.md è davanti (l'ultima aperta), t.md dietro.
+        assert_eq!(rt.state.active, 1);
+        let close = el(&rt, &key(1, "-close"));
+        assert_eq!((close.role, close.label.as_deref()), ("button", Some("Chiudi b.md")));
+        assert!(close.rect[2] >= 16.0 && close.rect[3] >= 16.0, "area di 16 pt: {:?}", close.rect);
+        assert!(el(&rt, &key(1, "-close")).opacity > 0.99, "davanti: visibile");
+        assert!(el(&rt, &key(0, "-close")).opacity < 0.01, "dietro: nascosta");
+        let label = el(&rt, &key(0, "-label")).rect;
+        let tab = el(&rt, &key(0, "")).rect;
+        rt.pointer_move(tab[0] + 8.0, tab[1] + tab[3] / 2.0);
+        settle(&mut rt);
+        assert!(el(&rt, &key(0, "-close")).opacity > 0.99, "in hover: visibile");
+        assert_eq!(el(&rt, &key(0, "-label")).rect, label, "il nome non si sposta");
+        let c = el(&rt, &key(0, "-close")).rect;
+        assert!(c[0] + c[2] <= tab[0] + tab[2] + 0.5 && c[0] > label[0] + label[2] - 0.5, "in fondo alla scheda");
+        let (x, y) = (c[0] + c[2] / 2.0, c[1] + c[3] / 2.0);
+        rt.pointer_move(x, y);
+        rt.pointer_down(x, y);
+        rt.pointer_up(x, y);
+        settle(&mut rt);
+        assert_eq!(rt.state.tabs.len(), 1, "chiusa");
+        assert_eq!(rt.state.tab().unwrap().doc.id, ids[1], "resta b.md");
     }
 
     /// La barra mostra una scheda per file, quella davanti con riempimento `sel`, e "⌘E

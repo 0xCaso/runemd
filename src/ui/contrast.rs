@@ -94,6 +94,8 @@ pub fn rows(t: &Theme, rings: &Rings) -> Vec<Row> {
         row("impostazioni: \"Già osservata\" (fg2) su panel", t.fg2, panel, 4.5),
         row("etichetta del fuoco spento (fg2) su panel", t.fg2, panel, 4.5),
         row("frontmatter: testo (fg2) su panel + sel a metà", t.meta().text, over(t.meta().fill, panel), 4.5),
+        row("× della scheda (fg2) su panel + sel (scheda davanti o in hover)", t.fg2, panel_sel, mark),
+        row("× della scheda (fg2) in hover su panel + sel + sel", t.fg2, over(t.sel, panel_sel), mark),
         row("line su panel (linee decorative)", t.line, panel, 1.0),
         row("line su vetro (bordo campi, decorativo)", t.line, glass, 1.0),
         row("sel su panel (selezione, hover)", t.sel, panel, 1.0),

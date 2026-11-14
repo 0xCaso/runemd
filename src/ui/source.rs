@@ -582,6 +582,26 @@ mod tests {
         assert_eq!(caret(&rt), 1);
     }
 
+    /// La × su una scheda in secondo piano con modifiche chiede come Cmd+W: viene davanti con la
+    /// riga e niente si scrive.
+    #[test]
+    fn the_close_button_on_a_tab_with_edits_asks() {
+        let dir = tempfile::tempdir().unwrap();
+        let (a, b) = (dir.path().join("a.md"), dir.path().join("b.md"));
+        std::fs::write(&b, "# b\n").unwrap();
+        let mut rt = edited(&a);
+        rt.update(|s, _| s.open_paths(vec![b.clone()]));
+        settle(&mut rt);
+        let tab = format!("t-{:x}", rt.state.tabs[0].doc.id);
+        let (x, y) = rt.find(&tab).unwrap();
+        rt.pointer_move(x, y);
+        settle(&mut rt);
+        tap(&mut rt, &format!("{tab}-close"));
+        assert_eq!((rt.state.tabs.len(), rt.state.active), (2, 0), "a davanti, aperta");
+        assert!(has(&rt, ASK_KEY), "la riga");
+        assert_eq!(std::fs::read_to_string(&a).unwrap(), "# a\n\nuno\n");
+    }
+
     /// Il clic centrale su una scheda in secondo piano con modifiche: viene davanti con la riga.
     #[test]
     fn a_middle_click_on_a_background_tab_with_edits_asks() {

@@ -209,6 +209,8 @@ linee solo decorative e i riempimenti. I test falliscono se un minimo non è ris
 | Impostazioni: "Già osservata" (`fg-2`) su panel | — | 11,19 | — | 10,71 | 4,5 |
 | Etichetta del fuoco spento (`fg-2`) su panel | — | 11,19 | — | 10,71 | 4,5 |
 | Frontmatter (`fg-2`) su panel + `sel` a metà | — | 9,89 | — | 10,03 | 4,5 |
+| × della scheda (`fg-2`) su panel + `sel` | — | 8,30 | — | 9,38 | 3 |
+| × della scheda (`fg-2`) in hover su panel + `sel` + `sel` | — | 5,67 | — | 8,22 | 3 |
 | `line` su panel (linee decorative) | 1,19 | 1,44 | 1,22 | 1,22 | — |
 | `line` su vetro (bordo dei campi) | 1,28 | 1,55 | 1,21 | 1,21 | — |
 | `sel` su panel | 1,23 | 1,35 | 1,14 | 1,14 | — |
@@ -311,7 +313,11 @@ apertura (azione da tastiera). Nessun accento: caret `fg`, selezione `sel`. Ness
 il nome si taglia in mezzo): alta 28 (`row`), raggio 6, testo UI
 13 px con 10 ai lati (`row-pad`), hover `sel`, scala 0,98 premuta. La scheda del file attivo ha riempimento `sel` e
 testo `fg`; le altre testo `fg-2`. Barra alta 44 (`tab-bar`), margine 10 ai lati (`tab-bar-pad`), 2 fra le schede
-(`tab-gap`), linea di 0,5 in `line` sotto; nessun separatore né icona. Troppe schede: la riga scorre di lato. "⌘E
+(`tab-gap`), linea di 0,5 in `line` sotto; nessun separatore né icona. In fondo alla scheda una "×" (glifo 14 in
+`fg-2`, area di 16, raggio 4, hover `sel`, 4 dopo il nome e 6 dal bordo destro): si vede sempre sulla scheda
+davanti e sulle altre solo in hover (o col fuoco della tastiera), ma il suo posto c'è sempre, così il nome non si
+sposta. Etichetta "Chiudi <nome>"; un clic chiude come ⌘W (stessa domanda con modifiche non salvate); il clic
+centrale resta. Contrasto del glifo: 8,30 / 9,38 su `sel`, 5,67 / 8,22 in hover sulla ×. Troppe schede: la riga scorre di lato. "⌘E
 sorgente" a destra come il tasto "⌘P", in `fg-3`.
 
 **Cerca nel file (⌘F).** Solo in lettura. Il campo sta nella barra delle schede, a destra delle schede e prima
