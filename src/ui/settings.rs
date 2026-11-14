@@ -9,9 +9,13 @@
 //! casella del fuoco ha il bordo in `fg3` e, accesa, il riempimento `fg2` con la spunta in
 //! `panel`: tutti ≥ 3:1 sul pannello nei due temi (`ui::contrast`). Nessun accento, nessuna pillola.
 
+use std::borrow::Cow;
 use std::path::{Path, PathBuf};
+use std::time::Instant;
 
-use rune::{El, FileDialogOptions, ScrollSpec, TextStyle, Tx, col, el, icon, row, text};
+use rune::{
+    El, FileDialogOptions, GrowthSpec, ScrollSpec, TextStyle, Tx, col, el, icon, row, text,
+};
 use rune_kit::glyphs;
 
 use super::sidebar::{self, Hooks, Motion};
@@ -41,40 +45,114 @@ pub const THEMES: [(ThemePref, &str); 3] = [
     (ThemePref::Dark, "Scuro"),
 ];
 pub const FIRE: &str = "Fuoco per il testo nuovo";
-/// Righe della lista dei font visibili prima di scorrere.
-const FONT_ROWS: f32 = 8.0;
+/// Il riscontro di "Aggiungi cartella…" quando la cartella scelta è già osservata (o sta sotto
+/// una osservata): resta `NOTICE_FOR` o fino alla prossima azione.
+pub const ALREADY: &str = "Già osservata";
+pub const NOTICE_FOR: std::time::Duration = std::time::Duration::from_secs(3);
+/// Righe della lista dei font visibili prima di scorrere: mezza riga tagliata dice che scorre.
+const FONT_ROWS: f32 = 8.5;
 
-/// Lo stato del pannello: aperto o no, e le scelte di font (lette da CoreText alla prima apertura).
+/// Lo stato del pannello: aperto o no, le scelte di font (lette da CoreText alla prima apertura)
+/// e fino a quando si vede "Già osservata".
 #[derive(Default)]
 pub struct Panel {
     pub open: bool,
     fonts: Option<Vec<String>>,
+    notice: Option<Instant>,
 }
 
 impl Panel {
     pub fn toggle(&mut self) {
         self.open = !self.open;
+        self.notice = None;
         if self.open && self.fonts.is_none() {
             self.fonts = Some(crate::fonts::choices(&crate::fonts::installed()));
         }
     }
 
     pub fn close(&mut self) -> bool {
+        self.notice = None;
         std::mem::take(&mut self.open)
     }
 
-    /// Le scelte di font; il font salvato c'è sempre, anche se non è più installato.
-    fn fonts(&self, current: &str) -> Vec<String> {
-        let mut out = self.fonts.clone().unwrap_or_else(|| {
-            crate::fonts::FIRST
+    /// "Già osservata" fino a `now + NOTICE_FOR`.
+    pub fn notice_already(&mut self, now: Instant) {
+        self.notice = Some(now + NOTICE_FOR);
+    }
+
+    /// Un'altra azione nel pannello: il riscontro sparisce.
+    pub fn clear_notice(&mut self) {
+        self.notice = None;
+    }
+
+    /// Se a `now` il riscontro sarebbe scaduto (i test).
+    #[cfg(test)]
+    fn clone_expire(&self, now: Instant) -> bool {
+        self.notice.is_some_and(|t| now >= t)
+    }
+
+    /// "Già osservata" si vede.
+    pub fn notice(&self) -> bool {
+        self.notice.is_some()
+    }
+
+    /// Toglie il riscontro scaduto a `now`. Vero se la vista cambia.
+    pub fn expire(&mut self, now: Instant) -> bool {
+        if self.notice.is_some_and(|t| now >= t) {
+            self.notice = None;
+            return true;
+        }
+        false
+    }
+
+    /// Le scelte (prima di leggere CoreText: le prime, filtrate come `fonts::choices`).
+    fn choices(&self) -> Cow<'_, [String]> {
+        match &self.fonts {
+            Some(f) => Cow::Borrowed(f),
+            None => Cow::Owned(crate::fonts::choices(&[])),
+        }
+    }
+
+    /// Dove va il font salvato se non è fra le scelte (non più installato): dopo l'ultima delle
+    /// prime scelte presenti. `None` se c'è già.
+    fn missing_at(choices: &[String], current: &str) -> Option<usize> {
+        if choices.iter().any(|f| f == current) {
+            return None;
+        }
+        Some(
+            choices
                 .iter()
-                .map(|s| (*s).to_owned())
-                .collect()
-        });
-        if !out.iter().any(|f| f == current) {
-            out.insert(crate::fonts::FIRST.len(), current.to_owned());
+                .take_while(|f| crate::fonts::FIRST.contains(&f.as_str()))
+                .count(),
+        )
+    }
+
+    /// Le scelte di font; il font salvato c'è sempre, anche se non è più installato.
+    #[cfg(test)]
+    fn fonts(&self, current: &str) -> Vec<String> {
+        let mut out = self.choices().into_owned();
+        if let Some(at) = Self::missing_at(&out, current) {
+            out.insert(at, current.to_owned());
         }
         out
+    }
+
+    /// Quante righe ha la lista dei font e dove sta il font salvato aggiunto (la versione della
+    /// lista virtuale).
+    fn font_shape(&self, current: &str) -> (usize, Option<usize>) {
+        let choices = self.choices();
+        let at = Self::missing_at(&choices, current);
+        (choices.len() + usize::from(at.is_some()), at)
+    }
+
+    /// La riga `i` della lista dei font, senza copiare la lista.
+    fn font_at(&self, current: &str, i: usize) -> Option<String> {
+        let choices = self.choices();
+        match Self::missing_at(&choices, current) {
+            Some(at) if i == at => Some(current.to_owned()),
+            Some(at) if i > at => choices.get(i - 1).cloned(),
+            _ => choices.get(i).cloned(),
+        }
     }
 }
 
@@ -153,9 +231,11 @@ pub fn view(s: &App, hooks: Hooks<App>, theme: &Theme, reduced: bool, hover: boo
                     directory,
                     ..Default::default()
                 },
-                |s: &mut App, result, _| match result {
+                |s: &mut App, result, tx: &mut Tx| match result {
                     Ok(Some(path)) => {
-                        s.add_root(&path);
+                        if !s.pick_root(&path, Instant::now()) {
+                            tx.wake_after(NOTICE_FOR);
+                        }
                     }
                     Ok(None) => {}
                     Err(e) => eprintln!("runemd: cartella non scelta: {e}"),
@@ -163,28 +243,61 @@ pub fn view(s: &App, hooks: Hooks<App>, theme: &Theme, reduced: bool, hover: boo
             );
         });
     body = body.child(press(add, "set-add-root", s, hooks, theme, motion));
+    if s.settings_panel.notice() {
+        body = body.child(
+            text(ALREADY)
+                .key("set-already")
+                .role("status")
+                .font(ui_font())
+                .color(theme.fg2)
+                .px(ROW_PAD)
+                .h(ROW),
+        );
+    }
 
     body = body.child(section(FONT, theme));
-    let fonts = s.settings_panel.fonts(&set.font);
+    // Righe virtuali: la lista ha centinaia di famiglie, se ne costruiscono solo quelle vicine
+    // alla vista. Ogni riga ritrova il suo font dallo stato (`Panel::font_at`).
+    let (count, at) = s.settings_panel.font_shape(&set.font);
+    let th = *theme;
     let list = col()
         .key("set-fonts")
         .w_full()
-        .children(fonts.iter().map(|f| {
-            let name = f.clone();
-            option(
-                s,
-                hooks,
-                format!("set-font-{f}"),
-                f,
-                *f == set.font,
-                theme,
-                motion,
-                move |s: &mut App| s.set_font(&name),
-            )
-        }));
+        .growth(GrowthSpec::default())
+        .virtual_rows(
+            count,
+            ROW,
+            |s: &App, i| {
+                let name = s
+                    .settings_panel
+                    .font_at(&s.settings.font, i)
+                    .unwrap_or_default();
+                Cow::Owned(format!("set-font-{name}"))
+            },
+            move |s: &App, i| {
+                let Some(name) = s.settings_panel.font_at(&s.settings.font, i) else {
+                    return el();
+                };
+                let chosen = name == s.settings.font;
+                let pick = name.clone();
+                option(
+                    s,
+                    hooks,
+                    format!("set-font-{name}"),
+                    &name,
+                    chosen,
+                    &th,
+                    motion,
+                    move |s: &mut App| s.set_font(&pick),
+                )
+            },
+        )
+        .virtual_rows_version((count, at));
     body = body.child(
         col()
             .key("set-fonts-scroll")
+            .role("radiogroup")
+            .label(FONT)
             .w_full()
             .max_h(ROW * FONT_ROWS)
             .scroll(ScrollSpec {
@@ -222,8 +335,13 @@ pub fn view(s: &App, hooks: Hooks<App>, theme: &Theme, reduced: bool, hover: boo
     );
 
     body = body.child(section(THEME, theme));
+    let mut themes = col()
+        .key("set-themes")
+        .role("radiogroup")
+        .label(THEME)
+        .w_full();
     for (pref, label) in THEMES {
-        body = body.child(option(
+        themes = themes.child(option(
             s,
             hooks,
             format!("set-theme-{label}"),
@@ -234,6 +352,7 @@ pub fn view(s: &App, hooks: Hooks<App>, theme: &Theme, reduced: bool, hover: boo
             move |s: &mut App| s.set_theme(pref),
         ));
     }
+    body = body.child(themes);
 
     body = body
         .child(el().h(SECTION_PAD_TOP))
@@ -589,5 +708,91 @@ mod tests {
         for _ in 0..30 {
             rt.frame(1.0 / 60.0);
         }
+    }
+
+    /// Un font salvato che non è più installato va dopo le prime scelte presenti (New York può
+    /// mancare); prima di leggere CoreText le scelte sono quelle filtrate.
+    #[test]
+    fn a_missing_saved_font_goes_after_the_first_choices() {
+        let fallback = Panel::default();
+        assert_eq!(
+            fallback.fonts("Inter"),
+            ["Inter", "SF Pro"],
+            "New York non c'è senza il pacchetto"
+        );
+        assert_eq!(fallback.fonts("Gone"), ["Inter", "SF Pro", "Gone"]);
+        let read = Panel {
+            fonts: Some(crate::fonts::choices(&["Arial".into()])),
+            ..Panel::default()
+        };
+        assert_eq!(read.fonts("Gone"), ["Inter", "SF Pro", "Gone", "Arial"]);
+        assert_eq!(
+            (0..4)
+                .map(|i| read.font_at("Gone", i).unwrap())
+                .collect::<Vec<_>>(),
+            read.fonts("Gone")
+        );
+        assert_eq!(read.font_shape("Gone"), (4, Some(2)));
+        assert_eq!(read.font_shape("Arial"), (3, None));
+    }
+
+    /// La lista dei font è virtuale e alta 8 righe e mezza: la nona si vede tagliata.
+    #[test]
+    fn the_font_list_shows_it_scrolls() {
+        let mut rt = open("# T\n", true);
+        cmd(&mut rt, ',');
+        let els = rt.elements();
+        let r = els
+            .iter()
+            .find(|e| e.key.as_deref() == Some("set-fonts-scroll"))
+            .unwrap()
+            .rect;
+        let n = rt.state.settings_panel.font_shape("Inter").0 as f32;
+        if n > FONT_ROWS {
+            assert!((r[3] - ROW * FONT_ROWS).abs() < 0.5, "{r:?}");
+            let built = els
+                .iter()
+                .filter(|e| e.key.as_deref().is_some_and(|k| k.starts_with("set-font-")))
+                .count() as f32;
+            assert!(
+                built < n || n < 40.0,
+                "righe virtuali: {built} costruite su {n}"
+            );
+        }
+        let groups: Vec<_> = els
+            .iter()
+            .filter(|e| e.role == "radiogroup")
+            .filter_map(|e| e.label.clone())
+            .collect();
+        assert_eq!(groups, [FONT, THEME]);
+    }
+
+    /// Una cartella già osservata (o sotto una osservata) non si aggiunge e il pannello lo dice
+    /// per 3 s, o fino alla prossima azione.
+    #[test]
+    fn an_already_watched_folder_says_so() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        std::fs::create_dir_all(root.join("sub")).unwrap();
+        let mut rt = open("# T\n", true);
+        cmd(&mut rt, ',');
+        let now = Instant::now();
+        let (mut first, mut inside) = (false, true);
+        rt.update(|s, _| first = s.pick_root(&root, now));
+        assert!(first);
+        settle(&mut rt);
+        assert!(!texts(&rt).iter().any(|t| t == ALREADY));
+        rt.update(|s, _| inside = s.pick_root(&root.join("sub"), now));
+        assert!(!inside, "sotto una osservata: non si aggiunge");
+        settle(&mut rt);
+        assert!(texts(&rt).iter().any(|t| t == ALREADY));
+        assert!(!rt.state.settings_panel.clone_expire(now + NOTICE_FOR / 2));
+        assert!(rt.state.settings_panel.clone_expire(now + NOTICE_FOR));
+        rt.update(|s, _| s.step_size(1));
+        settle(&mut rt);
+        assert!(
+            !texts(&rt).iter().any(|t| t == ALREADY),
+            "la prossima azione lo toglie"
+        );
     }
 }

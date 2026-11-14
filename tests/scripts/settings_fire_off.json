@@ -1,0 +1,7 @@
+[
+ {"t": 0.5, "type": "key", "name": ",", "cmd": true},
+ {"t": 0.9, "type": "tap", "key": "set-fire"},
+ {"t": 1.3, "type": "key", "name": ",", "cmd": true},
+ {"t": 1.6, "type": "mark", "name": "off"},
+ {"t": 4.0, "type": "mark", "name": "lit"}
+]

@@ -5,7 +5,9 @@
 # Con RUNEMD_ROOTS le impostazioni restano in memoria: quelle vere non si toccano.
 # uso: bench/settings.sh [WORKDIR]
 #   con SNAP=docs/proof/settings salva SNAP.png (scuro, appena aperto) e SNAP-light.png (dopo font,
-#   dimensione e tema), --scale 2, ritagliate al pannello (la sidebar mostra nomi di file).
+#   dimensione e tema), --scale 2, ritagliate al pannello (la sidebar mostra nomi di file), e
+#   SNAP-fire-off.png: fuoco spento dal pannello, due paragrafi scritti in fondo da una shell, il
+#   fondo del pannello con l'etichetta e senza fiamme (tempo vero, ritaglio con ffmpeg).
 # Esce 1 al primo controllo che non passa.
 set -eu
 cd "$(dirname "$0")/.."
@@ -66,5 +68,16 @@ if [ -n "${SNAP:-}" ]; then
   run light --scale 2 --theme dark --snap "$W/light.png" --crop main
   cp "$W/open.png" "$SNAP.png"
   cp "$W/light.png" "$SNAP-light.png"
-  echo "foto: $SNAP.png $SNAP-light.png"
+  cp fixtures/normal.md "$W/fire.md"
+  RUNEMD_ROOTS="$W/uno" RUNE_DIRS_ROOT="$W/dirs" target/perf/runemd "$W/fire.md" --script tests/scripts/settings_fire_off.json \
+    --realtime --size 1280x860 --scale 2 --theme dark --fps 30 --at mark:lit+0.3 --snap "$W/fire.png" --crop main \
+    --tree "$W/fire.json" 2>/dev/null |
+  while read -r line; do
+    case "$line" in "rune-mark off"*) printf '\nUn paragrafo nuovo in fondo.\n\nE un altro ancora.\n' >> "$W/fire.md" ;; esac
+  done
+  has fire "2 paragrafi nuovi più in basso" || fail "fuoco spento: manca l'etichetta"
+  python3 -c 'import json,sys; sys.exit(any(x.get("key") == "fire" for x in json.load(open(sys.argv[1]))["elements"]))' "$W/fire.json" ||
+    fail "fuoco spento: c'è lo slot delle fiamme"
+  ffmpeg -loglevel error -y -i "$W/fire.png" -vf "crop=iw:480:0:ih-480" "$SNAP-fire-off.png"
+  echo "foto: $SNAP.png $SNAP-light.png $SNAP-fire-off.png"
 fi

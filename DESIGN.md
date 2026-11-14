@@ -199,6 +199,10 @@ linee solo decorative e i riempimenti. I test falliscono se un minimo non è ris
 | Impostazioni: scelte e bottoni (`fg-2`) su panel + `sel` (hover) | — | 8,30 | — | 9,38 | 4,5 |
 | Impostazioni: casella spenta, bordo `fg-3` su panel | — | 7,88 | — | 7,34 | 3 |
 | Impostazioni: casella accesa (`fg-2`) e sua spunta (`panel`) | — | 11,19 | — | 10,71 | 3 |
+| Impostazioni: casella spenta, bordo `fg-3` su panel + `sel` (hover) | — | 5,84 | — | 6,42 | 3 |
+| Impostazioni: casella accesa (`fg-2`) su panel + `sel` (hover) | — | 8,30 | — | 9,38 | 3 |
+| Impostazioni: riga del fuoco (`fg-2`) su panel + `sel` (hover) | — | 8,30 | — | 9,38 | 4,5 |
+| Impostazioni: "Già osservata" (`fg-2`) su panel | — | 11,19 | — | 10,71 | 4,5 |
 | Etichetta del fuoco spento (`fg-2`) su panel | — | 11,19 | — | 10,71 | 4,5 |
 | `line` su panel (linee decorative) | 1,19 | 1,44 | 1,22 | 1,22 | — |
 | `line` su vetro (bordo dei campi) | 1,28 | 1,55 | 1,21 | 1,21 | — |
@@ -322,8 +326,9 @@ salva tutto, senza chiedere (Rune non può annullare la chiusura). Nessun accent
 documento, nel pannello, al posto dell'indice dei titoli, separata da una linea di 0,5 in `line`; ⌘, la apre e la
 chiude, Esc la chiude. Titolo "Impostazioni" (UI, 600, `fg`), poi sezioni con etichetta come quelle della sidebar:
 "Cartelle osservate" (icona cartella in `fg-3`, percorso in `fg-2` con la home come "~", "Togli" a destra;
-"Aggiungi cartella…" apre il dialogo delle cartelle), "Font" (Inter, SF Pro, New York se installato col suo nome,
-poi le famiglie installate; lista che scorre dopo 8 righe), "Dimensione" ("−", "15,5 pt", "+"; titoli, tabelle e
+"Aggiungi cartella…" apre il dialogo delle cartelle; una cartella già osservata, o sotto una osservata, non si
+aggiunge e sotto compare "Già osservata" in `fg-2` per 3 s o fino alla prossima azione), "Font" (Inter, SF Pro, New York se installato col suo nome,
+poi le famiglie installate; lista virtuale alta 8 righe e mezza, così la nona tagliata dice che scorre), "Dimensione" ("−", "15,5 pt", "+"; titoli, tabelle e
 codice scalano col corpo), "Tema" ("Sistema", "Chiaro", "Scuro"), e la casella "Fuoco per il testo nuovo". Le
 righe sono quelle della sidebar (28, raggio 6, hover `sel`, scala 0,98). La scelta fatta ha riempimento `sel`,
 testo `fg` e una spunta in `fg`; le altre testo `fg-2`. La casella ha il bordo di 1 in `fg-3`; accesa è piena in

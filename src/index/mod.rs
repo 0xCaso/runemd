@@ -460,6 +460,33 @@ mod tests {
         entries.iter().map(|e| e.path.display().to_string()).collect()
     }
 
+    /// Una cartella aggiunta mentre la prima scansione gira si scandisce appena quella finisce
+    /// (`poll` rilancia la coda).
+    #[test]
+    fn a_root_added_during_a_scan_is_scanned_after_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir.path().canonicalize().unwrap();
+        let (a, b) = (base.join("a"), base.join("b"));
+        for d in [&a, &b] {
+            fs::create_dir_all(d).unwrap();
+        }
+        for i in 0..200 {
+            fs::write(a.join(format!("{i}.md")), "# a\n").unwrap();
+        }
+        fs::write(b.join("b.md"), "# b\n").unwrap();
+        let mut lib = Library::load(vec![a.clone()], None);
+        lib.start(Arc::new(|| {}));
+        assert!(lib.scan.is_some(), "la scansione di a gira");
+        assert!(lib.add_root(b.clone()));
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while Instant::now() < deadline && !lib.index.names().any(|p| p == b.join("b.md")) {
+            lib.poll(&[], Instant::now());
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert!(lib.index.names().any(|p| p == b.join("b.md")), "b scandita dopo a");
+        assert_eq!(lib.index.len(), 201);
+    }
+
     #[test]
     fn recent_is_newest_first_and_truncated() {
         let index = Index::from_entries(vec![entry("/r/a.md", 10), entry("/r/b.md", 30), entry("/r/c.md", 20), entry("/r/d.md", 5)]);

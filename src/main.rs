@@ -300,7 +300,7 @@ fn poll(s: &mut App, clock: f64, tx: &mut Tx) -> bool {
     if let Some(d) = wake {
         tx.wake_after(d);
     }
-    let blurred = s.sidebar.blur_close();
+    let blurred = s.sidebar.blur_close() | s.settings_panel.expire(Instant::now());
     let changed = opened || tabs || ring || side || blurred || found;
     let Some(run) = s.scroll.as_mut() else { return changed };
     if let Some(y) = run.step(clock) {

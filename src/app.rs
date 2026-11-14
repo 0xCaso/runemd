@@ -301,6 +301,8 @@ pub struct App {
     prefs: rune::prefs::Prefs,
     /// Il pannello delle impostazioni.
     pub(crate) settings_panel: ui::settings::Panel,
+    /// `RUNEMD_THEME` (`light` o `dark`), letto una volta all'avvio: vince sul tema scelto.
+    theme_env: Option<bool>,
     pub(crate) scroll: Option<probe::ScrollRun>,
     /// Watcher, "sta scrivendo" e scritture dell'app, per tutte le schede.
     pub(crate) live: Live,
@@ -332,6 +334,11 @@ impl App {
             settings,
             prefs,
             settings_panel: ui::settings::Panel::default(),
+            theme_env: match std::env::var("RUNEMD_THEME").as_deref() {
+                Ok("light") => Some(false),
+                Ok("dark") => Some(true),
+                _ => None,
+            },
             scroll: None,
             live: Live::default(),
             rings: BTreeMap::new(),
@@ -365,11 +372,7 @@ impl App {
     /// Il tema di adesso, dato quello del sistema: `RUNEMD_THEME` (`light` o `dark`, per le foto
     /// e le prove) vince sulle impostazioni, che vincono sul sistema.
     pub fn dark(&self, system_dark: bool) -> bool {
-        match std::env::var("RUNEMD_THEME").as_deref() {
-            Ok("light") => false,
-            Ok("dark") => true,
-            _ => self.settings.theme.dark(system_dark),
-        }
+        self.theme_env.unwrap_or_else(|| self.settings.theme.dark(system_dark))
     }
 
     /// Salva le impostazioni; un errore si dice sul terminale e il valore resta per questa sessione.
@@ -381,6 +384,7 @@ impl App {
 
     /// Il font del documento (corpo e titoli): il documento si aggiorna subito.
     pub fn set_font(&mut self, font: &str) {
+        self.settings_panel.clear_notice();
         if self.settings.font == font {
             return;
         }
@@ -391,6 +395,7 @@ impl App {
 
     /// La dimensione del corpo un passo più piccola (−1) o più grande (+1).
     pub fn step_size(&mut self, step: i32) {
+        self.settings_panel.clear_notice();
         let size = self.settings.step_size(step);
         if size == self.settings.size {
             return;
@@ -401,6 +406,7 @@ impl App {
     }
 
     pub fn set_theme(&mut self, theme: ThemePref) {
+        self.settings_panel.clear_notice();
         if self.settings.theme != theme {
             self.settings.theme = theme;
             self.save_settings();
@@ -409,6 +415,7 @@ impl App {
 
     /// Accende o spegne il fuoco per il testo nuovo; l'etichetta resta.
     pub fn toggle_fire(&mut self) {
+        self.settings_panel.clear_notice();
         self.settings.fire = !self.settings.fire;
         self.save_settings();
     }
@@ -417,6 +424,7 @@ impl App {
     /// Recenti si aggiorna quando arriva la scansione. Una cartella sotto una già osservata non
     /// serve e non si aggiunge; una sopra prende il posto di quelle che contiene. Vero se è cambiato.
     pub fn add_root(&mut self, root: &Path) -> bool {
+        self.settings_panel.clear_notice();
         let root = index::canonical(root);
         if !root.is_dir() || self.library.roots().iter().any(|r| root.starts_with(r)) {
             return false;
@@ -432,9 +440,21 @@ impl App {
         true
     }
 
+    /// "Aggiungi cartella…" con la cartella `root` scelta nel dialogo: se non si aggiunge (già
+    /// osservata, o sotto una osservata) il pannello dice "Già osservata" fino a `now + 3 s`.
+    /// Vero se si è aggiunta.
+    pub fn pick_root(&mut self, root: &Path, now: Instant) -> bool {
+        let added = self.add_root(root);
+        if !added {
+            self.settings_panel.notice_already(now);
+        }
+        added
+    }
+
     /// Una cartella osservata in meno, da subito: esce dal watcher e dall'indice, e le sue righe
     /// escono da Recenti. Vero se c'era.
     pub fn remove_root(&mut self, root: &Path) -> bool {
+        self.settings_panel.clear_notice();
         let canonical = index::canonical(root);
         let known = self.settings.remove_root(root) | self.settings.remove_root(&canonical);
         let dropped = self.library.remove_root(&canonical);
