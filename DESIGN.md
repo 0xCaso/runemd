@@ -91,6 +91,7 @@ spacing:
   tab-gap: "2px"
   find-field: "240px"
   find-ring: "1px"
+  find-ring-active: "2px"
 motion:
   press: "scale 0.98, 160ms ease-out"
   hover: "120ms ease"
@@ -267,7 +268,8 @@ di "⌘E sorgente", così il documento non si sposta: largo 240 (`find-field`), 
 `fg-2`, testo `fg`. Il contatore a destra è UI piccola in `fg-3`: "3 di 12", oppure "Nessun risultato"; con la
 ricerca vuota non c'è. Nel testo i risultati hanno il riempimento
 `sel` e un anello interno di 1 px in `mark` (`find-ring`), che li stacca dal codice in linea e dalla selezione;
-quello attivo ha l'anello in `fg-2`, più marcato. L'anello `mark` è a 3,9:1 sul pannello nel tema scuro e a 3,5:1 nel chiaro. Nessun accento, nessun giallo. Invio va al risultato dopo, Maiusc+Invio a
+quello attivo ha l'anello in `fg-2` e di 2 px (`find-ring-active`), più scuro e spesso il doppio, così si
+riconosce a colpo d'occhio in tutti e due i temi. L'anello `mark` è a 3,9:1 sul pannello nel tema scuro e a 3,5:1 nel chiaro. Nessun accento, nessun giallo. Invio va al risultato dopo, Maiusc+Invio a
 quello prima, in giro; la vista lo porta al centro. Esc chiude e toglie i segni. Il campo di ⌘P, quello di ⌘N e
 questo si chiudono a vicenda.
 

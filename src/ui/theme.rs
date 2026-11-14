@@ -26,9 +26,12 @@ pub const TAB_BAR_PAD_X: f32 = 10.0;
 pub const TAB_GAP: f32 = 2.0;
 /// Cerca nel file (DESIGN.md, `spacing.find-field`): il campo nella barra delle schede è largo 240.
 pub const FIND_W: f32 = 240.0;
-/// L'anello interno dei risultati di Cerca, 1 pt sopra il riempimento `sel`: in `mark` per i
-/// risultati, in `fg2` per quello attivo (DESIGN.md, "Cerca nel file").
+/// L'anello interno dei risultati di Cerca, 1 pt sopra il riempimento `sel`, in `mark`
+/// (DESIGN.md, "Cerca nel file", `find-ring`).
 pub const FIND_RING: f32 = 1.0;
+/// L'anello del risultato attivo: in `fg2` e spesso il doppio (`find-ring-active`), così si
+/// riconosce a colpo d'occhio in tutti e due i temi anche ora che `mark` è a 3:1.
+pub const FIND_RING_ACTIVE: f32 = 2.0;
 /// L'etichetta del fuoco sta a questa distanza dal fondo del pannello.
 pub const FIRE_LABEL_BOTTOM: f32 = 10.0;
 /// Corpo del documento (DESIGN.md, `typography.doc-body`): 15,5 pt, interlinea 1,62.
@@ -152,6 +155,7 @@ mod tests {
 
     #[test]
     fn tokens_match_design_md() {
+        assert_eq!((FIND_RING, FIND_RING_ACTIVE), (1.0, 2.0), "DESIGN.md, spacing.find-ring e find-ring-active");
         let dark = Theme::for_mode(true);
         assert_eq!(dark.fg2, oklcha(0.82, 0.006, 270.0, 1.0));
         assert_eq!(dark.fg3, oklcha(0.72, 0.008, 270.0, 1.0));
