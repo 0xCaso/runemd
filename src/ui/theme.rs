@@ -86,11 +86,16 @@ pub const R_FIELD: f32 = 7.0;
 pub const R_PANEL: f32 = 10.0;
 
 /// Il colore del fuoco della tastiera (`Cx::focus_ring`), dal colore del sistema `system`
-/// (`Cx::focus_color`, che AppKit dà al 50 %). Nel tema scuro è pieno: al 50 % sul vetro scuro
-/// resta sotto 3:1 (DESIGN.md, "Contrasto").
+/// (`Cx::focus_color`, che AppKit dà al 50 %), pieno in tutti e due i temi: al 50 % sul vetro
+/// resta sotto 3:1 (DESIGN.md, "Contrasto"). Nel tema chiaro è anche scurito del 20 % verso il
+/// nero (in luce lineare): il blu pieno sul vetro chiaro arriva solo a 2,6:1.
 pub fn focus_ring(system: Color, dark: bool) -> Color {
-    if dark { system.alpha(1.0) } else { system }
+    let solid = system.alpha(1.0);
+    if dark { solid } else { solid.mix(Color::BLACK, FOCUS_DARKEN) }
 }
+
+/// Quanto si scurisce il fuoco della tastiera nel tema chiaro.
+pub const FOCUS_DARKEN: f32 = 0.2;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Theme {
@@ -135,7 +140,7 @@ impl Theme {
                 line: oklcha(0.0, 0.0, 0.0, 0.09),
                 sel: oklcha(0.0, 0.0, 0.0, 0.06),
                 field: oklcha(1.0, 0.0, 0.0, 0.55),
-                mark: oklcha(0.0, 0.0, 0.0, 0.09),
+                mark: oklcha(0.45, 0.008, 270.0, 0.70),
             }
         }
     }
@@ -153,7 +158,7 @@ mod tests {
         assert_eq!(dark.line, oklcha(1.0, 0.0, 0.0, 0.14));
         assert_eq!(dark.sel, oklcha(1.0, 0.0, 0.0, 0.12));
         assert_eq!(dark.mark, oklcha(0.72, 0.008, 270.0, 0.65));
-        assert_eq!(Theme::for_mode(false).mark, oklcha(0.0, 0.0, 0.0, 0.09));
+        assert_eq!(Theme::for_mode(false).mark, oklcha(0.45, 0.008, 270.0, 0.70));
         assert_eq!(Theme::for_mode(false).glass, oklcha(0.965, 0.004, 260.0, 0.86));
     }
 }

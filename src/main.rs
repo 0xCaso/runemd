@@ -69,7 +69,8 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
     let dark = dark_mode();
     let theme = ui::theme::Theme::for_mode(dark);
     let reduced = cx.is_reduced_motion();
-    // Il fuoco della tastiera come quello di Rune (3 pt, attaccato al bordo), pieno nel tema scuro.
+    // Il fuoco della tastiera come quello di Rune (3 pt, attaccato al bordo), ma pieno
+    // (e un po' più scuro nel tema chiaro).
     let focus = ui::theme::focus_ring(cx.focus_color(), dark);
     cx.focus_ring(3.0, 0.0, focus);
     let hooks = ui::sidebar::Hooks { get: |s: &App| &s.sidebar, get_mut: |s: &mut App| &mut s.sidebar, open: App::open_from_sidebar, ring: App::ring_of, query: App::requery_sidebar, create: App::create_from_sidebar };

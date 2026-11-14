@@ -65,10 +65,10 @@ impl Rings {
 }
 
 /// I segni e i testi del tema `t`, ognuno sul suo sfondo, con il minimo (4,5 testo, 3 segni con
-/// significato nel tema scuro, 1 le linee solo decorative e i riempimenti).
+/// significato, 1 le linee solo decorative e i riempimenti).
 pub fn rows(t: &Theme, rings: &Rings) -> Vec<Row> {
     let [panel, panel_sel, glass, glass_sel] = grounds(t);
-    let mark = if t.dark { 3.0 } else { 1.0 };
+    let mark = 3.0;
     let row = |what, fg, bg, min| Row { what, fg, bg, min };
     vec![
         row("fg su panel", t.fg, panel, 4.5),
