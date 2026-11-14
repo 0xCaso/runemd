@@ -111,6 +111,7 @@ motion:
   press: "scale 0.98, 160ms ease-out"
   hover: "120ms ease"
   ease-out: "cubic-bezier(0.23, 1, 0.32, 1)"
+  mode: "lettura ↔ sorgente: dissolvenza incrociata, molla critica 0.22 s entra (95 % a ~165 ms), 0.17 s esce (< 5 % a ~130 ms)"
 components:
   sidebar-row:
     height: "{spacing.row}"
@@ -351,6 +352,11 @@ della finestra scorre da solo e l'evidenziato resta in vista. Un file senza tito
 piccola), testo `fg-2`, riempimento `sel` a metà, raggio 6, margine interno 12 × 10, nella colonna come un
 blocco di codice ma più quieto. L'indice dei titoli non lo elenca; il sorgente (⌘E) resta il file com'è. Senza
 riga di chiusura è Markdown normale (riga orizzontale, paragrafi).
+
+**Lettura ↔ sorgente (⌘E).** Dissolvenza incrociata: la vista che entra arriva al 95 % in ~165 ms, quella che
+esce scende sotto il 5 % in ~130 ms (molle criticamente smorzate di 0,22 e 0,17 s, `motion.mode`: Rune anima
+entrate e uscite solo con molle, e una molla critica ha già la coda di una ease-out forte). Prima era la
+dissolvenza di default di Rune (0,30 / 0,24 s: 95 % a ~230 ms). Con "riduci movimento" è un taglio netto.
 
 **Riga di avviso (sorgente).** Sotto la barra delle schede, sopra il sorgente: alta 44 (`tab-bar`), testo UI
 13 px in `fg` allineato a quello del sorgente, bottoni a destra come schede in secondo piano (alti 28, `row-pad`

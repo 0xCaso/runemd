@@ -240,7 +240,7 @@ pub fn view(s: &App, hooks: Hooks<App>, tab: &Tab, src: &SourceEdit, caret: Opti
         .virtual_rows_version((id, src.pieces.version));
     let page = col().w_full().pt(TOP).pb(BOTTOM).child(rows);
     let scroll = col().key("source").w_full().grow(1.0).min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(page);
-    let mut view = col().key(format!("source-{id:x}")).w_full().grow(1.0).min_h(0.0);
+    let mut view = col().key(format!("source-{id:x}")).transition(super::theme::mode_transition(reduced)).w_full().grow(1.0).min_h(0.0);
     let motion = Motion { reduced, hover };
     if src.asking {
         view = view.child(ask_row(s, hooks, id, &tab.title(), theme, motion));
@@ -580,6 +580,47 @@ mod tests {
         assert!(!has(&rt, ASK_KEY));
         assert_eq!(source_text(&rt).as_deref(), Some("X# a\n\nuno\n"));
         assert_eq!(caret(&rt), 1);
+    }
+
+    /// L'opacità di ciò che entra (`enter`) e di ciò che esce (`exit`, se c'è ancora) dopo Cmd+E,
+    /// frame per frame a 120 Hz: (ms, entra, esce).
+    fn fade(rt: &mut Runtime<App>, enter: &str, exit: &str) -> Vec<(f32, f32, Option<f32>)> {
+        let op = |rt: &Runtime<App>, k: &str| rt.elements().into_iter().find(|e| e.key.as_deref() == Some(k)).map(|e| e.opacity);
+        rt.key(cmd('e'));
+        (1..=60).map(|f| {
+            rt.frame(1.0 / 120.0);
+            (f as f32 * 1000.0 / 120.0, op(rt, enter).unwrap_or(0.0), op(rt, exit))
+        }).collect()
+    }
+
+    /// Cmd+E più veloce (v1.1): il sorgente entra al 95 % entro 175 ms e la lettura esce entro
+    /// 150; al ritorno la lettura entra al 95 % entro 175 ms. Si vede la dissolvenza (non è un
+    /// taglio). Con "riduci movimento" è immediato.
+    #[test]
+    fn cmd_e_cross_fades_fast() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("a.md");
+        std::fs::write(&path, "# a\n\nuno\n").unwrap();
+        let mut rt = open(&path);
+        let id = rt.state.tab().unwrap().doc.id;
+        let src = format!("source-{id:x}");
+        let check = |what: &str, frames: &[(f32, f32, Option<f32>)]| {
+            eprintln!("{what}: {:?}", frames.iter().step_by(3).collect::<Vec<_>>());
+            let at = |ms: f32| frames.iter().find(|f| f.0 >= ms).unwrap();
+            assert!(at(25.0).1 < 0.9, "{what}: si vede la dissolvenza");
+            assert!(at(175.0).1 >= 0.95, "{what}: al 95 % entro 175 ms: {:?}", at(175.0));
+            assert!(at(150.0).2.is_none_or(|o| o <= 0.05), "{what}: l'altra fuori entro 150 ms: {:?}", at(150.0));
+        };
+        let enter = fade(&mut rt, &src, "doc-pane");
+        check("sorgente", &enter);
+        settle(&mut rt);
+        let back = fade(&mut rt, "doc-pane", &src);
+        check("lettura", &back);
+        settle(&mut rt);
+        rt.update(|s, _| s.motion_env = Some(true));
+        settle(&mut rt);
+        let reduced = fade(&mut rt, &src, "doc-pane");
+        assert!(reduced[0].1 >= 0.99 && reduced[0].2.is_none_or(|o| o <= 0.01), "riduci movimento: subito {:?}", reduced[0]);
     }
 
     /// La × su una scheda in secondo piano con modifiche chiede come Cmd+W: viene davanti con la

@@ -107,7 +107,7 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
             // Cmd+E su un file che non è UTF-8: la riga sopra la lettura lo dice.
             let refused = tab.not_utf8.then(|| ui::source::not_utf8_row(&theme));
             let doc = rune::col().w_full().h_full().children(refused).child(el().w_full().grow(1.0).min_h(0.0).child(doc));
-            rune::row().key("doc-pane").w_full().grow(1.0).min_h(0.0).child(el().grow(1.0).min_w(0.0).h_full().child(doc)).children(outline)
+            rune::row().key("doc-pane").transition(ui::theme::mode_transition(reduced)).w_full().grow(1.0).min_h(0.0).child(el().grow(1.0).min_w(0.0).h_full().child(doc)).children(outline)
         }
         None => el().grow(1.0),
     };

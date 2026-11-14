@@ -96,6 +96,20 @@ pub const HOVER_FADE: f32 = 0.12;
 /// `motion.ease-out`: cubic-bezier(0.23, 1, 0.32, 1).
 pub const EASE_OUT: rune::Easing = rune::Easing::cubic(0.23, 1.0, 0.32, 1.0);
 
+/// Lettura ↔ sorgente (Cmd+E): dissolvenza incrociata con molle criticamente smorzate (Rune anima
+/// entrate e uscite solo con molle). Entra in 0,22 s di durata percepita (95 % a ~166 ms; la
+/// velocità ha il picco a 35 ms e poi cala, una ease-out forte); esce in 0,17 s (sotto il 5 % a
+/// ~128 ms). Prima era la dissolvenza di default di Rune, 0,30 / 0,24 s (95 % a ~227 ms).
+pub const MODE_ENTER: f32 = 0.22;
+pub const MODE_EXIT: f32 = 0.17;
+
+/// La transizione della vista di lettura e di quella del sorgente; con "riduci movimento" è un
+/// taglio netto.
+pub fn mode_transition(reduced: bool) -> rune::Transition {
+    let springs = if reduced { rune::SpringPair::NONE } else { rune::SpringPair::new(rune::Spring::new(MODE_ENTER, 0.0), rune::Spring::new(MODE_EXIT, 0.0)) };
+    rune::Transition::opacity().springs(springs)
+}
+
 pub const R_KBD: f32 = 4.0;
 pub const R_ROW: f32 = 6.0;
 pub const R_FIELD: f32 = 7.0;
