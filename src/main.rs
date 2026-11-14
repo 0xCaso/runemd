@@ -59,6 +59,8 @@ fn init() -> App {
     // Recenti dalla cache: la sidebar è piena dal primo frame.
     app.sidebar.refresh(&app.library.index, &[], SystemTime::now());
     app.open_paths(paths);
+    // Le copie di recupero dell'ultima uscita (un conflitto o un errore di scrittura).
+    app.open_recovered();
     app
 }
 
@@ -326,6 +328,7 @@ fn main() {
     probe::mark_start();
     // Lo slot mono di default è Inter: il codice va in SF Mono.
     let spec = AppSpec { setup: Some(setup), poll: Some(poll), on_key: Some(on_key), families: ("Inter", "ui-monospace, Menlo"), ..AppSpec::new("runemd", (900.0, 1000.0), init, view) };
-    // Chiudere la finestra o uscire salva le modifiche aperte nel sorgente.
-    rune::App::new(spec).on_close(|s, _| s.save_all()).on_quit(|s, _| s.save_all()).compositor(fx::FxCompositor::default()).on_frame_encoded(probe::on_frame).run();
+    // Chiudere la finestra o uscire salva le modifiche aperte nel sorgente (o ne fa una copia di
+    // recupero). Cmd+Q fa `on_quit` e poi `on_close`: il secondo, a uscita già partita, salta.
+    rune::App::new(spec).on_close(|s, _| if !rune::quitting() { s.save_all() }).on_quit(|s, _| s.save_all()).compositor(fx::FxCompositor::default()).on_frame_encoded(probe::on_frame).run();
 }

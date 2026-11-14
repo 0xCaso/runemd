@@ -15,6 +15,7 @@ use std::path::Path;
 
 pub mod blocks;
 pub mod new_file;
+pub mod recovery;
 
 use crate::app::{Mode, Tab};
 use crate::doc::document::Document;
@@ -123,6 +124,16 @@ fn try_save(tab: &mut Tab, own: &mut OwnWrites) -> Result<(), SaveError> {
         src.dirty = false;
     }
     Ok(())
+}
+
+/// Il salvataggio all'uscita non ha scritto: il testo del sorgente va in una copia di recupero in
+/// `dir` ([`recovery::write`]) e la scheda non ha più modifiche da salvare, così un secondo hook
+/// della stessa uscita non scrive un'altra copia. Il file della scheda non si tocca.
+pub fn recover(tab: &mut Tab, dir: &Path, stamp: &str) -> io::Result<std::path::PathBuf> {
+    let Mode::Source(src) = &mut tab.mode else { return Err(io::Error::other("non in modifica")) };
+    let copy = recovery::write(dir, &tab.doc.path, &src.text(), stamp)?;
+    src.dirty = false;
+    Ok(copy)
 }
 
 /// "Tieni il mio": scrive il testo del sorgente sopra quello che c'è su disco, senza confrontare,

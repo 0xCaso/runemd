@@ -326,6 +326,9 @@ pub struct App {
     spare_edit: TextEdit,
     /// Cerca nel file (Cmd+F): una barra per finestra, sulla scheda davanti.
     pub(crate) find: ui::find::Find,
+    /// La cartella delle copie di recupero (`edit::recovery`); `None` nei test che non la danno,
+    /// così nessun test scrive in quella vera.
+    pub(crate) recovery: Option<PathBuf>,
 }
 
 impl App {
@@ -353,13 +356,16 @@ impl App {
             wide: false,
             spare_edit: TextEdit::default(),
             find: ui::find::Find::default(),
+            recovery: edit::recovery::default_dir(),
         }
     }
 
     /// Un'app con le impostazioni di default, in memoria (i test).
     #[cfg(test)]
     pub fn bare(library: index::Library) -> App {
-        App::new(library, Settings::default(), rune::prefs::Prefs::memory())
+        let mut app = App::new(library, Settings::default(), rune::prefs::Prefs::memory());
+        app.recovery = None;
+        app
     }
 
     /// Lo stile del documento nel tema `dark`.
@@ -613,14 +619,35 @@ impl App {
     }
 
     /// La finestra si chiude o l'app esce (`on_close`, `on_quit`): ogni scheda nel sorgente con
-    /// modifiche le salva. Rune non lascia annullare la chiusura: con un conflitto il file su
-    /// disco resta quello di fuori e le modifiche si perdono (lo si dice sul terminale).
+    /// modifiche le salva. Rune non lascia annullare la chiusura: se il salvataggio non scrive (un
+    /// conflitto o un errore) il testo va in una copia di recupero ([`edit::recovery`]) e il file
+    /// su disco resta com'è. La scheda non ha più modifiche da salvare: una seconda chiamata (Cmd+Q
+    /// fa `on_quit` e poi `on_close`) non scrive una seconda copia.
     pub fn save_all(&mut self) {
+        let stamp = edit::recovery::stamp_now();
         for tab in &mut self.tabs {
-            if matches!(&tab.mode, Mode::Source(s) if s.dirty) && matches!(edit::save(tab, &mut self.live.own), Err(edit::SaveError::Conflict)) {
-                eprintln!("runemd: {}: il file è cambiato su disco, modifiche non salvate", tab.doc.path.display());
+            if !matches!(&tab.mode, Mode::Source(s) if s.dirty) {
+                continue;
+            }
+            let why = match edit::save(tab, &mut self.live.own) {
+                Ok(()) => continue,
+                Err(edit::SaveError::Conflict) => "il file è cambiato su disco".to_owned(),
+                Err(edit::SaveError::Io(e)) => format!("salvataggio non riuscito ({e})"),
+            };
+            let path = tab.doc.path.display().to_string();
+            match self.recovery.as_deref().map(|dir| edit::recover(tab, dir, &stamp)) {
+                Some(Ok(copy)) => eprintln!("runemd: {path}: {why}; modifiche in {}", copy.display()),
+                Some(Err(e)) => eprintln!("runemd: {path}: {why}; copia di recupero non scritta: {e}"),
+                None => eprintln!("runemd: {path}: {why}; modifiche non salvate"),
             }
         }
+    }
+
+    /// All'avvio: le copie di recupero scritte all'ultima uscita si aprono in una scheda.
+    pub fn open_recovered(&mut self) {
+        let Some(dir) = self.recovery.as_deref() else { return };
+        let copies = edit::recovery::take_pending(dir);
+        self.open_paths(copies);
     }
 
     /// Porta davanti la scheda `i`; vero se è cambiata.
@@ -1537,6 +1564,71 @@ mod tests {
         app.save_all();
         assert_eq!(fs::read_to_string(&p[0]).unwrap(), "# a.md\n\nuno\n");
         assert_eq!(fs::read_to_string(&p[1]).unwrap(), "# b.md\n\ndue\n");
+    }
+
+    /// Le copie di recupero in `dir` (i file `.md`, senza la lista delle copie da aprire).
+    fn copies(dir: &Path) -> Vec<PathBuf> {
+        let mut v: Vec<PathBuf> = fs::read_dir(dir).map(|r| r.filter_map(|e| e.ok().map(|e| e.path())).filter(|p| p.extension().is_some_and(|e| e == "md")).collect()).unwrap_or_default();
+        v.sort();
+        v
+    }
+
+    /// C1: uscire con un conflitto non perde le modifiche. Il testo va in una copia di recupero
+    /// (una sola, anche se `on_quit` e `on_close` arrivano tutti e due), il file su disco resta
+    /// quello dell'agente, e al prossimo avvio la copia si apre in una scheda (una volta sola).
+    #[test]
+    fn quitting_with_a_conflict_keeps_a_recovery_copy() {
+        let (_dir, p) = files(&["a.md"]);
+        let support = tempfile::tempdir().unwrap();
+        let rec = support.path().join("Recuperati");
+        let mut app = empty_app();
+        app.recovery = Some(rec.clone());
+        app.open_paths(p.clone());
+        edit_tab(&mut app, 0, "# a.md\n\nmio\n");
+        fs::write(&p[0], "# a.md\n\ndell'agente\n").unwrap();
+        app.save_all();
+        app.save_all();
+        assert_eq!(fs::read_to_string(&p[0]).unwrap(), "# a.md\n\ndell'agente\n", "il file resta com'è");
+        let found = copies(&rec);
+        assert_eq!(found.len(), 1, "una sola copia: {found:?}");
+        assert_eq!(fs::read_to_string(&found[0]).unwrap(), "# a.md\n\nmio\n", "il testo esatto");
+        let name = found[0].file_name().unwrap().to_string_lossy().into_owned();
+        assert!(name.starts_with("a-") && name.len() == "a-AAAAMMGG-HHMMSS.md".len(), "{name}");
+        // Il prossimo avvio: la copia si apre in una scheda e resta su disco.
+        let mut next = empty_app();
+        next.recovery = Some(rec.clone());
+        next.open_recovered();
+        assert_eq!(next.tabs.len(), 1);
+        assert_eq!(next.tabs[0].title(), name);
+        assert!(found[0].exists(), "la copia resta finché l'utente la cancella");
+        // L'avvio dopo non la riapre.
+        let mut later = empty_app();
+        later.recovery = Some(rec);
+        later.open_recovered();
+        assert!(later.tabs.is_empty());
+    }
+
+    /// C1: anche un errore di scrittura all'uscita lascia una copia; il file resta com'era.
+    #[test]
+    fn quitting_with_a_write_error_keeps_a_recovery_copy() {
+        use std::os::unix::fs::PermissionsExt;
+        let (dir, p) = files(&["a.md"]);
+        if edit::tests::as_root(dir.path()) {
+            return;
+        }
+        let support = tempfile::tempdir().unwrap();
+        let rec = support.path().join("Recuperati");
+        let mut app = empty_app();
+        app.recovery = Some(rec.clone());
+        app.open_paths(p.clone());
+        edit_tab(&mut app, 0, "# a.md\n\nmio\n");
+        fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o555)).unwrap();
+        app.save_all();
+        fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(fs::read_to_string(&p[0]).unwrap(), "# a.md\n");
+        let found = copies(&rec);
+        assert_eq!(found.len(), 1);
+        assert_eq!(fs::read_to_string(&found[0]).unwrap(), "# a.md\n\nmio\n");
     }
 
     /// Nel sorgente la scheda non si ricarica; tornata alla lettura senza modifiche, rilegge e
