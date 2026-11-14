@@ -189,9 +189,7 @@ pub struct App {
     /// L'indice della scheda davanti; vale solo se `tabs` non è vuoto.
     pub active: usize,
     pub(crate) style: MarkdownStyle,
-    /// I colori di rune-kit per la barra delle schede, dai token (`ui::tabs::kit`).
-    pub(crate) kit: rune_kit::Kit,
-    pub(crate) scroll: Option<probe::ScrollRun>,
+        pub(crate) scroll: Option<probe::ScrollRun>,
     /// Watcher, "sta scrivendo" e scritture dell'app, per tutte le schede.
     pub(crate) live: Live,
     /// I file che "stanno scrivendo" e l'orologio di Rune (`poll`) a cui si è acceso il loro
@@ -205,8 +203,6 @@ pub struct App {
     pub(crate) sidebar: ui::sidebar::Sidebar,
     /// La finestra è attiva (`on_window_focus`): senza, il fuoco resta fermo.
     pub(crate) window_active: bool,
-    /// La riga da rimettere in cima alla vista al prossimo `poll` (`restore_view`).
-    restore: Option<String>,
 }
 
 impl App {
@@ -216,7 +212,6 @@ impl App {
             tabs: Vec::new(),
             active: 0,
             style: ui::markdown_style::style(&theme, ui::theme::BODY_TEXT),
-            kit: ui::tabs::kit(&theme),
             scroll: None,
             live: Live::default(),
             rings: BTreeMap::new(),
@@ -224,7 +219,6 @@ impl App {
             library,
             sidebar: ui::sidebar::Sidebar::default(),
             window_active: true,
-            restore: None,
         }
     }
 
@@ -299,7 +293,9 @@ impl App {
         if self.active > i || self.active >= self.tabs.len() {
             self.active = self.active.saturating_sub(1);
         }
-        if front && !self.tabs.is_empty() {
+        if self.tabs.is_empty() {
+            self.sidebar.clear_open();
+        } else if front {
             self.fronted();
         }
     }
@@ -327,31 +323,31 @@ impl App {
         }
     }
 
-    /// Dopo un cambio della scheda davanti: la vista riparte dal primo blocco che la scheda
-    /// mostrava, in cima, o dall'inizio se non era mai stata davanti. La vista della scheda è un
-    /// elemento nuovo (`ui::doc_view::view`), che parte da 0 con le altezze stimate.
+    /// Dopo un cambio della scheda davanti, nello stesso handler: la vista riparte dal primo
+    /// blocco che la scheda mostrava, in cima, o dall'inizio se non era mai stata davanti; il suo
+    /// fuoco, se acceso o armato, risale da adesso (`tx.clock()`), non dalla ricarica di allora.
     ///
-    /// In due passi, perché `Tx::scroll_key_to` vuole una riga già montata: qui la si porta al
-    /// centro della vista (Rune la monta), al `poll` seguente la si mette in cima
-    /// ([`App::take_restore`]).
+    /// La vista della scheda è un elemento nuovo (`ui::doc_view::view`), che parte da 0 con le
+    /// altezze stimate, e `Tx::scroll_key_to` vuole una riga montata. Rune fa le due richieste
+    /// nello stesso frame, in quest'ordine: prima le rivelazioni (`scroll_center_in_instant`
+    /// monta la riga), poi gli scroll (`scroll_key_to` la mette in cima, rimisurando dopo il
+    /// layout). Il primo frame dopo il cambio è già quello giusto.
     pub fn restore_view(&mut self, tx: &mut Tx) {
-        self.restore = None;
-        let Some(tab) = self.tab() else { return };
+        let clock = tx.clock();
+        let Some(tab) = self.tab_mut() else { return };
+        if tab.fire_since.is_some() {
+            tab.fire_since = Some(clock);
+        }
+        if tab.fire_armed.is_some() {
+            tab.fire_armed = Some(clock);
+        }
         match tab.doc.blocks.iter().position(|b| b.id == tab.visible_first) {
             Some(i) if i > 0 => {
                 let key = ui::doc_view::row_key(i, &tab.doc);
                 tx.scroll_center_in_instant("doc", key.clone());
-                tx.wake_after(Duration::ZERO);
-                self.restore = Some(key);
+                tx.scroll_key_to(key, 0.0);
             }
             _ => tx.scroll_to_instant("doc", 0.0, 0.0),
-        }
-    }
-
-    /// Il secondo passo di [`App::restore_view`], da `poll`.
-    pub fn take_restore(&mut self, tx: &mut Tx) {
-        if let Some(key) = self.restore.take() {
-            tx.scroll_key_to(key, 0.0);
         }
     }
 
@@ -421,11 +417,15 @@ impl App {
         let open: Vec<&Path> = self.tabs.iter().map(Tab::path).collect();
         self.live.drain(&open, now);
         let (mut changed, mut wakes) = (false, Vec::new());
-        for tab in &mut self.tabs {
+        for (i, tab) in self.tabs.iter_mut().enumerate() {
             let (reloaded, recheck) = self.live.poll(&mut tab.follow, &mut tab.doc, now);
             wakes.extend(recheck);
             if let Some(r) = &reloaded {
-                probe::reloaded(r);
+                // La sonda di latenza misura fino al frame che mostra la ricarica: solo la scheda
+                // davanti ne ha uno.
+                if i == self.active {
+                    probe::reloaded(r);
+                }
                 changed = true;
                 changed |= tab.note_reload(&r.change, clock);
             }
@@ -495,6 +495,17 @@ mod tests {
         app.close_active();
         assert!(app.tabs.is_empty());
         assert!(app.live.open_roots().is_empty(), "radice rilasciata");
+    }
+
+    /// Chiusa l'ultima scheda la sidebar non mostra più il repo del file chiuso.
+    #[test]
+    fn closing_the_last_tab_clears_the_sidebar() {
+        let (_dir, p) = files(&["a.md"]);
+        let mut app = empty_app();
+        app.open_paths(p);
+        assert!(app.sidebar.repo.is_some());
+        app.close_active();
+        assert!(app.sidebar.repo.is_none());
     }
 
     /// Chiusa la scheda davanti, davanti va quella alla sua destra; chiusa una a sinistra, la

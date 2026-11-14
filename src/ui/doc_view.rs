@@ -544,19 +544,58 @@ mod tests {
         scroll_to(&mut rt, 6000.0);
         let b = anchor(&rt);
         cmd(&mut rt, '1');
-        settle(&mut rt);
         assert_eq!(rt.state.active, 0);
-        assert_eq!(anchor(&rt).1.round(), 24.0, "A dall'inizio");
+        assert_eq!(anchor(&rt).1.round(), 24.0, "A dall'inizio, dal primo frame");
+        settle(&mut rt);
         rt.key(KeyEvent { key: Key::Tab, mods: Mods { ctrl: true, ..Mods::default() } });
+        // Il primo frame dopo il cambio è già giusto, e così i seguenti: nessun salto.
+        for f in 0..10 {
+            rt.frame(1.0 / 60.0);
+            assert_eq!(rt.state.active, 1, "Ctrl+Tab");
+            let back = anchor(&rt);
+            if f == 0 {
+                eprintln!("scheda B: prima {b:?}, primo frame dopo {back:?}");
+            }
+            assert_eq!(back.0, b.0, "frame {f}: B riparte dal suo primo blocco visibile");
+            assert!(back.1.abs() <= 1.0, "frame {f}: in cima alla vista: {back:?}");
+        }
+    }
+
+    /// Il fuoco di una scheda in secondo piano risale (420 ms) quando la scheda torna davanti:
+    /// il suo orologio riparte dal cambio, non dalla ricarica di allora.
+    #[test]
+    fn a_background_fire_rises_again_when_its_tab_comes_back() {
+        let mut rt = open(&join(&sample()));
+        rt.update(|s, _| s.push_tab(Document::from_source(Path::new("b.md"), "# b\n")));
         settle(&mut rt);
-        assert_eq!(rt.state.active, 1, "Ctrl+Tab");
-        // Il secondo passo lo fa `poll`, che qui non gira.
-        rt.update(|s, tx| s.take_restore(tx));
+        rt.update(|s, _| s.tabs[0].fire_since = Some(0.0));
+        for _ in 0..120 {
+            rt.frame(1.0 / 60.0);
+        }
+        cmd(&mut rt, '1');
+        let since = rt.state.tab().unwrap().fire_since.expect("fuoco acceso");
+        assert!(since > 1.5, "orologio del cambio, non della ricarica: {since}");
+    }
+
+    /// Le schede sono larghe quanto il loro nome, con `ROW_PAD` ai lati (mockup `scheda`): un
+    /// nome lungo non si taglia mentre la barra ha spazio.
+    #[test]
+    fn tabs_are_as_wide_as_their_names() {
+        let mut rt = open("# a\n");
+        rt.update(|s, _| s.push_tab(Document::from_source(Path::new("un-nome-di-file-molto-lungo.md"), "# b\n")));
         settle(&mut rt);
-        let back = anchor(&rt);
-        eprintln!("scheda B: prima {b:?}, dopo {back:?}");
-        assert_eq!(back.0, b.0, "B riparte dal suo primo blocco visibile");
-        assert!(back.1.abs() <= 1.0, "in cima alla vista: {back:?}");
+        let els = rt.elements();
+        let rect = |key: &str| els.iter().find(|e| e.key.as_deref() == Some(key)).unwrap_or_else(|| panic!("{key}")).rect;
+        let ids: Vec<u64> = rt.state.tabs.iter().map(|t| t.doc.id).collect();
+        let (a, b) = (rect(&format!("t-{:x}", ids[0])), rect(&format!("t-{:x}", ids[1])));
+        let (la, lb) = (rect(&format!("t-{:x}-label", ids[0])), rect(&format!("t-{:x}-label", ids[1])));
+        let pad = crate::ui::theme::ROW_PAD;
+        for (tab, label) in [(a, la), (b, lb)] {
+            assert!((label[0] - tab[0] - pad).abs() <= 0.5, "testo a {pad} dal bordo: {tab:?} {label:?}");
+            assert!((tab[0] + tab[2] - label[0] - label[2] - pad).abs() <= 0.5, "e a {pad} dalla fine: {tab:?} {label:?}");
+        }
+        assert!(b[2] > a[2] + 100.0, "larghe quanto il nome: {a:?} {b:?}");
+        assert_eq!(a[3], crate::ui::theme::ROW);
     }
 
     /// La barra mostra una scheda per file, quella davanti con riempimento `sel`, e "⌘E

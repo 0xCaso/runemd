@@ -19,7 +19,8 @@ pub const UI_STRONG_WEIGHT: f32 = 600.0;
 pub const UI_SMALL_WEIGHT: f32 = 500.0;
 pub const KBD_WEIGHT: f32 = 400.0;
 /// Barra delle schede (DESIGN.md, `spacing.tab-bar`, `tab-bar-pad`, `tab-gap`): alta 44, margine
-/// 10 ai lati, 2 fra una scheda e l'altra. Le schede sono alte `ROW`, raggio `R_ROW`.
+/// 10 ai lati, 2 fra una scheda e l'altra. Le schede sono alte `ROW`, raggio `R_ROW`, con
+/// `ROW_PAD` ai lati del nome.
 pub const TAB_BAR_H: f32 = 44.0;
 pub const TAB_BAR_PAD_X: f32 = 10.0;
 pub const TAB_GAP: f32 = 2.0;

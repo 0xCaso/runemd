@@ -138,6 +138,19 @@ impl Sidebar {
         }
     }
 
+    /// Nessun file aperto (l'ultima scheda chiusa): "Repo del file" sparisce con il suo albero e
+    /// la riga scelta, e il branch non si aggiorna più (la cartella di HEAD può non essere più
+    /// guardata, `live::Live::unfollow`).
+    pub fn clear_open(&mut self) {
+        self.open = None;
+        self.repo = None;
+        self.in_repo = false;
+        self.tree = TreeModel::default();
+        self.tree_files.clear();
+        self.open_dirs.clear();
+        self.tree_version += 1;
+    }
+
     /// L'id nell'albero del file aperto (il percorso relativo alla radice del repo).
     fn open_id(&self) -> Option<String> {
         let root = &self.repo.as_ref()?.root;
@@ -643,6 +656,20 @@ mod tests {
         assert!(sb.refresh_tree(&Index::from_entries(more)));
         assert!(sb.tree.is_expanded("design") && sb.tree.is_expanded("docs/spike"), "cartelle aperte tenute");
         assert!(sb.tree.contains("docs/new.md") && sb.tree.is_selected("docs/spike/a.md"));
+    }
+
+    /// Chiusa l'ultima scheda non c'è un file aperto: niente repo, niente albero, niente riga
+    /// scelta, e un cambio di HEAD non tocca più niente.
+    #[test]
+    fn clear_open_drops_the_repo_and_the_selection() {
+        let (_d, root) = repo_with(&["a.md"]);
+        let mut sb = Sidebar::default();
+        sb.set_open(&root.join("a.md"), &Index::default());
+        assert!(sb.repo.is_some());
+        sb.clear_open();
+        assert!(sb.repo.is_none() && sb.open.is_none());
+        assert!(sb.tree.is_empty());
+        assert!(!sb.git_head(&root));
     }
 
     /// Un checkout nel repo del file aperto cambia il branch; in un altro repo no.

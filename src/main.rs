@@ -78,7 +78,8 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
     };
     // Pannello pieno con la barra delle schede e il documento, a `FRAME` dai bordi alto, destro e
     // basso; a sinistra la sidebar, tutto sul vetro di sistema.
-    let bar = ui::tabs::view(s, ui::tabs::strip_width(cx), &theme, reduced);
+    let hooks = ui::sidebar::Hooks { get: |s: &App| &s.sidebar, get_mut: |s: &mut App| &mut s.sidebar, open: App::open_from_sidebar, ring: App::ring_of, query: App::requery_sidebar };
+    let bar = ui::tabs::view(s, hooks, &theme, reduced, !cx.hover_none());
     let content = rune::col().w_full().h_full().child(bar).child(body);
     let mut panel = el().w_full().h_full().fill(theme.panel).radius(ui::theme::R_PANEL).clip_rounded(ui::theme::R_PANEL).child(content);
     // Il fuoco della scheda davanti: una fascia sul fondo del pannello, sopra il documento, con
@@ -95,7 +96,6 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
     }
     // L'anello "sta scrivendo" sta sulla scheda del file (`ui::tabs`) e sulle sue righe in
     // Recenti e nell'albero.
-    let hooks = ui::sidebar::Hooks { get: |s: &App| &s.sidebar, get_mut: |s: &mut App| &mut s.sidebar, open: App::open_from_sidebar, ring: App::ring_of, query: App::requery_sidebar };
     let sidebar = ui::sidebar::view(s, hooks, &theme, reduced, !cx.hover_none());
     let main = el().key("main").grow(1.0).min_w(0.0).h_full().pt(ui::theme::FRAME).pr(ui::theme::FRAME).pb(ui::theme::FRAME).child(panel);
     rune::row().w_full().h_full().system_material(rune::SystemMaterial::Glass).fill(theme.glass).child(sidebar).child(main)
@@ -149,7 +149,6 @@ fn on_key(s: &mut App, key: &rune::KeyEvent, tx: &mut Tx) -> bool {
 }
 
 fn poll(s: &mut App, clock: f64, tx: &mut Tx) -> bool {
-    s.take_restore(tx);
     let queued = open::queue::drain();
     let opened = !queued.is_empty();
     if opened {

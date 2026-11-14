@@ -211,9 +211,11 @@ raggio 6, hover `sel`, scala 0,98 premuta); la riga scelta con le frecce ha riem
 doppio mostra repo o cartella in `fg-3`, come in Recenti. Invio apre, Esc svuota e chiude, nessuna animazione di
 apertura (azione da tastiera). Nessun accento: caret `fg`, selezione `sel`. Nessun risultato: "Nessun file" in `fg-3`.
 
-**Scheda.** Testo UI 13 px. La scheda del file attivo ha riempimento `sel` e testo `fg`; le altre testo `fg-2`.
-Barra alta 44 (`tab-bar`), margine 10 ai lati (`tab-bar-pad`), 2 fra le schede (`tab-gap`), linea di 0,5 in `line`
-sotto; schede alte 28 con raggio 6, nessun separatore fra loro. "⌘E sorgente" a destra come il tasto "⌘P", in `fg-3`.
+**Scheda.** Una riga come quelle della sidebar, larga quanto il nome del file: alta 28 (`row`), raggio 6, testo UI
+13 px con 10 ai lati (`row-pad`), hover `sel`, scala 0,98 premuta. La scheda del file attivo ha riempimento `sel` e
+testo `fg`; le altre testo `fg-2`. Barra alta 44 (`tab-bar`), margine 10 ai lati (`tab-bar-pad`), 2 fra le schede
+(`tab-gap`), linea di 0,5 in `line` sotto; nessun separatore né icona. Troppe schede: la riga scorre di lato. "⌘E
+sorgente" a destra come il tasto "⌘P", in `fg-3`.
 
 **Segnali live (effetti GPU di Rune).** Ognuno ha un solo significato, e nessun altro elemento lo usa.
 
