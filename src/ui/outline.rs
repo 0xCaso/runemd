@@ -17,7 +17,7 @@ use rune::{El, GrowthSpec, ScrollSpec, TextStyle, Tx, col, el, row, text};
 
 use super::sidebar::{self, Hooks, Motion};
 use super::theme::{
-    HAIRLINE, OUTLINE_INDENT, OUTLINE_LABEL_GAP, OUTLINE_PAD_X, OUTLINE_ROW, OUTLINE_ROW_PAD, OUTLINE_TEXT, OUTLINE_W, Theme, UI_STRONG_WEIGHT, UI_WEIGHT,
+    HAIRLINE, OUTLINE_INDENT, OUTLINE_LABEL_GAP, OUTLINE_PAD_X, OUTLINE_ROW, OUTLINE_ROW_PAD, OUTLINE_TEXT, Theme, UI_STRONG_WEIGHT, UI_WEIGHT,
 };
 use crate::app::{App, Tab};
 use crate::doc::document::Document;
@@ -160,10 +160,10 @@ pub fn row_key(doc: u64, block: u64) -> String {
 }
 
 /// La colonna "In questo file" della scheda `tab`, `None` se il file non ha titoli H1–H3. Linea
-/// di 0,5 pt in `line` a sinistra, larga `OUTLINE_W`; l'etichetta in UI piccola `fg3` allineata
+/// di 0,5 pt in `line` a sinistra, larga `width` (`OUTLINE_W` di default, poi trascinata); l'etichetta in UI piccola `fg3` allineata
 /// alla prima riga del documento; i titoli rientrano di `OUTLINE_INDENT` per livello sotto il più
 /// alto del file. La lista scorre da sola se è più alta della finestra.
-pub fn view(tab: &Tab, hooks: Hooks<App>, theme: &Theme, reduced: bool, hover: bool) -> Option<El> {
+pub fn view(tab: &Tab, hooks: Hooks<App>, width: f32, theme: &Theme, reduced: bool, hover: bool) -> Option<El> {
     let items = tab.outline.get(&tab.doc);
     if items.is_empty() {
         return None;
@@ -193,7 +193,7 @@ pub fn view(tab: &Tab, hooks: Hooks<App>, theme: &Theme, reduced: bool, hover: b
     let label = text(LABEL).key(format!("outline-label-{doc:x}")).font(sidebar::small_font()).color(theme.fg3).px(OUTLINE_ROW_PAD).pb(OUTLINE_LABEL_GAP);
     let list = col().key(format!("outline-list-{doc:x}")).w_full().grow(1.0).min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(rows);
     let column = col()
-        .w(OUTLINE_W - HAIRLINE)
+        .w(width - HAIRLINE)
         .h_full()
         .px(OUTLINE_PAD_X)
         .pt(super::doc_view::TOP + super::theme::ROW_PAD_Y)
@@ -416,7 +416,7 @@ mod tests {
     fn a_wide_window_shows_the_outline_beside_the_document() {
         let rt = open_at(&sample(), WIDE);
         let outline = keyed(&rt, &ok(&rt, "outline")).expect("indice");
-        assert_eq!(outline[2], OUTLINE_W);
+        assert_eq!(outline[2], super::super::theme::OUTLINE_W);
         let line = keyed(&rt, &ok(&rt, "outline-line")).unwrap();
         assert_eq!((line[0], line[2]), (outline[0], HAIRLINE));
         let doc = keyed(&rt, "doc").unwrap();
@@ -424,6 +424,59 @@ mod tests {
         assert_eq!(keyed(&rt, "rows").unwrap()[2], super::super::theme::COLUMN);
         assert!(rt.elements().iter().any(|e| e.text.as_deref() == Some(LABEL)));
         assert_eq!(highlighted(&rt), ["Documento"], "in cima: il titolo del file");
+    }
+
+    /// Trascina dal centro della fascia `key` di `dx` punti, in passi da 10, e lascia.
+    fn drag_edge(rt: &mut Runtime<App>, key: &str, dx: f32) {
+        let e = keyed(rt, key).expect("bordo");
+        let (x, y) = (e[0] + e[2] / 2.0, e[1] + e[3] / 2.0);
+        rt.pointer_move(x, y);
+        rt.pointer_down(x, y);
+        let steps = (dx.abs() / 10.0).ceil().max(1.0) as usize;
+        for k in 1..=steps {
+            rt.pointer_move(x + dx * k as f32 / steps as f32, y);
+            rt.frame(1.0 / 120.0);
+        }
+        rt.pointer_up(x + dx, y);
+        settle(rt);
+    }
+
+    /// I bordi di sidebar e indice si trascinano: la larghezza segue, si ricorda e scatta a una
+    /// larghezza ricordata o a quella di default quando ci si passa vicino; il documento resta
+    /// fra i due.
+    #[test]
+    fn dragging_the_edges_resizes_sidebar_and_outline_and_snaps() {
+        let mut rt = open_at(&sample(), (1400.0, 800.0));
+        assert_eq!(keyed(&rt, "sidebar").unwrap()[2], 248.0);
+        drag_edge(&mut rt, "sidebar-edge", 60.0);
+        assert_eq!(keyed(&rt, "sidebar").unwrap()[2], 308.0);
+        assert_eq!(rt.state.settings.sidebar.learned, vec![308.0]);
+        // Di nuovo al default (scatta a 248 da 252), poi vicino a 308: scatta lì.
+        drag_edge(&mut rt, "sidebar-edge", -56.0);
+        assert_eq!(rt.state.settings.sidebar.width, 248.0);
+        drag_edge(&mut rt, "sidebar-edge", 54.0);
+        assert_eq!(keyed(&rt, "sidebar").unwrap()[2], 308.0, "scatta alla larghezza ricordata");
+        // L'indice: verso sinistra si allarga.
+        drag_edge(&mut rt, "outline-edge", -40.0);
+        let outline = keyed(&rt, &ok(&rt, "outline")).unwrap();
+        assert_eq!(outline[2], 236.0);
+        assert_eq!(rt.state.settings.outline.width, 236.0);
+        let doc = keyed(&rt, "doc").unwrap();
+        assert!((doc[0] + doc[2] - outline[0]).abs() < 0.5, "il documento arriva all'indice");
+        // Mai tanto che l'indice si nasconda: la soglia si sposta con le larghezze.
+        drag_edge(&mut rt, "outline-edge", -400.0);
+        assert!(keyed(&rt, &ok(&rt, "outline")).is_some());
+        assert!(rt.state.outline_min_window() <= 1400.0);
+        // Doppio clic: di nuovo il default.
+        let e = keyed(&rt, "outline-edge").unwrap();
+        let (x, y) = (e[0] + e[2] / 2.0, e[1] + 40.0);
+        for _ in 0..2 {
+            rt.pointer_move(x, y);
+            rt.pointer_down(x, y);
+            rt.pointer_up(x, y);
+        }
+        settle(&mut rt);
+        assert_eq!(rt.state.settings.outline.width, super::super::theme::OUTLINE_W);
     }
 
     #[test]

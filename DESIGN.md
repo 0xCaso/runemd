@@ -381,6 +381,13 @@ testo `fg` e una spunta in `fg`; le altre testo `fg-2`. La casella ha il bordo d
 `fg-2` con la spunta in `panel`. Con il fuoco spento l'etichetta "N paragrafi nuovi più in basso" resta, in `fg-2`
 su una fascia `panel` alta 44 con la linea `line` sopra. Tutto cambia subito, senza riavvio.
 
+**Larghezza di sidebar e indice.** Il bordo destro della sidebar e quello sinistro dell'indice si trascinano: una
+fascia invisibile di 8 nel margine del pannello, cursore ↔. Sidebar 180–420 (default 248), indice 150–360 (default
+196); la soglia dell'indice si sposta con le due larghezze, e il trascinamento si ferma prima che l'indice si
+nasconda (senza indice, il pannello resta largo almeno 400). Lo scatto impara come Snappy: lasciando il bordo la
+larghezza si ricorda (le ultime 4); passando a meno di 8 da una ricordata, o dal default, il bordo si ferma lì.
+Doppio clic: il default. Esc durante il trascinamento: com'era. Le larghezze restano dopo il riavvio.
+
 **Segnali live (effetti GPU di Rune).** Ognuno ha un solo significato, e nessun altro elemento lo usa.
 
 | Effetto | Significato | Dove | Inizio | Fine |

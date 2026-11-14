@@ -235,6 +235,21 @@ impl Tab {
     }
 }
 
+/// Un passo del trascinamento del bordo di `pane`: `d.data` tiene la larghezza alla pressione,
+/// `delta` è lo spostamento che la allarga. Vero quando la larghezza va salvata (lasciato).
+fn drag_pane(pane: &mut crate::panes::Pane, limits: crate::panes::Limits, d: &mut rune::Drag, delta: f32, room: f32) -> bool {
+    match d.phase {
+        rune::Phase::Down => d.data = pane.width,
+        rune::Phase::Move => pane.width = pane.drag(d.data + delta, limits, room),
+        rune::Phase::Up if d.cancelled() => pane.width = d.data,
+        rune::Phase::Up => {
+            pane.learn(pane.width, limits);
+            return true;
+        }
+    }
+    false
+}
+
 /// Porta il blocco `i` della scheda `tab` in cima alla vista del documento, senza planata. La
 /// riga può non essere montata: `scroll_center_in_instant` la monta, poi `scroll_key_to` la mette
 /// in cima rimisurando dopo il layout; Rune fa le due richieste nello stesso frame, in
@@ -328,6 +343,8 @@ pub struct App {
     pub(crate) window_active: bool,
     /// La finestra è larga almeno `OUTLINE_MIN_WINDOW`: l'indice dei titoli si vede.
     pub(crate) wide: bool,
+    /// La larghezza della finestra (`on_layout` della radice): lo spazio dei pannelli trascinati.
+    pub(crate) window_w: f32,
     /// Il campo che `source_edit` dà quando la sua scheda non è più nel sorgente.
     spare_edit: TextEdit,
     /// Cerca nel file (Cmd+F): una barra per finestra, sulla scheda davanti.
@@ -361,6 +378,7 @@ impl App {
             sidebar: ui::sidebar::Sidebar::default(),
             window_active: true,
             wide: false,
+            window_w: 0.0,
             spare_edit: TextEdit::default(),
             find: ui::find::Find::default(),
             recovery: edit::recovery::default_dir(),
@@ -903,9 +921,43 @@ impl App {
     }
 
     /// La finestra è larga `w` (`on_layout` della radice): l'indice dei titoli si vede se è
-    /// almeno `OUTLINE_MIN_WINDOW`. La vista non rigira per questo: decide da `Cx::layout_with`.
+    /// almeno `outline_min_window`. La vista non rigira per questo: decide da `Cx::layout_with`.
     pub fn set_window_width(&mut self, w: f32) {
-        self.wide = w >= ui::theme::OUTLINE_MIN_WINDOW;
+        self.window_w = w;
+        self.wide = w >= self.outline_min_window();
+    }
+
+    /// La finestra più stretta con l'indice in vista, con le larghezze di adesso dei pannelli.
+    pub fn outline_min_window(&self) -> f32 {
+        ui::theme::outline_min_window(self.settings.sidebar.width, self.settings.outline.width)
+    }
+
+    /// Il bordo destro della sidebar trascinato (`panes`): segue il puntatore e scatta alle
+    /// larghezze ricordate; lasciato, la larghezza si ricorda e si salva; Esc la rimette com'era.
+    /// Con l'indice possibile (finestra larga) si allarga finché l'indice resta, se no finché il
+    /// pannello resta largo almeno `DOC_MIN`.
+    pub fn drag_sidebar(&mut self, d: &mut rune::Drag) {
+        let fixed = if self.wide { self.outline_min_window() - self.settings.sidebar.width } else { ui::theme::FRAME + ui::theme::DOC_MIN };
+        let room = self.window_w - fixed;
+        if drag_pane(&mut self.settings.sidebar, crate::panes::SIDEBAR, d, d.dx, room) {
+            self.save_settings();
+        }
+    }
+
+    /// Il bordo sinistro dell'indice trascinato: come `drag_sidebar`, verso sinistra si allarga;
+    /// mai tanto che l'indice si nasconda.
+    pub fn drag_outline(&mut self, d: &mut rune::Drag) {
+        let room = self.window_w - (self.outline_min_window() - self.settings.outline.width);
+        if drag_pane(&mut self.settings.outline, crate::panes::OUTLINE, d, -d.dx, room) {
+            self.save_settings();
+        }
+    }
+
+    /// Doppio clic sul bordo: la larghezza di default.
+    pub fn reset_pane(&mut self, outline: bool) {
+        let (pane, limits) = if outline { (&mut self.settings.outline, crate::panes::OUTLINE) } else { (&mut self.settings.sidebar, crate::panes::SIDEBAR) };
+        pane.width = limits.default;
+        self.save_settings();
     }
 
     /// I segni di Cerca del blocco `block` della scheda davanti, nella riga `row_key`.

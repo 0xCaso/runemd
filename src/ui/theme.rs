@@ -70,6 +70,16 @@ pub const OUTLINE_LABEL_GAP: f32 = 4.0;
 /// Sotto questa larghezza della finestra l'indice si nasconde: sidebar + colonna + 200.
 pub const OUTLINE_MIN_WINDOW: f32 = SIDEBAR + COLUMN + 200.0;
 
+/// La soglia dell'indice con sidebar e indice larghi `sidebar` e `outline` (trascinati,
+/// `panes`): si sposta di quanto sono più larghi o più stretti del default.
+pub fn outline_min_window(sidebar: f32, outline: f32) -> f32 {
+    OUTLINE_MIN_WINDOW + (sidebar - SIDEBAR) + (outline - OUTLINE_W)
+}
+/// Senza indice, la sidebar si allarga finché il pannello resta largo almeno questo.
+pub const DOC_MIN: f32 = 400.0;
+/// La fascia che si trascina sul bordo della sidebar e dell'indice, nel loro margine (8 e 10): cursore ↔.
+pub const EDGE_W: f32 = 8.0;
+
 /// La scheda più larga (`tab-max`): un nome più lungo si taglia in mezzo.
 pub const TAB_MAX_W: f32 = 240.0;
 /// Sidebar (DESIGN.md, `spacing`): spazio sopra il campo per i semafori, margini ai lati e in fondo.

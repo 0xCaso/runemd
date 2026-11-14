@@ -9,6 +9,8 @@ use std::path::{Path, PathBuf};
 use rune::prefs::{Prefs, PrefsError};
 use serde::{Deserialize, Serialize};
 
+use crate::panes::{self, Pane};
+
 /// L'id dell'app per `Prefs::open`: la stessa cartella dell'indice (`index::cache_path`).
 pub const APP_ID: &str = "RuneMD";
 
@@ -91,6 +93,9 @@ pub struct Settings {
     pub fire: bool,
     /// La larghezza della colonna del testo, pt, uno di `COLUMNS` (`COLUMN_FULL` è "Intera").
     pub column: f32,
+    /// La sidebar e l'indice dei titoli: larghezza e larghezze imparate (`panes`).
+    pub sidebar: Pane,
+    pub outline: Pane,
 }
 
 impl Default for Settings {
@@ -102,6 +107,8 @@ impl Default for Settings {
             theme: ThemePref::System,
             fire: true,
             column: DEFAULT_COLUMN,
+            sidebar: Pane::new(panes::SIDEBAR),
+            outline: Pane::new(panes::OUTLINE),
         }
     }
 }
@@ -123,6 +130,8 @@ const SIZE: &str = "size";
 const THEME: &str = "theme";
 const FIRE: &str = "fire";
 const COLUMN: &str = "column";
+const SIDEBAR: &str = "sidebar";
+const OUTLINE: &str = "outline";
 
 impl Settings {
     /// Le impostazioni salvate in `prefs`; i valori che mancano o non valgono prendono il default.
@@ -144,6 +153,8 @@ impl Settings {
                 .get::<f32>(COLUMN)
                 .filter(|c| COLUMNS.contains(c))
                 .unwrap_or(d.column),
+            sidebar: prefs.get::<Pane>(SIDEBAR).map_or(d.sidebar, |p| p.sanitized(panes::SIDEBAR)),
+            outline: prefs.get::<Pane>(OUTLINE).map_or(d.outline, |p| p.sanitized(panes::OUTLINE)),
         }
     }
 
@@ -154,7 +165,9 @@ impl Settings {
         prefs.set(SIZE, &self.size)?;
         prefs.set(THEME, &self.theme)?;
         prefs.set(FIRE, &self.fire)?;
-        prefs.set(COLUMN, &self.column)
+        prefs.set(COLUMN, &self.column)?;
+        prefs.set(SIDEBAR, &self.sidebar)?;
+        prefs.set(OUTLINE, &self.outline)
     }
 
     /// La larghezza dopo quella di adesso in `COLUMNS`, nella direzione `step` (−1 o +1); ferma
@@ -231,6 +244,8 @@ mod tests {
             theme: ThemePref::Dark,
             fire: false,
             column: 920.0,
+            sidebar: Pane { width: 300.0, learned: vec![300.0, 210.0] },
+            outline: Pane { width: 240.0, learned: vec![240.0] },
         };
         s.save(&mut prefs).unwrap();
         assert_eq!(Settings::load(&prefs), s);
@@ -302,6 +317,25 @@ mod tests {
         assert_eq!(Settings::load(&prefs).column, COLUMN_FULL);
         prefs.set(COLUMN, &700.0f32).unwrap();
         assert_eq!(Settings::load(&prefs).column, 680.0, "non è un passo");
+    }
+
+    /// Le larghezze dei pannelli tornano dopo il riavvio; un valore salvato fuori dai limiti torna
+    /// nei limiti, uno che non si legge prende il default.
+    #[test]
+    fn pane_widths_persist_and_come_back_in_the_limits() {
+        let mut prefs = Prefs::memory();
+        let mut s = Settings::default();
+        s.sidebar.learn(330.0, panes::SIDEBAR);
+        s.outline.learn(260.0, panes::OUTLINE);
+        s.save(&mut prefs).unwrap();
+        let back = Settings::load(&prefs);
+        assert_eq!(back.sidebar, Pane { width: 330.0, learned: vec![330.0] });
+        assert_eq!(back.outline, Pane { width: 260.0, learned: vec![260.0] });
+        prefs.set(SIDEBAR, &Pane { width: 5000.0, learned: vec![1.0, 200.0] }).unwrap();
+        prefs.set(OUTLINE, &"largo").unwrap();
+        let back = Settings::load(&prefs);
+        assert_eq!(back.sidebar, Pane { width: panes::SIDEBAR.max, learned: vec![200.0] });
+        assert_eq!(back.outline, Pane::new(panes::OUTLINE));
     }
 
     #[test]

@@ -28,6 +28,7 @@ mod fx;
 mod index;
 mod live;
 mod open;
+mod panes;
 mod probe;
 mod repo;
 mod settings;
@@ -102,12 +103,18 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
             // attraversando la soglia il documento non cambia posto nell'albero e tiene scroll e
             // stato.
             // Con le impostazioni aperte l'indice lascia il posto al pannello.
-            let wide = cx.layout_with("app", |r| r[2] >= ui::theme::OUTLINE_MIN_WINDOW).unwrap_or(false);
-            let outline = if wide && !s.settings_panel.open { ui::outline::view(tab, hooks, &theme, reduced, !cx.hover_none()) } else { None };
+            // La soglia segue le larghezze trascinate di sidebar e indice (`App::outline_min_window`).
+            let min = s.outline_min_window();
+            let wide = cx.layout_with("app", move |r| r[2] >= min).unwrap_or(false);
+            let outline_w = s.settings.outline.width;
+            let outline = if wide && !s.settings_panel.open { ui::outline::view(tab, hooks, outline_w, &theme, reduced, !cx.hover_none()) } else { None };
+            // Il bordo sinistro dell'indice si trascina (`App::drag_outline`): la fascia sta nel margine
+            // dell'indice, così non copre lo scroll del documento.
+            let outline_edge = outline.is_some().then(|| edge("outline-edge", false).pin(None, Some(0.0), Some(outline_w - ui::theme::EDGE_W), Some(0.0)));
             // Cmd+E su un file che non è UTF-8: la riga sopra la lettura lo dice.
             let refused = tab.not_utf8.then(|| ui::source::not_utf8_row(&theme, s.settings.column));
             let doc = rune::col().w_full().h_full().children(refused).child(el().w_full().grow(1.0).min_h(0.0).child(doc));
-            rune::row().key("doc-pane").transition(ui::theme::mode_transition(reduced)).w_full().grow(1.0).min_h(0.0).child(el().grow(1.0).min_w(0.0).h_full().child(doc)).children(outline)
+            rune::row().key("doc-pane").transition(ui::theme::mode_transition(reduced)).w_full().grow(1.0).min_h(0.0).child(el().grow(1.0).min_w(0.0).h_full().child(doc)).children(outline).children(outline_edge)
         }
         None => el().grow(1.0),
     };
@@ -132,7 +139,10 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
     }
     // L'anello "sta scrivendo" sta sulla scheda del file (`ui::tabs`) e sulle sue righe in
     // Recenti e nell'albero.
-    let sidebar = ui::sidebar::view(s, hooks, &theme, reduced, !cx.hover_none());
+    let sidebar_w = s.settings.sidebar.width;
+    let sidebar = ui::sidebar::view(s, hooks, sidebar_w, &theme, reduced, !cx.hover_none());
+    // Il bordo destro della sidebar si trascina (`App::drag_sidebar`); sopra a tutto, nel margine della sidebar.
+    let sidebar_edge = edge("sidebar-edge", true).pin(Some(sidebar_w - ui::theme::EDGE_W), Some(0.0), None, Some(0.0));
     let main = el().key("main").grow(1.0).min_w(0.0).h_full().pt(ui::theme::FRAME).pr(ui::theme::FRAME).pb(ui::theme::FRAME).child(panel);
     // La larghezza della finestra per i gestori (`App::wide`: l'indice dei titoli si vede); la
     // vista la legge da `cx`. Si aggiorna senza far rigirare la vista.
@@ -140,8 +150,26 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
         s.set_window_width(r[2]);
         tx.live_only();
     };
-    rune::row().key("app").on_layout_tx(width).w_full().h_full().system_material(rune::SystemMaterial::Glass).fill(theme.glass).child(sidebar).child(main)
+    rune::row().key("app").on_layout_tx(width).w_full().h_full().system_material(rune::SystemMaterial::Glass).fill(theme.glass).child(sidebar).child(main).child(sidebar_edge)
         .on_window_focus(|s: &mut App, focused, _| s.window_active = focused)
+}
+
+/// La fascia che si trascina sul bordo della sidebar (`sidebar`) o dell'indice: larga `EDGE_W`, dentro il
+/// margine del pannello, cursore ↔, doppio clic per la larghezza di default. Invisibile: il bordo è già lì.
+fn edge(key: &str, sidebar: bool) -> El {
+    let label = if sidebar { "Larghezza della barra laterale" } else { "Larghezza dell'indice" };
+    el().key(key)
+        .w(ui::theme::EDGE_W)
+        .cursor(rune::Cursor::ResizeColumn)
+        .label(label)
+        .on_drag(move |s: &mut App, d: &mut rune::Drag, tx: &mut Tx| {
+            tx.instant();
+            if sidebar { s.drag_sidebar(d) } else { s.drag_outline(d) }
+        })
+        .on_double_press_tx(move |s: &mut App, tx: &mut Tx| {
+            tx.instant();
+            s.reset_pane(!sidebar);
+        })
 }
 
 /// Il fuoco e la sua etichetta sul fondo del pannello. `lit`: da quando c'è testo nuovo sotto la
