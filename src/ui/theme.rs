@@ -5,6 +5,15 @@ use rune::{Color, oklcha};
 pub const FRAME: f32 = 8.0;
 pub const SIDEBAR: f32 = 248.0;
 pub const COLUMN: f32 = 680.0;
+
+/// La colonna del testo larga al massimo `column` (impostazione "Larghezza del testo",
+/// `settings::COLUMNS`); con "Intera" segue il pannello, e i margini delle righe restano.
+pub fn column(e: rune::El, column: f32) -> rune::El {
+    match crate::settings::max_width(column) {
+        Some(w) => e.max_w(w),
+        None => e,
+    }
+}
 pub const ROW: f32 = 28.0;
 pub const TREE_ROW: f32 = 26.0;
 pub const TREE_INDENT: f32 = 16.0;

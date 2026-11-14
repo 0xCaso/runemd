@@ -435,6 +435,22 @@ impl App {
         }
     }
 
+    /// La larghezza della colonna del testo (uno di `settings::COLUMNS`). Le altezze delle righe
+    /// cambiano: il blocco che stava in cima alla vista torna in cima (`scroll_block_to_top`).
+    pub fn set_column(&mut self, column: f32, tx: &mut Tx) {
+        self.settings_panel.clear_notice();
+        if self.settings.column == column || !crate::settings::COLUMNS.contains(&column) {
+            return;
+        }
+        self.settings.column = column;
+        self.save_settings();
+        if let Some(tab) = self.tab().filter(|t| matches!(t.mode, Mode::Read))
+            && let Some(i) = tab.doc.blocks.iter().position(|b| b.id == tab.visible_first).filter(|&i| i > 0)
+        {
+            scroll_block_to_top(tab, i, tx);
+        }
+    }
+
     /// Accende o spegne il fuoco in fondo al pannello; l'etichetta del testo nuovo resta.
     pub fn toggle_fire(&mut self) {
         self.settings_panel.clear_notice();

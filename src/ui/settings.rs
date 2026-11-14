@@ -45,6 +45,12 @@ pub const THEMES: [(ThemePref, &str); 3] = [
     (ThemePref::Dark, "Scuro"),
 ];
 pub const FIRE: &str = "Fuoco in fondo al pannello";
+pub const WIDTH: &str = "Larghezza del testo";
+/// Il cursore della larghezza: binario di 2 in `fg3`, parte scelta e pomello (12) in `fg2`.
+const TRACK: f32 = 2.0;
+const THUMB: f32 = 12.0;
+/// Lo spazio del valore a destra del cursore ("1240 pt", "Intera").
+const WIDTH_VALUE: f32 = 64.0;
 /// Il riscontro di "Aggiungi cartella…" quando la cartella scelta è già osservata (o sta sotto
 /// una osservata): resta `NOTICE_FOR` o fino alla prossima azione.
 pub const ALREADY: &str = "Già osservata";
@@ -334,6 +340,8 @@ pub fn view(s: &App, hooks: Hooks<App>, theme: &Theme, reduced: bool, hover: boo
             .child(step("set-bigger", "+", BIGGER, 1)),
     );
 
+    body = body.child(section(WIDTH, theme)).child(width_slider(set.column, theme));
+
     body = body.child(section(THEME, theme));
     let mut themes = col()
         .key("set-themes")
@@ -380,6 +388,52 @@ pub fn view(s: &App, hooks: Hooks<App>, theme: &Theme, reduced: bool, hover: boo
                 .fill(theme.line),
         )
         .child(scroll)
+}
+
+/// "Larghezza del testo": un cursore a passi (`settings::COLUMNS`, da 680 a "Intera") e il valore
+/// a destra. Trascinare o cliccare sceglie il passo più vicino; le frecce vanno di un passo e non
+/// scattano altrove. Il binario è in `fg3` e la parte scelta col pomello in `fg2` (≥ 3:1).
+fn width_slider(column: f32, theme: &Theme) -> El {
+    let t = crate::settings::column_t(column);
+    let label = crate::settings::column_label(column);
+    let track = |grow: f32, color| el().grow(grow).h(TRACK).radius(TRACK / 2.0).fill(color);
+    let thumb = el().size(THUMB, THUMB).radius(THUMB / 2.0).fill(theme.fg2);
+    let slider = row()
+        .key("set-width")
+        .role("slider")
+        .label(WIDTH)
+        .a11y_value(label.clone())
+        .focusable(true)
+        .grow(1.0)
+        .min_w(0.0)
+        .h(ROW)
+        .center_y()
+        .child(track(t, theme.fg2))
+        .child(thumb)
+        .child(track(1.0 - t, theme.fg3))
+        .on_drag(|s: &mut App, d: &mut rune::Drag, tx: &mut Tx| {
+            if d.phase == rune::Phase::Up {
+                return;
+            }
+            let at = ((d.x - THUMB / 2.0) / (d.w - THUMB).max(1.0)).clamp(0.0, 1.0);
+            s.set_column(crate::settings::column_at(at), tx);
+        })
+        .on_key(|s: &mut App, key: &rune::KeyEvent, tx: &mut Tx| {
+            let step = match key.key {
+                rune::Key::Left | rune::Key::Down => -1,
+                rune::Key::Right | rune::Key::Up => 1,
+                _ => return false,
+            };
+            s.set_column(s.settings.step_column(step), tx);
+            true
+        });
+    let value = text(label)
+        .key("set-width-value")
+        .font(ui_font().features("'tnum' 1"))
+        .color(theme.fg)
+        .w(WIDTH_VALUE)
+        .pl(ROW_GAP);
+    row().w_full().px(ROW_PAD).child(slider).child(value)
 }
 
 /// Un'etichetta di sezione: 12/500 in `fg3` (`section-pad`), come nella sidebar.
@@ -654,6 +708,44 @@ mod tests {
         rt.update(|s, _| s.set_theme(ThemePref::Light));
         settle(&mut rt);
         assert!(!rt.state.dark(true), "Chiaro vince sul sistema scuro");
+    }
+
+    /// "Larghezza del testo": il cursore cambia la colonna dal vivo; "Intera" segue il pannello
+    /// meno i margini; il blocco in cima alla vista resta in cima.
+    #[test]
+    fn text_width_changes_the_column_and_keeps_the_reading_place() {
+        let body: String = (0..80).map(|n| format!("## Sezione {n}\n\nUn paragrafo abbastanza lungo da andare a capo più volte quando la colonna è stretta, numero {n}.\n\n")).collect();
+        let mut rt = open(&body, true);
+        cmd(&mut rt, ',');
+        assert!(texts(&rt).iter().any(|t| t == WIDTH), "la sezione");
+        assert!(texts(&rt).iter().any(|t| t == "680 pt"));
+        let rows = |rt: &Runtime<App>| rt.elements().into_iter().find(|e| e.key.as_deref() == Some("rows")).unwrap().rect;
+        let doc = |rt: &Runtime<App>| rt.elements().into_iter().find(|e| e.key.as_deref() == Some("doc")).unwrap().rect;
+        assert_eq!(rows(&rt)[2], 680.0);
+        let (x, y) = { let d = doc(&rt); (d[0] + 100.0, d[1] + 100.0) };
+        for _ in 0..30 {
+            rt.wheel(x, y, -400.0);
+            rt.frame(1.0 / 120.0);
+        }
+        settle(&mut rt);
+        let first = rt.state.tab().unwrap().visible_first;
+        assert!(first != rt.state.tab().unwrap().doc.blocks[0].id, "scorso");
+        let slider = rt.elements().into_iter().find(|e| e.key.as_deref() == Some("set-width")).expect("cursore");
+        assert_eq!(slider.role, "slider");
+        // Un clic in fondo al cursore: "Intera".
+        let (sx, sy) = (slider.rect[0] + slider.rect[2] - 1.0, slider.rect[1] + slider.rect[3] / 2.0);
+        rt.pointer_move(sx, sy);
+        rt.pointer_down(sx, sy);
+        rt.pointer_up(sx, sy);
+        settle(&mut rt);
+        assert_eq!(rt.state.settings.column, crate::settings::COLUMN_FULL);
+        assert!(texts(&rt).iter().any(|t| t == "Intera"));
+        assert!((rows(&rt)[2] - doc(&rt)[2]).abs() < 1.0, "segue il pannello: {:?} {:?}", rows(&rt), doc(&rt));
+        assert_eq!(rt.state.tab().unwrap().visible_first, first, "stesso blocco in cima");
+        // Le frecce sul cursore: un passo indietro.
+        rt.key(KeyEvent { key: Key::Left, mods: Mods::default() });
+        settle(&mut rt);
+        assert_eq!(rt.state.settings.column, 1240.0);
     }
 
     /// Con il fuoco spento (impostazioni) le fiamme non si disegnano: niente slot `fire` e il

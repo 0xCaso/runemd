@@ -206,6 +206,7 @@ linee solo decorative e i riempimenti. I test falliscono se un minimo non è ris
 | Impostazioni: casella accesa (`fg-2`) e sua spunta (`panel`) | — | 11,19 | — | 10,71 | 3 |
 | Impostazioni: casella spenta, bordo `fg-3` su panel + `sel` (hover) | — | 5,84 | — | 6,42 | 3 |
 | Impostazioni: casella accesa (`fg-2`) su panel + `sel` (hover) | — | 8,30 | — | 9,38 | 3 |
+| Impostazioni: binario della larghezza (`fg-3`) e pomello (`fg-2`) su panel | — | 7,88 | — | 7,34 | 3 |
 | Impostazioni: riga del fuoco (`fg-2`) su panel + `sel` (hover) | — | 8,30 | — | 9,38 | 4,5 |
 | Impostazioni: "Già osservata" (`fg-2`) su panel | — | 11,19 | — | 10,71 | 4,5 |
 | Etichetta del fuoco spento (`fg-2`) su panel | — | 11,19 | — | 10,71 | 4,5 |
@@ -374,7 +375,7 @@ chiude, Esc la chiude. Titolo "Impostazioni" (UI, 600, `fg`), poi sezioni con et
 "Aggiungi cartella…" apre il dialogo delle cartelle; una cartella già osservata, o sotto una osservata, non si
 aggiunge e sotto compare "Già osservata" in `fg-2` per 3 s o fino alla prossima azione), "Font" (Inter, SF Pro, New York se installato col suo nome,
 poi le famiglie installate; lista virtuale alta 8 righe e mezza, così la nona tagliata dice che scorre), "Dimensione" ("−", "15,5 pt", "+"; titoli, tabelle e
-codice scalano col corpo), "Tema" ("Sistema", "Chiaro", "Scuro"), e la casella "Fuoco in fondo al pannello" (accende e spegne il fuoco, a riposo e col testo nuovo). Le
+codice scalano col corpo), "Larghezza del testo" (cursore a passi da 680 a 1240 di 80 in 80, l'ultimo "Intera": la colonna segue il pannello, i margini delle righe restano; binario di 2 in `fg-3`, parte scelta e pomello di 12 in `fg-2`, valore a destra in `fg` con cifre tabulari; frecce un passo alla volta; il blocco in cima alla vista resta in cima), "Tema" ("Sistema", "Chiaro", "Scuro"), e la casella "Fuoco in fondo al pannello" (accende e spegne il fuoco, a riposo e col testo nuovo). Le
 righe sono quelle della sidebar (28, raggio 6, hover `sel`, scala 0,98). La scelta fatta ha riempimento `sel`,
 testo `fg` e una spunta in `fg`; le altre testo `fg-2`. La casella ha il bordo di 1 in `fg-3`; accesa è piena in
 `fg-2` con la spunta in `panel`. Con il fuoco spento l'etichetta "N paragrafi nuovi più in basso" resta, in `fg-2`

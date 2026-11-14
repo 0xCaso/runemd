@@ -19,6 +19,40 @@ pub const DEFAULT_SIZE: f32 = 15.5;
 /// Le dimensioni del corpo fra cui scelgono "−" e "+", pt. Contiene `DEFAULT_SIZE`.
 pub const SIZES: [f32; 7] = [13.0, 14.0, 15.5, 17.0, 18.5, 20.0, 22.0];
 
+/// "Intera": la colonna del testo segue la larghezza del pannello, meno i margini delle righe.
+pub const COLUMN_FULL: f32 = 0.0;
+/// Le larghezze della colonna del testo fra cui sceglie il cursore "Larghezza del testo", pt:
+/// da 680 (DESIGN.md, `spacing.column`) a passi di 80, l'ultima "Intera".
+pub const COLUMNS: [f32; 9] = [680.0, 760.0, 840.0, 920.0, 1000.0, 1080.0, 1160.0, 1240.0, COLUMN_FULL];
+/// La larghezza della colonna di default, pt.
+pub const DEFAULT_COLUMN: f32 = 680.0;
+
+/// Il passo di `COLUMNS` più vicino al punto `t` (0..1) del cursore.
+pub fn column_at(t: f32) -> f32 {
+    let last = COLUMNS.len() - 1;
+    COLUMNS[(t.clamp(0.0, 1.0) * last as f32).round() as usize]
+}
+
+/// Il punto del cursore (0..1) della larghezza `column`.
+pub fn column_t(column: f32) -> f32 {
+    let at = COLUMNS.iter().position(|c| *c == column).unwrap_or(0);
+    at as f32 / (COLUMNS.len() - 1) as f32
+}
+
+/// Come il pannello scrive la larghezza: "680 pt", o "Intera".
+pub fn column_label(column: f32) -> String {
+    if column == COLUMN_FULL {
+        "Intera".to_owned()
+    } else {
+        format!("{column:.0} pt")
+    }
+}
+
+/// La larghezza massima della colonna: `None` con "Intera".
+pub fn max_width(column: f32) -> Option<f32> {
+    (column != COLUMN_FULL).then_some(column)
+}
+
 /// Le cartelle osservate di default, relative alla home.
 pub const DEFAULT_ROOTS: [&str; 1] = ["Desktop/GitHub"];
 
@@ -55,6 +89,8 @@ pub struct Settings {
     /// sempre acceso dalla v1.1): spento, niente fiamme, né a riposo né col testo nuovo, e
     /// l'etichetta "N paragrafi nuovi più in basso" resta.
     pub fire: bool,
+    /// La larghezza della colonna del testo, pt, uno di `COLUMNS` (`COLUMN_FULL` è "Intera").
+    pub column: f32,
 }
 
 impl Default for Settings {
@@ -65,6 +101,7 @@ impl Default for Settings {
             size: DEFAULT_SIZE,
             theme: ThemePref::System,
             fire: true,
+            column: DEFAULT_COLUMN,
         }
     }
 }
@@ -85,6 +122,7 @@ const FONT: &str = "font";
 const SIZE: &str = "size";
 const THEME: &str = "theme";
 const FIRE: &str = "fire";
+const COLUMN: &str = "column";
 
 impl Settings {
     /// Le impostazioni salvate in `prefs`; i valori che mancano o non valgono prendono il default.
@@ -102,6 +140,10 @@ impl Settings {
                 .unwrap_or(d.size),
             theme: prefs.get(THEME).unwrap_or(d.theme),
             fire: prefs.get(FIRE).unwrap_or(d.fire),
+            column: prefs
+                .get::<f32>(COLUMN)
+                .filter(|c| COLUMNS.contains(c))
+                .unwrap_or(d.column),
         }
     }
 
@@ -111,7 +153,15 @@ impl Settings {
         prefs.set(FONT, &self.font)?;
         prefs.set(SIZE, &self.size)?;
         prefs.set(THEME, &self.theme)?;
-        prefs.set(FIRE, &self.fire)
+        prefs.set(FIRE, &self.fire)?;
+        prefs.set(COLUMN, &self.column)
+    }
+
+    /// La larghezza dopo quella di adesso in `COLUMNS`, nella direzione `step` (−1 o +1); ferma
+    /// ai capi.
+    pub fn step_column(&self, step: i32) -> f32 {
+        let at = COLUMNS.iter().position(|c| *c == self.column).unwrap_or(0) as i32;
+        COLUMNS[(at + step).clamp(0, COLUMNS.len() as i32 - 1) as usize]
     }
 
     /// Aggiunge `root` se non c'è già. Vero se è cambiato.
@@ -180,6 +230,7 @@ mod tests {
             size: 17.0,
             theme: ThemePref::Dark,
             fire: false,
+            column: 920.0,
         };
         s.save(&mut prefs).unwrap();
         assert_eq!(Settings::load(&prefs), s);
@@ -214,6 +265,43 @@ mod tests {
             (s.size, s.font.as_str(), s.theme, s.fire),
             (15.5, "Inter", ThemePref::System, false)
         );
+    }
+
+    /// La larghezza del testo: 680 di default, passi da 80 fino a 1240 e poi "Intera" (0).
+    #[test]
+    fn text_width_steps_from_680_to_full() {
+        let mut s = Settings::default();
+        assert_eq!(s.column, 680.0);
+        assert_eq!(COLUMNS[0], 680.0);
+        assert_eq!(*COLUMNS.last().unwrap(), COLUMN_FULL);
+        assert_eq!(s.step_column(-1), 680.0, "fermo al primo");
+        assert_eq!(s.step_column(1), 760.0);
+        s.column = 1240.0;
+        assert_eq!(s.step_column(1), COLUMN_FULL);
+        s.column = COLUMN_FULL;
+        assert_eq!(s.step_column(1), COLUMN_FULL, "fermo all'ultimo");
+        assert_eq!(s.step_column(-1), 1240.0);
+        assert_eq!(column_at(0.0), 680.0);
+        assert_eq!(column_at(1.0), COLUMN_FULL);
+        assert_eq!(column_at(0.49), 1000.0, "il passo più vicino");
+        assert_eq!(column_at(-3.0), 680.0, "sotto 0: il primo");
+        assert_eq!(column_at(7.0), COLUMN_FULL, "sopra 1: Intera");
+        assert_eq!(column_t(COLUMN_FULL), 1.0);
+        assert_eq!(column_t(123.0), 0.0, "fuori passo: il primo");
+        assert_eq!(column_label(680.0), "680 pt");
+        assert_eq!(column_label(COLUMN_FULL), "Intera");
+        assert_eq!(max_width(680.0), Some(680.0));
+        assert_eq!(max_width(COLUMN_FULL), None);
+    }
+
+    #[test]
+    fn text_width_persists_and_bad_values_fall_back() {
+        let mut prefs = Prefs::memory();
+        let s = Settings { column: COLUMN_FULL, ..Settings::default() };
+        s.save(&mut prefs).unwrap();
+        assert_eq!(Settings::load(&prefs).column, COLUMN_FULL);
+        prefs.set(COLUMN, &700.0f32).unwrap();
+        assert_eq!(Settings::load(&prefs).column, 680.0, "non è un passo");
     }
 
     #[test]

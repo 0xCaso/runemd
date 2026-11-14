@@ -17,7 +17,7 @@ use rune_kit::MarkdownStyle;
 use crate::doc::document::{Block, Document};
 use crate::doc::select_all::{End, Ends, SelectAll, SelectAllFlag};
 
-use super::theme::{CHANGED_MARK_W, CHANGED_MARK_X, COLUMN, R_ROW, ROW_PAD_X, ROW_PAD_Y, UI_SMALL, UI_WEIGHT};
+use super::theme::{CHANGED_MARK_W, CHANGED_MARK_X, R_ROW, ROW_PAD_X, ROW_PAD_Y, UI_SMALL, UI_WEIGHT};
 
 /// Altezza dello spazio sotto l'ultima riga: ci sta il dither "sta arrivando".
 pub(super) const BOTTOM: f32 = 48.0;
@@ -89,7 +89,7 @@ pub fn rows_version(doc: &Document) -> (u64, u64, u64) {
 /// `on_rows` riceve l'id del documento e gli indici delle righe visibili (`on_visible_rows` di
 /// Rune: `start..end`, righe anche solo in parte nella vista) dopo il primo layout e a ogni loro
 /// cambio; ritorna vero se ha cambiato stato che la vista legge.
-pub fn view<S: 'static>(s: &S, doc_of: fn(&S) -> &Document, style: &MarkdownStyle, on_rows: fn(&mut S, u64, Range<usize>) -> bool, signals: Signals<S>) -> El {
+pub fn view<S: 'static>(s: &S, doc_of: fn(&S) -> &Document, style: &MarkdownStyle, column: f32, on_rows: fn(&mut S, u64, Range<usize>) -> bool, signals: Signals<S>) -> El {
     let doc = doc_of(s);
     let generation = doc.id;
     let style = style.clone();
@@ -98,7 +98,8 @@ pub fn view<S: 'static>(s: &S, doc_of: fn(&S) -> &Document, style: &MarkdownStyl
     let select_all = doc.select_all.clone();
     let flag = select_all.clone();
     let order = blocks.clone();
-    let rows = col().key("rows").w_full().max_w(COLUMN).self_center().selection_group(true)
+    // La colonna è larga al massimo `column` ("Larghezza del testo"; "Intera" segue il pannello).
+    let rows = super::theme::column(col().key("rows").w_full(), column).self_center().selection_group(true)
         .growth(GrowthSpec::default())
         .selection_copy(move |sel| copy_source(sel, generation, &file, &select_all, &blocks))
         .on_selection_change(move |_: &mut S, ch, _| selection_changed(&flag, ch, generation, &order))
@@ -119,7 +120,7 @@ pub fn view<S: 'static>(s: &S, doc_of: fn(&S) -> &Document, style: &MarkdownStyl
         .on_visible_rows(move |s: &mut S, rows| on_rows(s, generation, rows));
     let mut bottom = col().w_full().h(BOTTOM);
     if let Some(bar) = signals.tail {
-        bottom = bottom.child(col().key("arriving").w_full().max_w(COLUMN).self_center().px(ROW_PAD_X).child(bar));
+        bottom = bottom.child(super::theme::column(col().key("arriving").w_full(), column).self_center().px(ROW_PAD_X).child(bar));
     }
     let edge = signals.edge;
     // Gli `on_layout` dicono solo dove sono vista e pagina: la vista rigira solo se cambia ciò

@@ -26,7 +26,7 @@ use rune_kit::syntax::{self, Syntax, SyntaxTheme};
 
 use super::doc_view::{BOTTOM, TOP};
 use super::sidebar::{self, Hooks, Motion};
-use super::theme::{CODE_TEXT, COLUMN, HAIRLINE, ROW, ROW_PAD, ROW_PAD_X, TAB_BAR_H, TAB_GAP, Theme, UI_STRONG_WEIGHT};
+use super::theme::{CODE_TEXT, HAIRLINE, ROW, ROW_PAD, ROW_PAD_X, TAB_BAR_H, TAB_GAP, Theme, UI_STRONG_WEIGHT};
 use crate::app::{App, CloseAnswer, Mode, Tab};
 use crate::edit::blocks::{Edge, Pieces};
 use crate::edit::{Notice, SourceEdit};
@@ -221,10 +221,7 @@ const PIECE_ESTIMATE: f32 = 80.0;
 pub fn view(s: &App, hooks: Hooks<App>, tab: &Tab, src: &SourceEdit, caret: Option<CaretLines>, theme: &Theme, reduced: bool, hover: bool) -> El {
     let id = tab.doc.id;
     let style = Style { syntax: syntax_theme(theme), body: theme.body, caret: theme.fg, sel: theme.sel, label: tab.title().into() };
-    let rows = col()
-        .key("source-rows")
-        .w_full()
-        .max_w(COLUMN)
+    let rows = super::theme::column(col().key("source-rows").w_full(), s.settings.column)
         .self_center()
         .growth(GrowthSpec::default())
         .virtual_rows(
@@ -262,13 +259,13 @@ fn notice_row(s: &App, hooks: Hooks<App>, id: u64, notice: Notice, theme: &Theme
         buttons.push(button(s, hooks, RELOAD_KEY, RELOAD_TEXT, theme, motion, move |s: &mut App, _: &mut Tx| s.reload_source(id)));
         buttons.push(button(s, hooks, KEEP_KEY, KEEP_TEXT, theme, motion, move |s: &mut App, _: &mut Tx| s.keep_mine(id)));
     }
-    alert_row(NOTICE_KEY, message, buttons, theme)
+    alert_row(NOTICE_KEY, message, buttons, theme, s.settings.column)
 }
 
 /// La riga sopra la lettura dopo un Cmd+E su un file che non è UTF-8 (come quella del
 /// conflitto, senza bottoni).
-pub fn not_utf8_row(theme: &Theme) -> El {
-    alert_row(NOT_UTF8_KEY, NOT_UTF8_TEXT, Vec::new(), theme)
+pub fn not_utf8_row(theme: &Theme, column: f32) -> El {
+    alert_row(NOT_UTF8_KEY, NOT_UTF8_TEXT, Vec::new(), theme, column)
 }
 
 /// La riga che chiede alla chiusura con modifiche non salvate. "Salva" è il bottone di default
@@ -280,16 +277,14 @@ fn ask_row(s: &App, hooks: Hooks<App>, id: u64, name: &str, theme: &Theme, motio
         button(s, hooks, DISCARD_KEY, DISCARD_TEXT, theme, motion, answer(CloseAnswer::Discard)),
         button(s, hooks, CANCEL_KEY, CANCEL_TEXT, theme, motion, answer(CloseAnswer::Cancel)),
     ];
-    alert_row(ASK_KEY, &ask_text(name), buttons, theme)
+    alert_row(ASK_KEY, &ask_text(name), buttons, theme, s.settings.column)
 }
 
 /// Una riga sopra il sorgente, alta come la barra delle schede e annunciata come `alert`: il
 /// testo allineato a quello del sorgente, i bottoni a destra con il loro testo allineato al bordo
 /// destro della colonna; una linea di 0,5 in `line` sotto.
-fn alert_row(key: &str, message: &str, buttons: Vec<El>, theme: &Theme) -> El {
-    let line = row()
-        .w_full()
-        .max_w(COLUMN)
+fn alert_row(key: &str, message: &str, buttons: Vec<El>, theme: &Theme, column: f32) -> El {
+    let line = super::theme::column(row().w_full(), column)
         .self_center()
         .h(TAB_BAR_H)
         .pl(ROW_PAD_X)
