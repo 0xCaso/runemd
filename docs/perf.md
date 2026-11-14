@@ -119,3 +119,24 @@ Senza GPU né encode (`cargo test --profile perf source_typing_cost -- --ignored
 
 Scroll nel sorgente di big con il campo a fuoco (la vista legge `Cx::caret` e rigira a ogni frame di scroll): 240
 frame a 60 fps, p50 0,39 / p95 1,22 / max 2,35 ms (load average ~20, script ad hoc, non nel repo).
+
+# Cerca nel file, Cmd+F (task 24)
+
+`cargo test --profile perf find_cost -- --ignored --nocapture` (`src/ui/find.rs`): `fixtures/big.md` (1 MB, 3041
+blocchi) sul runtime headless con la vista dell'app; 10 ricerche digitate lettera per lettera, 3 giri (164 tasti,
+il primo tasto escluso). 14/11, tre corse, load average 19–26.
+
+Prima, con la ricerca sul thread della UI: `markdown::find` su tutti i blocchi costa ~5 ms per MB anche senza
+risultati ("zzzq": 5,3 ms), ~10 ms per "e" (97.692 risultati); `Find::search` da solo p50 6,2 / p95 8,7 ms,
+tasto + frame p95 12,5 ms. Soglia (8 ms) superata. Per questo la ricerca gira su un thread a parte.
+
+| misura | p50 | p95 | max |
+|---|---|---|---|
+| tasto + frame (campo, richiesta al thread) | 0,68–0,72 | 1,27–1,30 | 1,7–2,2 |
+| risultati arrivati + frame (segni, vista all'attivo) | 1,32–1,35 | 2,69–2,98 | 13,3–13,5 |
+| thread della UI per tasto, il peggiore dei due | 1,32–1,35 | **2,69–2,98** | 13,3–13,5 |
+| risposta del thread della ricerca | 5,6 | 8,2–8,6 | 10–12,4 |
+| riferimento: salto della vista su una riga non montata, senza Cerca | 6,6–6,9 | 10,6–11,1 | 11,6–25,3 |
+
+Il primo tasto parsa tutti i blocchi sul thread della ricerca (15–17 ms, fuori dal thread della UI). I massimi
+oltre 8 ms sono i salti della vista a un risultato lontano: costano come un salto qualsiasi su big.md (ultima riga).

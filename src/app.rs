@@ -202,6 +202,8 @@ pub struct App {
     pub(crate) window_active: bool,
     /// Il campo che `source_edit` dà quando la sua scheda non è più nel sorgente.
     spare_edit: TextEdit,
+    /// Cerca nel file (Cmd+F): una barra per finestra, sulla scheda davanti.
+    pub(crate) find: ui::find::Find,
 }
 
 impl App {
@@ -219,6 +221,7 @@ impl App {
             sidebar: ui::sidebar::Sidebar::default(),
             window_active: true,
             spare_edit: TextEdit::default(),
+            find: ui::find::Find::default(),
         }
     }
 
@@ -299,6 +302,7 @@ impl App {
         }
         if self.tabs.is_empty() {
             self.sidebar.clear_open();
+            self.find.close();
         } else if front {
             self.fronted();
         }
@@ -350,13 +354,18 @@ impl App {
     /// layout). Il primo frame dopo il cambio è già quello giusto.
     pub fn restore_view(&mut self, tx: &mut Tx) {
         let clock = tx.clock();
+        if let Some(tab) = self.tab_mut() {
+            if tab.fire_since.is_some() {
+                tab.fire_since = Some(clock);
+            }
+            if tab.fire_armed.is_some() {
+                tab.fire_armed = Some(clock);
+            }
+        }
+        // Con Cerca aperta la ricerca rigira sul file davanti; la vista va al primo risultato
+        // quando arriva (`poll_find`).
+        self.sync_find();
         let Some(tab) = self.tab_mut() else { return };
-        if tab.fire_since.is_some() {
-            tab.fire_since = Some(clock);
-        }
-        if tab.fire_armed.is_some() {
-            tab.fire_armed = Some(clock);
-        }
         match tab.doc.blocks.iter().position(|b| b.id == tab.visible_first) {
             Some(i) if i > 0 => {
                 let key = ui::doc_view::row_key(i, &tab.doc);
@@ -419,15 +428,98 @@ impl App {
         }
     }
 
-    /// La ricerca di Cmd+P è cambiata.
+    /// La ricerca di Cmd+P è cambiata. Un solo campo aperto alla volta: Cerca si chiude.
     pub fn requery_sidebar(&mut self) {
+        self.find.close();
         self.sidebar.requery(&self.library.index);
+    }
+
+    /// Cmd+F: la barra di Cerca si apre col fuoco, e i campi di Cmd+P e Cmd+N si chiudono. Solo
+    /// in lettura: nel sorgente (Cmd+E) e senza schede non fa niente (v1). Vero se si è aperta.
+    pub fn open_find(&mut self) -> bool {
+        if !self.tab().is_some_and(|t| matches!(t.mode, Mode::Read)) {
+            return false;
+        }
+        self.sidebar.quick.close();
+        self.sidebar.quick_rows.clear();
+        self.sidebar.new_file.close();
+        self.find.show();
+        true
+    }
+
+    /// La ricerca di Cerca è cambiata: si chiedono i risultati, e l'attivo sarà il primo dal
+    /// primo blocco visibile in giù (la vista lo porta al centro quando arrivano).
+    pub fn find_changed(&mut self) {
+        let Some(tab) = self.tabs.get(self.active).filter(|t| matches!(t.mode, Mode::Read)) else { return };
+        let from = tab.doc.blocks.iter().position(|b| b.id == tab.visible_first).unwrap_or(0);
+        self.find.ask(&tab.doc, ui::find::Goal::From(from));
+    }
+
+    /// Invio (`1`) e Maiusc+Invio (`-1`) in Cerca: il risultato dopo o prima, in giro, al centro
+    /// della vista dal primo frame dopo il tasto.
+    pub fn find_step(&mut self, delta: isize, tx: &mut Tx) {
+        self.find.step(delta);
+        self.reveal_find(tx);
+    }
+
+    /// Porta al centro della vista il risultato attivo, anche in un blocco non montato, senza
+    /// planata. Vero se c'era un risultato.
+    fn reveal_find(&self, tx: &mut Tx) -> bool {
+        let Some(key) = self.tab().and_then(|t| self.find.reveal_key(&t.doc)) else { return false };
+        tx.scroll_center_in_instant("doc", key);
+        true
+    }
+
+    /// Come `reveal_find`, ma la vista si sposta solo quanto basta, e niente se il risultato si
+    /// vede già: mentre si scrive la ricerca il testo non salta a ogni lettera.
+    fn show_find(&self, tx: &mut Tx) -> bool {
+        let Some(key) = self.tab().and_then(|t| self.find.reveal_key(&t.doc)) else { return false };
+        tx.scroll_into_view_in("doc", key);
+        true
+    }
+
+    /// Tiene Cerca al passo con la scheda davanti: un'altra scheda rigira la ricerca dal primo
+    /// risultato; una ricarica la rigira tenendo l'attivo vicino a dov'era. Nel sorgente o senza
+    /// schede la barra si chiude.
+    pub fn sync_find(&mut self) {
+        if !self.find.open {
+            return;
+        }
+        let Some(tab) = self.tabs.get(self.active).filter(|t| matches!(t.mode, Mode::Read)) else {
+            self.find.close();
+            return;
+        };
+        if let Some(goal) = self.find.stale(&tab.doc) {
+            self.find.ask(&tab.doc, goal);
+        }
+    }
+
+    /// Da `poll`: segue la scheda davanti (`sync_find`) e applica i risultati arrivati dal thread
+    /// della ricerca; per una ricerca nuova o un'altra scheda la vista mostra l'attivo. Vero se la
+    /// vista cambia.
+    pub fn poll_find(&mut self, tx: &mut Tx) -> bool {
+        self.sync_find();
+        let Some(tab) = self.tabs.get(self.active) else { return false };
+        match self.find.poll(&tab.doc) {
+            Some(reveal) => {
+                if reveal {
+                    self.show_find(tx);
+                }
+                true
+            }
+            None => false,
+        }
     }
 
     /// Le righe visibili riportate dalla vista del documento `id`: valgono per la sua scheda,
     /// anche se nel frattempo un'altra è venuta davanti.
     pub fn visible_rows(&mut self, id: u64, rows: Range<usize>) -> bool {
         self.tab_of(id).is_some_and(|t| t.visible_rows(rows))
+    }
+
+    /// I segni di Cerca del blocco `block` della scheda davanti, nella riga `row_key`.
+    pub fn find_hits(&self, block: &crate::doc::document::Block, row_key: &str) -> ui::find::Marks {
+        self.find.highlights(block.id, block.hash, row_key)
     }
 
     /// Se il blocco `id` della scheda davanti ha il segno "cosa è cambiato".
@@ -453,7 +545,11 @@ impl App {
     pub fn toggle_source(&mut self, tx: &mut Tx) -> bool {
         let Some(tab) = self.tabs.get_mut(self.active) else { return false };
         match tab.mode {
-            Mode::Read => tab.mode = Mode::Source(Box::new(edit::enter(&tab.doc))),
+            Mode::Read => {
+                tab.mode = Mode::Source(Box::new(edit::enter(&tab.doc)));
+                // Cerca vale solo in lettura (v1).
+                self.find.close();
+            }
             Mode::Source(_) => {
                 if edit::leave(tab, &mut self.live.own).is_ok() {
                     self.restore_view(tx);

@@ -1,6 +1,7 @@
 //! Le viste dell'app.
 
 pub mod doc_view;
+pub mod find;
 pub mod markdown_style;
 pub mod new_file;
 pub mod quick_open;

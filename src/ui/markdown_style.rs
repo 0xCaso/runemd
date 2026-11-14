@@ -3,7 +3,7 @@
 use rune::{Color, Family, TextStyle};
 use rune_kit::MarkdownStyle;
 
-use super::theme::{COLUMN, Theme};
+use super::theme::{COLUMN, FIND_RING, Theme};
 
 /// La famiglia viene da `Family::Sans`, cioè dallo slot sans di `AppSpec::families` ("Inter").
 /// `MarkdownStyle` ha un solo colore di testo: corpo, titoli e grassetto usano `theme.body`.
@@ -32,6 +32,14 @@ pub fn style(theme: &Theme, body_size: f32) -> MarkdownStyle {
         .table_rules(theme.line)
         .rule(theme.line)
         .selection(theme.sel)
+        // Cerca (DESIGN.md, "Cerca nel file"): nessun accento. I risultati hanno il riempimento
+        // `sel`; quello attivo anche un anello interno in `fg3`.
+        .highlight_bg(theme.sel)
+        .highlight_fg(None)
+        .highlight_ring(None)
+        .highlight_current_bg(theme.sel)
+        .highlight_current_fg(None)
+        .highlight_current_ring(Some((theme.fg3, FIND_RING)))
 }
 
 #[cfg(test)]
@@ -62,6 +70,17 @@ mod tests {
             assert_ne!(h(&m), h(&m.clone().text(t.fg)));
             assert_eq!(h(&m), h(&m.clone().link(t.fg).link_underline(t.fg3)), "link fg, sottolineatura fg3");
             assert_ne!(h(&m), h(&m.clone().link_underline(t.fg)));
+        }
+    }
+
+    /// Cerca senza accento: i risultati in `sel`, l'attivo in `sel` con l'anello in `fg3`.
+    #[test]
+    fn find_highlights_use_theme_tokens() {
+        for dark in [true, false] {
+            let t = Theme::for_mode(dark);
+            let m = style(&t, 15.5);
+            assert_eq!(h(&m), h(&m.clone().highlight_bg(t.sel).highlight_current_bg(t.sel).highlight_current_ring(Some((t.fg3, FIND_RING)))));
+            assert_ne!(h(&m), h(&m.clone().highlight_current_ring(None)));
         }
     }
 }

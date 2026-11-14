@@ -14,7 +14,7 @@ use std::sync::Arc;
 use rune::{Color, El, GrowthSpec, Key, KeyEvent, ScrollSpec, SelectedText, TextSelection, col, el};
 use rune_kit::MarkdownStyle;
 
-use crate::doc::document::Document;
+use crate::doc::document::{Block, Document};
 use crate::doc::select_all::{End, Ends, SelectAll, SelectAllFlag};
 use crate::doc::ids;
 
@@ -34,6 +34,8 @@ pub struct Signals<S> {
     /// La barra del dither "sta arrivando", se accesa: va nello spazio sotto l'ultima riga, che
     /// ha sempre la stessa altezza, quindi niente sopra si sposta.
     pub tail: Option<El>,
+    /// I segni di Cerca del blocco, la cui riga ha la chiave data (`ui::find`).
+    pub hits: fn(&S, &Block, &str) -> super::find::Marks,
 }
 
 /// Chiave della riga `i`: id del documento + id del blocco. Gli id dei blocchi ripartono da 1 a
@@ -84,7 +86,10 @@ pub fn view<S: 'static>(s: &S, doc_of: fn(&S) -> &Document, style: &MarkdownStyl
             60.0,
             move |s: &S, i| Cow::Owned(row_key(i, doc_of(s))),
             move |s: &S, i| match doc_of(s).blocks.get(i) {
-                Some(b) => block_row(&b.source, &style, (signals.marked)(s, b.id).then_some(signals.mark)),
+                Some(b) => {
+                    let hits = (signals.hits)(s, b, &row_key(i, doc_of(s)));
+                    block_row(&b.source, &style, (signals.marked)(s, b.id).then_some(signals.mark), hits)
+                }
                 None => el(),
             },
         )
@@ -206,12 +211,12 @@ fn row_id(path: &str, generation: u64) -> Option<u64> {
     path.split('/').find_map(|seg| u64::from_str_radix(seg.strip_prefix(&prefix)?, 16).ok())
 }
 
-/// Una riga del documento; con `mark` ha il segno "cosa è cambiato" nel margine sinistro, fuori
-/// dal flusso (il testo non si sposta), alto quanto il testo del blocco.
-fn block_row(source: &str, style: &MarkdownStyle, mark: Option<Color>) -> El {
+/// Una riga del documento, con i segni di Cerca `hits`; con `mark` ha il segno "cosa è cambiato"
+/// nel margine sinistro, fuori dal flusso (il testo non si sposta), alto quanto il testo del blocco.
+fn block_row(source: &str, style: &MarkdownStyle, mark: Option<Color>, hits: super::find::Marks) -> El {
     // `selectable` fa di ogni blocco un selection_group a sé, che fermerebbe un trascinamento
     // al bordo del blocco: si toglie il flag e vale il gruppo unico sulle righe.
-    let body = rune_kit::Markdown::new(source).selectable(true).render(style).selection_group(false);
+    let body = rune_kit::Markdown::new(source).highlights(hits).selectable(true).render(style).selection_group(false);
     // Le righe virtuali vogliono padding interno, non gap tra righe.
     let row = col().w_full().px(ROW_PAD_X).py(ROW_PAD_Y).child(body);
     match mark {

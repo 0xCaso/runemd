@@ -87,6 +87,8 @@ spacing:
   tab-bar: "44px"
   tab-bar-pad: "0 10px"
   tab-gap: "2px"
+  find-field: "240px"
+  find-ring: "1px"
 motion:
   press: "scale 0.98, 160ms ease-out"
   hover: "120ms ease"
@@ -216,6 +218,15 @@ apertura (azione da tastiera). Nessun accento: caret `fg`, selezione `sel`. Ness
 testo `fg`; le altre testo `fg-2`. Barra alta 44 (`tab-bar`), margine 10 ai lati (`tab-bar-pad`), 2 fra le schede
 (`tab-gap`), linea di 0,5 in `line` sotto; nessun separatore né icona. Troppe schede: la riga scorre di lato. "⌘E
 sorgente" a destra come il tasto "⌘P", in `fg-3`.
+
+**Cerca nel file (⌘F).** Solo in lettura. Il campo sta nella barra delle schede, a destra delle schede e prima
+di "⌘E sorgente", così il documento non si sposta: largo 240 (`find-field`), alto 30, raggio 7, riempimento
+`field`, bordo interno 0,5 px in `line`, 8 a destra (`row-gap`); icona lente e segnaposto "Cerca nel file" in
+`fg-2`, testo `fg`. Il contatore a destra è UI piccola in `fg-3`: "3 di 12", oppure "Nessun risultato"; con la
+ricerca vuota non c'è. Nel testo i risultati hanno il riempimento `sel`; quello attivo ha in più un anello
+interno di 1 px in `fg-3` (`find-ring`). Nessun accento, nessun giallo. Invio va al risultato dopo, Maiusc+Invio a
+quello prima, in giro; la vista lo porta al centro. Esc chiude e toglie i segni. Il campo di ⌘P, quello di ⌘N e
+questo si chiudono a vicenda.
 
 **Segnali live (effetti GPU di Rune).** Ognuno ha un solo significato, e nessun altro elemento lo usa.
 

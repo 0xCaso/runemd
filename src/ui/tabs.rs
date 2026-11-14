@@ -14,7 +14,7 @@
 use rune::{El, TextStyle, Tx, el, row, text};
 
 use super::sidebar::{self, Hooks, Motion};
-use super::theme::{HAIRLINE, KBD_PAD_X, KBD_PAD_Y, KBD_TEXT, KBD_WEIGHT, R_KBD, R_ROW, ROW, ROW_PAD, TAB_BAR_H, TAB_BAR_PAD_X, TAB_GAP, Theme};
+use super::theme::{HAIRLINE, KBD_PAD_X, KBD_PAD_Y, KBD_TEXT, KBD_WEIGHT, R_KBD, R_ROW, ROW, ROW_GAP, ROW_PAD, TAB_BAR_H, TAB_BAR_PAD_X, TAB_GAP, Theme};
 use crate::app::App;
 use crate::fx::ring::RING_W;
 use crate::fx::{self, Mark};
@@ -32,7 +32,12 @@ pub fn view(s: &App, hooks: Hooks<App>, theme: &Theme, reduced: bool, hover: boo
     let strip = row().key("tabs-scroll").grow(1.0).shrink().min_w(0.0).scroll_x().child(list);
     let key = el().key("source-key").border(HAIRLINE, theme.line).radius(R_KBD).px(KBD_PAD_X).py(KBD_PAD_Y)
         .child(text(SOURCE_KEY).font(TextStyle::new(KBD_TEXT, KBD_WEIGHT)).color(theme.fg3));
-    let bar = row().key("tab-bar").w_full().h(TAB_BAR_H).px(TAB_BAR_PAD_X - RING_W).gap(TAB_GAP).center_y().child(strip).child(key);
+    let mut bar = row().key("tab-bar").w_full().h(TAB_BAR_H).px(TAB_BAR_PAD_X - RING_W).gap(TAB_GAP).center_y().child(strip);
+    // Cerca (Cmd+F): il campo sta nella barra, a destra delle schede, così il documento non si sposta.
+    if s.find.open {
+        bar = bar.child(super::find::field(s, theme).mr(ROW_GAP));
+    }
+    let bar = bar.child(key);
     rune::col().w_full().child(bar).child(el().key("tab-bar-line").w_full().h(HAIRLINE).fill(theme.line))
 }
 

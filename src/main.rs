@@ -60,6 +60,7 @@ fn init() -> App {
 
 fn setup(s: &mut App, waker: Waker) {
     open::queue::set_waker(waker.clone());
+    s.find.set_waker(waker.clone());
     s.live.start(waker.clone(), s.library.roots().to_vec());
     s.library.start(waker);
 }
@@ -77,7 +78,7 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
         Some(tab) => {
             // Il dither: una barra alta una riga e larga come il testo, nello spazio sotto l'ultimo blocco.
             let tail = tab.dither_since.map(|since| fx::dither::slot(el().w_full().h(ui::theme::BODY_LINE), since, dark, reduced));
-            let signals = ui::doc_view::Signals { marked: App::is_marked, mark: theme.line, tail };
+            let signals = ui::doc_view::Signals { marked: App::is_marked, mark: theme.line, tail, hits: App::find_hits };
             ui::doc_view::view(s, App::active_document, &s.style, App::visible_rows, signals)
         }
         None => el().grow(1.0),
@@ -138,17 +139,24 @@ fn tab_key(s: &mut App, key: &rune::KeyEvent, tx: &mut Tx) -> bool {
 
 /// Ogni tasto non preso da un controllo, prima della selezione di Rune: il Cmd+A va segnato.
 fn on_key(s: &mut App, key: &rune::KeyEvent, tx: &mut Tx) -> bool {
-    // Cmd+P: il fuoco nel campo "Apri file" della sidebar.
+    // Cmd+P: il fuoco nel campo "Apri file" della sidebar. Un solo campo aperto alla volta.
     if matches!(key.key, rune::Key::Command('p')) && key.mods.cmd && !key.mods.shift && !key.mods.alt && !tx.key_repeat() {
+        s.find.close();
         s.sidebar.new_file.close();
         s.sidebar.quick.focus();
         return true;
     }
     // Cmd+N: il campo "Nuovo file" prende il posto di "Apri file".
     if matches!(key.key, rune::Key::Command('n')) && key.mods.cmd && !key.mods.shift && !key.mods.alt && !key.mods.ctrl && !tx.key_repeat() {
+        s.find.close();
         s.sidebar.quick.close();
         s.sidebar.quick_rows.clear();
         s.sidebar.new_file.show();
+        return true;
+    }
+    // Cmd+F: Cerca nel file, solo in lettura (nel sorgente non fa niente, v1).
+    if matches!(key.key, rune::Key::Command('f')) && key.mods.cmd && !key.mods.shift && !key.mods.alt && !key.mods.ctrl && !tx.key_repeat() {
+        s.open_find();
         return true;
     }
     if tab_key(s, key, tx) {
@@ -188,6 +196,9 @@ fn poll(s: &mut App, clock: f64, tx: &mut Tx) -> bool {
     for d in wakes {
         tx.wake_after(d);
     }
+    // Cerca: una ricarica della scheda davanti rigira la ricerca (senza spostare la vista), e i
+    // risultati arrivati dal thread della ricerca si applicano.
+    let found = s.poll_find(tx);
     // L'indice legge gli stessi eventi; Recenti e l'albero si ricalcolano solo se cambia.
     let was_scanned = s.library.scanned;
     let indexed = s.library.poll(s.live.drained(), Instant::now());
@@ -229,7 +240,7 @@ fn poll(s: &mut App, clock: f64, tx: &mut Tx) -> bool {
         tx.wake_after(d);
     }
     let blurred = s.sidebar.blur_close();
-    let changed = opened || tabs || ring || side || blurred;
+    let changed = opened || tabs || ring || side || blurred || found;
     let Some(run) = s.scroll.as_mut() else { return changed };
     if let Some(y) = run.step(clock) {
         tx.scroll_to_instant("doc", 0.0, y);

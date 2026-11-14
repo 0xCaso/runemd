@@ -1,0 +1,7 @@
+[
+  {"t": 0.5, "type": "key", "name": "f", "cmd": true},
+  {"t": 0.8, "type": "type", "text": "albero", "every": 0.05},
+  {"t": 1.6, "type": "key", "name": "Enter"},
+  {"t": 1.9, "type": "key", "name": "Enter"},
+  {"t": 2.4, "type": "mark", "name": "found"}
+]
