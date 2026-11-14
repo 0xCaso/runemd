@@ -223,8 +223,9 @@ sorgente" a destra come il tasto "⌘P", in `fg-3`.
 di "⌘E sorgente", così il documento non si sposta: largo 240 (`find-field`), alto 30, raggio 7, riempimento
 `field`, bordo interno 0,5 px in `line`, 8 a destra (`row-gap`); icona lente e segnaposto "Cerca nel file" in
 `fg-2`, testo `fg`. Il contatore a destra è UI piccola in `fg-3`: "3 di 12", oppure "Nessun risultato"; con la
-ricerca vuota non c'è. Nel testo i risultati hanno il riempimento `sel`; quello attivo ha in più un anello
-interno di 1 px in `fg-3` (`find-ring`). Nessun accento, nessun giallo. Invio va al risultato dopo, Maiusc+Invio a
+ricerca vuota non c'è. Nel testo i risultati hanno il riempimento
+`sel` e un anello interno di 1 px in `line` (`find-ring`), che li stacca dal codice in linea e dalla selezione;
+quello attivo ha l'anello in `fg-3`. Nessun accento, nessun giallo. Invio va al risultato dopo, Maiusc+Invio a
 quello prima, in giro; la vista lo porta al centro. Esc chiude e toglie i segni. Il campo di ⌘P, quello di ⌘N e
 questo si chiudono a vicenda.
 

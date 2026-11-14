@@ -26,8 +26,8 @@ pub const TAB_BAR_PAD_X: f32 = 10.0;
 pub const TAB_GAP: f32 = 2.0;
 /// Cerca nel file (DESIGN.md, `spacing.find-field`): il campo nella barra delle schede è largo 240.
 pub const FIND_W: f32 = 240.0;
-/// Il risultato attivo di Cerca ha un anello interno di 1 pt in `fg3` sopra il riempimento `sel`
-/// dei risultati (DESIGN.md, "Cerca nel file").
+/// L'anello interno dei risultati di Cerca, 1 pt sopra il riempimento `sel`: in `line` per i
+/// risultati, in `fg3` per quello attivo (DESIGN.md, "Cerca nel file").
 pub const FIND_RING: f32 = 1.0;
 /// L'etichetta del fuoco sta a questa distanza dal fondo del pannello.
 pub const FIRE_LABEL_BOTTOM: f32 = 10.0;

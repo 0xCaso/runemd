@@ -456,10 +456,12 @@ impl App {
     }
 
     /// Invio (`1`) e Maiusc+Invio (`-1`) in Cerca: il risultato dopo o prima, in giro, al centro
-    /// della vista dal primo frame dopo il tasto.
+    /// della vista dal primo frame dopo il tasto. Con i risultati ancora sul thread il passo
+    /// aspetta che arrivino (`poll_find`).
     pub fn find_step(&mut self, delta: isize, tx: &mut Tx) {
-        self.find.step(delta);
-        self.reveal_find(tx);
+        if self.find.enter(delta) {
+            self.reveal_find(tx);
+        }
     }
 
     /// Porta al centro della vista il risultato attivo, anche in un blocco non montato, senza
@@ -502,8 +504,14 @@ impl App {
         let Some(tab) = self.tabs.get(self.active) else { return false };
         match self.find.poll(&tab.doc) {
             Some(reveal) => {
-                if reveal {
-                    self.show_find(tx);
+                match reveal {
+                    ui::find::Reveal::Show => {
+                        self.show_find(tx);
+                    }
+                    ui::find::Reveal::Center => {
+                        self.reveal_find(tx);
+                    }
+                    ui::find::Reveal::No => {}
                 }
                 true
             }

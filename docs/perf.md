@@ -140,3 +140,7 @@ tasto + frame p95 12,5 ms. Soglia (8 ms) superata. Per questo la ricerca gira su
 
 Il primo tasto parsa tutti i blocchi sul thread della ricerca (15–17 ms, fuori dal thread della UI). I massimi
 oltre 8 ms sono i salti della vista a un risultato lontano: costano come un salto qualsiasi su big.md (ultima riga).
+
+Dopo il fix round 1 (anello `line` sui risultati, passi in coda, risultati legati al documento), 14/11 13:00, load
+average 34: tasto + frame p95 1,32 ms; risultati + frame p95 2,84 ms (max 13,4, un salto); thread della UI per tasto
+**p95 2,84 ms**; risposta del thread p95 8,4 ms.
