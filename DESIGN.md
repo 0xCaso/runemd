@@ -9,17 +9,19 @@ colors:
   fg2-light: "oklch(0.36 0.008 270)"
   fg2-dark: "oklch(0.80 0.006 270)"
   fg3-light: "oklch(0.45 0.008 270)"
-  fg3-dark: "oklch(0.69 0.008 270)"
+  fg3-dark: "oklch(0.72 0.008 270)"
   body-light: "oklch(0.28 0.006 270)"
   body-dark: "oklch(0.90 0.004 270)"
   glass-light: "oklch(0.965 0.004 260 / 0.86)"
   glass-dark: "oklch(0.18 0.01 260 / 0.84)"
   line-light: "oklch(0 0 0 / 0.09)"
-  line-dark: "oklch(1 0 0 / 0.08)"
+  line-dark: "oklch(1 0 0 / 0.14)"
   sel-light: "oklch(0 0 0 / 0.06)"
-  sel-dark: "oklch(1 0 0 / 0.09)"
+  sel-dark: "oklch(1 0 0 / 0.12)"
   field-light: "oklch(1 0 0 / 0.55)"
   field-dark: "oklch(0 0 0 / 0.22)"
+  mark-light: "oklch(0 0 0 / 0.09)"
+  mark-dark: "oklch(0.72 0.008 270 / 0.65)"
 typography:
   doc-title:
     fontFamily: "Inter"
@@ -141,10 +143,11 @@ Una scala di grigi OKLCH a bassissimo croma, in due temi. In Rune si scrivono ug
 | `fg` | 0.22 | 0.95 | Titoli, nomi file, testo forte |
 | `body` | 0.28 | 0.90 | Corpo del documento |
 | `fg-2` | 0.36 | 0.80 | Intestazioni di tabella, campo "Apri file" |
-| `fg-3` | 0.45 | 0.69 | Tempi, branch, etichette di sezione, meta del file |
+| `fg-3` | 0.45 | 0.72 | Tempi, branch, etichette di sezione, meta del file |
 | `glass` | 0.965 / 86 % | 0.18 / 84 % | Cornice e sidebar, con blur 40 e saturazione 1,6 |
-| `line` | nero 9 % | bianco 8 % | Righe di tabella, linee guida dell'albero |
-| `sel` | nero 6 % | bianco 9 % | Riga selezionata, hover |
+| `line` | nero 9 % | bianco 14 % | Linee solo decorative: righe di tabella, linee guida dell'albero, bordi dei campi |
+| `sel` | nero 6 % | bianco 12 % | Riga selezionata, hover, selezione, riempimento dei risultati di Cerca |
+| `mark` | nero 9 % | `fg-3` scuro al 65 % | Segni con un significato: anello dei risultati di Cerca, segno "cambiato" |
 
 **Contrasto misurato** (WCAG, sui pixel degli screenshot `shots/scheda-{light,dark}-lettura.png`, 13/11/2026):
 `fg-3` sul pannello 5,4:1 in entrambi i temi; `fg-3` sul vetro della sidebar ≥ 4,5:1 nei punti peggiori dello
@@ -153,6 +156,39 @@ sotto 4,5:1 (misurato: 2,1:1 con opacità 0,62).
 
 Nell'app il vetro è `El::system_material` (Liquid Glass su macOS 26+): il sistema decide la tinta. Se il
 contrasto di `fg-3` scende sotto 4,5:1 sul materiale vero, si alza `fg-3`, non si toglie il vetro.
+
+### Contrasto
+
+Rapporti WCAG calcolati da `src/ui/contrast.rs` (`cargo test --profile perf contrast_table -- --nocapture`), con
+il colore composto sullo sfondo, alpha inclusa, in sRGB codificato come lo compone la finestra. "Vetro" è il token
+`glass` sul fondo peggiore della scrivania (bianco nel tema scuro, nero nel chiaro): il materiale di sistema vero
+sta meglio di così. Minimi: 4,5:1 per il testo, 3:1 per i segni con un significato nel tema scuro, nessuno per le
+linee solo decorative e i riempimenti. I test falliscono se un minimo non è rispettato o se il tema chiaro peggiora.
+"Prima" è il 13/11/2026, "dopo" il fix del 14/11/2026 (`docs/decisions/2026-11-14-cerca-contrasto-scuro.md`).
+
+| Cosa | Scuro prima | Scuro dopo | Chiaro prima | Chiaro dopo | Minimo |
+|---|---|---|---|---|---|
+| `fg` su panel | 16,89 | 16,89 | 17,07 | 17,07 | 4,5 |
+| `body` su panel | 14,50 | 14,50 | 14,39 | 14,39 | 4,5 |
+| `fg-2` su panel | 10,46 | 10,46 | 10,71 | 10,71 | 4,5 |
+| `fg-3` su panel | 7,04 | 7,88 | 7,34 | 7,34 | 4,5 |
+| `fg-3` su vetro | 4,26 | 4,76 | 4,89 | 4,89 | 4,5 |
+| `fg-2` su vetro | 6,32 | 6,32 | 7,13 | 7,13 | 4,5 |
+| `fg-3` su vetro + `sel` (nome doppio della riga scelta) | 3,22 | 3,28 | 4,30 | 4,30 | — |
+| `mark` su panel (anello dei risultati di Cerca, segno "cambiato") | 1,19 | 3,89 | 1,22 | 1,22 | 3 nello scuro |
+| `mark` su `sel` (anello di Cerca, lato interno) | 1,27 | 3,34 | 1,22 | 1,22 | 3 nello scuro |
+| Anello del risultato attivo su `sel` (`fg-3` prima, `fg-2` dopo) | 5,73 | 7,76 | 6,42 | 9,38 | 3 |
+| Fuoco della tastiera su vetro | 1,77 | 3,24 | 1,68 | 1,68 | 3 nello scuro |
+| Fuoco della tastiera su panel | 2,13 | 5,36 | 1,97 | 1,97 | 3 nello scuro |
+| `line` su panel (linee decorative) | 1,19 | 1,44 | 1,22 | 1,22 | — |
+| `line` su vetro (bordo dei campi) | 1,28 | 1,55 | 1,21 | 1,21 | — |
+| `sel` su panel | 1,23 | 1,35 | 1,14 | 1,14 | — |
+| `sel` accanto al codice in linea | 1,04 | 1,15 | 1,03 | 1,03 | — |
+
+- Il fuoco della tastiera è il colore del sistema (`Cx::focus_color`, AppKit lo dà al 50 %), 3 pt: nel tema
+  scuro è pieno, nel chiaro resta al 50 %. Misurato con il blu predefinito.
+- I bordi dei campi restano in `line`: il campo si riconosce dall'icona e dal segnaposto in `fg-2`, non dal bordo.
+- L'anello "sta scrivendo" è metallo liquido (GPU), non un token: non è in tabella.
 
 ## Typography
 
@@ -224,8 +260,8 @@ di "⌘E sorgente", così il documento non si sposta: largo 240 (`find-field`), 
 `field`, bordo interno 0,5 px in `line`, 8 a destra (`row-gap`); icona lente e segnaposto "Cerca nel file" in
 `fg-2`, testo `fg`. Il contatore a destra è UI piccola in `fg-3`: "3 di 12", oppure "Nessun risultato"; con la
 ricerca vuota non c'è. Nel testo i risultati hanno il riempimento
-`sel` e un anello interno di 1 px in `line` (`find-ring`), che li stacca dal codice in linea e dalla selezione;
-quello attivo ha l'anello in `fg-3`. Nessun accento, nessun giallo. Invio va al risultato dopo, Maiusc+Invio a
+`sel` e un anello interno di 1 px in `mark` (`find-ring`), che li stacca dal codice in linea e dalla selezione;
+quello attivo ha l'anello in `fg-2`, più marcato. Nel tema scuro l'anello `mark` è a 3,9:1 sul pannello. Nessun accento, nessun giallo. Invio va al risultato dopo, Maiusc+Invio a
 quello prima, in giro; la vista lo porta al centro. Esc chiude e toglie i segni. Il campo di ⌘P, quello di ⌘N e
 questo si chiudono a vicenda.
 

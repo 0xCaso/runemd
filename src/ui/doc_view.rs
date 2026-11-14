@@ -29,7 +29,7 @@ pub(super) const TOP: f32 = 24.0;
 pub struct Signals<S> {
     /// Se il blocco `id` ha il segno "cosa è cambiato" (a sinistra della riga, fuori dal flusso).
     pub marked: fn(&S, u64) -> bool,
-    /// Colore del segno (`theme.line`).
+    /// Colore del segno (`theme.mark`).
     pub mark: Color,
     /// La barra del dither "sta arrivando", se accesa: va nello spazio sotto l'ultima riga, che
     /// ha sempre la stessa altezza, quindi niente sopra si sposta.

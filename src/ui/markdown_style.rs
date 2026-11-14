@@ -33,14 +33,14 @@ pub fn style(theme: &Theme, body_size: f32) -> MarkdownStyle {
         .rule(theme.line)
         .selection(theme.sel)
         // Cerca (DESIGN.md, "Cerca nel file"): nessun accento. I risultati hanno il riempimento
-        // `sel` e un anello interno in `line`, che li stacca dal codice e dalla selezione; quello
-        // attivo ha l'anello in `fg3`.
+        // `sel` e un anello interno in `mark` (≥ 3:1 nel tema scuro), che li stacca dal codice e
+        // dalla selezione; quello attivo ha l'anello in `fg2`, più marcato.
         .highlight_bg(theme.sel)
         .highlight_fg(None)
-        .highlight_ring(Some((theme.line, FIND_RING)))
+        .highlight_ring(Some((theme.mark, FIND_RING)))
         .highlight_current_bg(theme.sel)
         .highlight_current_fg(None)
-        .highlight_current_ring(Some((theme.fg3, FIND_RING)))
+        .highlight_current_ring(Some((theme.fg2, FIND_RING)))
 }
 
 #[cfg(test)]
@@ -74,14 +74,14 @@ mod tests {
         }
     }
 
-    /// Cerca senza accento: i risultati in `sel` con un anello in `line` (si distinguono dal
-    /// codice e dalla selezione), l'attivo in `sel` con l'anello in `fg3`.
+    /// Cerca senza accento: i risultati in `sel` con un anello in `mark` (si distinguono dal
+    /// codice e dalla selezione), l'attivo in `sel` con l'anello in `fg2`.
     #[test]
     fn find_highlights_use_theme_tokens() {
         for dark in [true, false] {
             let t = Theme::for_mode(dark);
             let m = style(&t, 15.5);
-            assert_eq!(h(&m), h(&m.clone().highlight_bg(t.sel).highlight_ring(Some((t.line, FIND_RING))).highlight_current_bg(t.sel).highlight_current_ring(Some((t.fg3, FIND_RING)))));
+            assert_eq!(h(&m), h(&m.clone().highlight_bg(t.sel).highlight_ring(Some((t.mark, FIND_RING))).highlight_current_bg(t.sel).highlight_current_ring(Some((t.fg2, FIND_RING)))));
             assert_ne!(h(&m), h(&m.clone().highlight_current_ring(None)));
             assert_ne!(h(&m), h(&m.clone().highlight_ring(None)), "i risultati hanno un anello");
         }

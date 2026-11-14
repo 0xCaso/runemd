@@ -26,8 +26,8 @@ pub const TAB_BAR_PAD_X: f32 = 10.0;
 pub const TAB_GAP: f32 = 2.0;
 /// Cerca nel file (DESIGN.md, `spacing.find-field`): il campo nella barra delle schede è largo 240.
 pub const FIND_W: f32 = 240.0;
-/// L'anello interno dei risultati di Cerca, 1 pt sopra il riempimento `sel`: in `line` per i
-/// risultati, in `fg3` per quello attivo (DESIGN.md, "Cerca nel file").
+/// L'anello interno dei risultati di Cerca, 1 pt sopra il riempimento `sel`: in `mark` per i
+/// risultati, in `fg2` per quello attivo (DESIGN.md, "Cerca nel file").
 pub const FIND_RING: f32 = 1.0;
 /// L'etichetta del fuoco sta a questa distanza dal fondo del pannello.
 pub const FIRE_LABEL_BOTTOM: f32 = 10.0;
@@ -42,7 +42,7 @@ pub const BODY_LINE: f32 = BODY_TEXT * BODY_LEADING;
 pub const ROW_PAD_X: f32 = 28.0;
 /// Margine verticale delle righe del documento.
 pub const ROW_PAD_Y: f32 = 7.0;
-/// Segno "cosa è cambiato": largo 2 pt, in `line`, nel margine sinistro della riga.
+/// Segno "cosa è cambiato": largo 2 pt, in `mark`, nel margine sinistro della riga.
 pub const CHANGED_MARK_W: f32 = 2.0;
 /// Il segno sta a questa distanza dal bordo sinistro della riga (a metà del margine).
 pub const CHANGED_MARK_X: f32 = (ROW_PAD_X - CHANGED_MARK_W) / 2.0;
@@ -85,6 +85,13 @@ pub const R_ROW: f32 = 6.0;
 pub const R_FIELD: f32 = 7.0;
 pub const R_PANEL: f32 = 10.0;
 
+/// Il colore del fuoco della tastiera (`Cx::focus_ring`), dal colore del sistema `system`
+/// (`Cx::focus_color`, che AppKit dà al 50 %). Nel tema scuro è pieno: al 50 % sul vetro scuro
+/// resta sotto 3:1 (DESIGN.md, "Contrasto").
+pub fn focus_ring(system: Color, dark: bool) -> Color {
+    if dark { system.alpha(1.0) } else { system }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Theme {
     pub dark: bool,
@@ -97,6 +104,7 @@ pub struct Theme {
     pub line: Color,
     pub sel: Color,
     pub field: Color,
+    pub mark: Color,
 }
 
 impl Theme {
@@ -108,11 +116,12 @@ impl Theme {
                 fg: oklcha(0.95, 0.003, 270.0, 1.0),
                 body: oklcha(0.90, 0.004, 270.0, 1.0),
                 fg2: oklcha(0.80, 0.006, 270.0, 1.0),
-                fg3: oklcha(0.69, 0.008, 270.0, 1.0),
+                fg3: oklcha(0.72, 0.008, 270.0, 1.0),
                 glass: oklcha(0.18, 0.01, 260.0, 0.84),
-                line: oklcha(1.0, 0.0, 0.0, 0.08),
-                sel: oklcha(1.0, 0.0, 0.0, 0.09),
+                line: oklcha(1.0, 0.0, 0.0, 0.14),
+                sel: oklcha(1.0, 0.0, 0.0, 0.12),
                 field: oklcha(0.0, 0.0, 0.0, 0.22),
+                mark: oklcha(0.72, 0.008, 270.0, 0.65),
             }
         } else {
             Theme {
@@ -126,6 +135,7 @@ impl Theme {
                 line: oklcha(0.0, 0.0, 0.0, 0.09),
                 sel: oklcha(0.0, 0.0, 0.0, 0.06),
                 field: oklcha(1.0, 0.0, 0.0, 0.55),
+                mark: oklcha(0.0, 0.0, 0.0, 0.09),
             }
         }
     }
@@ -137,7 +147,12 @@ mod tests {
 
     #[test]
     fn tokens_match_design_md() {
-        assert_eq!(Theme::for_mode(true).fg3, oklcha(0.69, 0.008, 270.0, 1.0));
+        let dark = Theme::for_mode(true);
+        assert_eq!(dark.fg3, oklcha(0.72, 0.008, 270.0, 1.0));
+        assert_eq!(dark.line, oklcha(1.0, 0.0, 0.0, 0.14));
+        assert_eq!(dark.sel, oklcha(1.0, 0.0, 0.0, 0.12));
+        assert_eq!(dark.mark, oklcha(0.72, 0.008, 270.0, 0.65));
+        assert_eq!(Theme::for_mode(false).mark, oklcha(0.0, 0.0, 0.0, 0.09));
         assert_eq!(Theme::for_mode(false).glass, oklcha(0.965, 0.004, 260.0, 0.86));
     }
 }
