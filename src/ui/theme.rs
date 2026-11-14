@@ -50,6 +50,20 @@ pub const CHANGED_MARK_W: f32 = 2.0;
 /// Il segno sta a questa distanza dal bordo sinistro della riga (a metà del margine).
 pub const CHANGED_MARK_X: f32 = (ROW_PAD_X - CHANGED_MARK_W) / 2.0;
 
+/// Indice dei titoli "In questo file" (DESIGN.md, `spacing.outline*`, mockup `scheda`): colonna
+/// larga 196 compresa la linea, testo a 16 dalla linea (10 di margine più 6 dentro la riga, che
+/// così ha spazio per l'hover), righe alte 25 (12,5 pt con interlinea 2), 10 di rientro per
+/// livello, 4 fra l'etichetta e il primo titolo.
+pub const OUTLINE_W: f32 = 196.0;
+pub const OUTLINE_PAD_X: f32 = 10.0;
+pub const OUTLINE_ROW_PAD: f32 = 6.0;
+pub const OUTLINE_ROW: f32 = 25.0;
+pub const OUTLINE_TEXT: f32 = 12.5;
+pub const OUTLINE_INDENT: f32 = 10.0;
+pub const OUTLINE_LABEL_GAP: f32 = 4.0;
+/// Sotto questa larghezza della finestra l'indice si nasconde: sidebar + colonna + 200.
+pub const OUTLINE_MIN_WINDOW: f32 = SIDEBAR + COLUMN + 200.0;
+
 /// Sidebar (DESIGN.md, `spacing`): spazio sopra il campo per i semafori, margini ai lati e in fondo.
 pub const SIDEBAR_TOP: f32 = 44.0;
 pub const SIDEBAR_PAD: f32 = 8.0;

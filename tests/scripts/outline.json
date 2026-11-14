@@ -1,0 +1,4 @@
+[
+  {"t": 0.6, "type": "scroll", "key": "doc", "dy": -6200, "dur": 0.5},
+  {"t": 1.6, "type": "mark", "name": "read"}
+]

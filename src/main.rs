@@ -83,7 +83,14 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
             // Il dither: una barra alta una riga e larga come il testo, nello spazio sotto l'ultimo blocco.
             let tail = tab.dither_since.map(|since| fx::dither::slot(el().w_full().h(ui::theme::BODY_LINE), since, dark, reduced));
             let signals = ui::doc_view::Signals { marked: App::is_marked, mark: theme.mark, tail, hits: App::find_hits };
-            ui::doc_view::view(s, App::active_document, &s.style, App::visible_rows, signals)
+            let doc = ui::doc_view::view(s, App::active_document, &s.style, App::visible_rows, signals);
+            // L'indice dei titoli a destra, solo se la finestra è larga almeno sidebar + colonna
+            // + 200 (prima del primo layout la larghezza non si sa: niente indice).
+            let wide = cx.layout_with("app", |r| r[2] >= ui::theme::OUTLINE_MIN_WINDOW).unwrap_or(false);
+            match wide.then(|| ui::outline::view(tab, hooks, &theme, reduced, !cx.hover_none())).flatten() {
+                Some(outline) => rune::row().w_full().grow(1.0).min_h(0.0).child(el().grow(1.0).min_w(0.0).h_full().child(doc)).child(outline),
+                None => doc,
+            }
         }
         None => el().grow(1.0),
     };
@@ -108,7 +115,7 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
     // Recenti e nell'albero.
     let sidebar = ui::sidebar::view(s, hooks, &theme, reduced, !cx.hover_none());
     let main = el().key("main").grow(1.0).min_w(0.0).h_full().pt(ui::theme::FRAME).pr(ui::theme::FRAME).pb(ui::theme::FRAME).child(panel);
-    rune::row().w_full().h_full().system_material(rune::SystemMaterial::Glass).fill(theme.glass).child(sidebar).child(main)
+    rune::row().key("app").w_full().h_full().system_material(rune::SystemMaterial::Glass).fill(theme.glass).child(sidebar).child(main)
         .on_window_focus(|s: &mut App, focused, _| s.window_active = focused)
 }
 

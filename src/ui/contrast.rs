@@ -78,6 +78,8 @@ pub fn rows(t: &Theme, rings: &Rings) -> Vec<Row> {
         row("fg3 su vetro", t.fg3, glass, 4.5),
         row("fg2 su vetro", t.fg2, glass, 4.5),
         row("nome doppio della riga scelta su vetro + sel (fg3 prima, fg2 dopo)", rings.chosen, glass_sel, 4.5),
+        row("titolo evidenziato dell'indice (fg) su panel + sel (hover)", t.fg, panel_sel, 4.5),
+        row("titoli dell'indice (fg2) su panel + sel (hover)", t.fg2, panel_sel, 4.5),
         row("mark su panel (anello Cerca, segno cambiato)", t.mark, panel, mark),
         row("mark su sel (anello Cerca, lato interno)", t.mark, panel_sel, mark),
         row("anello Cerca attivo su sel", rings.active, panel_sel, 3.0),

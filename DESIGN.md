@@ -52,6 +52,11 @@ typography:
     fontFamily: "Inter"
     fontSize: "13px"
     fontWeight: 400
+  outline:
+    fontFamily: "Inter"
+    fontSize: "12.5px"
+    fontWeight: 400
+    lineHeight: 2
   ui-small:
     fontFamily: "Inter"
     fontSize: "12px"
@@ -92,6 +97,13 @@ spacing:
   find-field: "240px"
   find-ring: "1px"
   find-ring-active: "2px"
+  outline: "196px"
+  outline-pad: "31px 10px 24px"
+  outline-row: "25px"
+  outline-row-pad: "0 6px"
+  outline-indent: "10px"
+  outline-label-gap: "4px"
+  outline-min-window: "1128px"
 motion:
   press: "scale 0.98, 160ms ease-out"
   hover: "120ms ease"
@@ -174,6 +186,8 @@ linee solo decorative e i riempimenti. I test falliscono se un minimo non è ris
 | `fg-3` su vetro | 4,26 | 4,76 | 4,89 | 4,89 | 4,5 |
 | `fg-2` su vetro | 6,32 | 6,77 | 7,13 | 7,13 | 4,5 |
 | Nome doppio della riga scelta su vetro + `sel` (`fg-3` prima, `fg-2` dopo) | 3,22 | 4,66 | 4,30 | 6,28 | 4,5 |
+| Titolo evidenziato dell'indice (`fg`) su panel + `sel` (hover) | 13,75 | 12,53 | 14,94 | 14,94 | 4,5 |
+| Titoli dell'indice (`fg-2`) su panel + `sel` (hover) | 8,52 | 8,30 | 9,38 | 9,38 | 4,5 |
 | `mark` su panel (anello dei risultati di Cerca, segno "cambiato") | 1,19 | 3,89 | 1,22 | 3,52 | 3 |
 | `mark` su `sel` (anello di Cerca, lato interno) | 1,27 | 3,34 | 1,22 | 3,27 | 3 |
 | Anello del risultato attivo su `sel` (`fg-3` prima, `fg-2` dopo) | 5,73 | 8,30 | 6,42 | 9,38 | 3 |
@@ -223,6 +237,8 @@ Il grassetto nel corpo è peso 620 in `fg`. I titoli non sono enormi: la gerarch
   indentati di 16 px con linea guida verticale).
 - Pannello: barra delle schede in alto (nomi dei file aperti, "⌘E sorgente" a destra); colonna del documento
   larga al massimo 680 px e centrata; indice "In questo file" a destra, separato da una linea.
+- L'indice "In questo file" si nasconde quando la finestra è più stretta di sidebar + colonna + 200 (1128 pt,
+  `outline-min-window`), e nel sorgente (⌘E).
 - Sotto il titolo, una riga meta: cartella, stato ("modificato 2 min fa" / "si aggiorna"), parole. Gli elementi
   si separano con spazio (16 px), mai con " · ".
 
@@ -272,6 +288,19 @@ quello attivo ha l'anello in `fg-2` e di 2 px (`find-ring-active`), più scuro e
 riconosce a colpo d'occhio in tutti e due i temi. L'anello `mark` è a 3,9:1 sul pannello nel tema scuro e a 3,5:1 nel chiaro. Nessun accento, nessun giallo. Invio va al risultato dopo, Maiusc+Invio a
 quello prima, in giro; la vista lo porta al centro. Esc chiude e toglie i segni. Il campo di ⌘P, quello di ⌘N e
 questo si chiudono a vicenda.
+
+**Indice dei titoli ("In questo file").** Dal mockup `scheda`: colonna larga 196 (`outline`) a destra del
+documento, separata da una linea di 0,5 in `line` alta quanto il documento. Etichetta "In questo file" in UI
+piccola `fg-3`, 4 sopra il primo titolo (`outline-label-gap`), allineata alla prima riga del documento (31 dal
+bordo alto, cioè il margine del documento più quello della riga). I titoli H1–H3 del file, uno per riga: 12,5 px,
+interlinea 2 (righe alte 25, `outline-row`), testo `fg-2` troncato con "…"; il testo sta a 16 dalla linea (10 di
+margine della colonna più 6 dentro la riga, `outline-row-pad`, che lascia spazio all'hover). Ogni livello sotto il
+più alto del file rientra di 10 (`outline-indent`). Il titolo della sezione che si legge (l'ultimo sopra il primo
+blocco visibile) è in `fg` e peso 600: colore e peso insieme, perché `fg` e `fg-2` da soli si distinguono poco nel
+tema scuro. Nessun segno né accento. Hover `sel`, scala 0,98 premuta, come le righe della sidebar. Un clic porta il
+titolo in cima alla vista, senza planata (come Cerca: la riga può non essere montata). Se l'indice è più alto
+della finestra scorre da solo e l'evidenziato resta in vista. Un file senza titoli non ha la colonna. Nel sorgente
+(⌘E) l'indice non c'è: i blocchi a cui porta non esistono lì e i titoli cambiano mentre si scrive.
 
 **Riga di avviso (sorgente).** Sotto la barra delle schede, sopra il sorgente: alta 44 (`tab-bar`), testo UI
 13 px in `fg` allineato a quello del sorgente, bottoni a destra come schede in secondo piano (alti 28, `row-pad`

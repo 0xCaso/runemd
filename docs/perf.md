@@ -144,3 +144,40 @@ oltre 8 ms sono i salti della vista a un risultato lontano: costano come un salt
 Dopo il fix round 1 (anello `line` sui risultati, passi in coda, risultati legati al documento), 14/11 13:00, load
 average 34: tasto + frame p95 1,32 ms; risultati + frame p95 2,84 ms (max 13,4, un salto); thread della UI per tasto
 **p95 2,84 ms**; risposta del thread p95 8,4 ms.
+
+# Indice dei titoli (task 25)
+
+14/11, Mac con altre sessioni attive, load average 8–12 (`uptime` stampato da ogni corsa).
+
+## Scroll di big.md, prima e dopo
+
+`bench/outline_scroll.sh` (headless, `tests/scripts/outline_scroll.json`): `fixtures/big.md` (1 MB, 3041 blocchi,
+435 titoli), finestra 1280×800 (l'indice si vede), 16 swipe da 4000 pt ogni 0,5 s su `doc`, 60 fps; tempo CPU
+per frame (`quality.cpu_ms` del `--trace`) fra i mark `scrolling` e `scrolled`, 504 frame per corsa. "Prima" è il
+binario di `247c1ce` (`bench/outline_scroll.sh DIR <binario>`), stessa finestra.
+
+| finestra | build | p50 | p95 | max |
+|---|---|---|---|---|
+| 1280×800 | prima (3 corse) | 0,41–0,42 | 2,42–2,45 | 3,48–3,78 |
+| 1280×800 | dopo, indice visibile (3 corse) | 0,59 | **2,84–2,86** | 4,02–4,20 |
+| 900×800 | prima (2 corse) | 0,40 | 2,27–2,33 | 3,59–3,64 |
+| 900×800 | dopo, indice nascosto (2 corse) | 0,41–0,47 | 2,19–2,45 | 3,66–4,81 |
+
+Con l'indice visibile lo scroll costa ~0,17 ms in più a frame (p50) e ~0,4 ms al p95: sono le ~120 righe che
+Rune tiene montate nella lista virtuale dell'indice (la vista più 2 viste di overscan per lato). Prove fatte: con
+la colonna senza righe il costo torna al "prima" (p50 0,43–0,45, p95 2,45–2,52); né una `memo` per riga né righe
+senza hover e pressione cambiano il numero, e nemmeno togliere il segnaposto che tiene in vista l'evidenziato.
+Il frame resta sotto 3 ms al p95 (budget 8,3 ms a 120 Hz). Con la finestra stretta non cambia niente.
+
+## Titoli all'apertura e a ogni ricarica
+
+`cargo test --profile perf outline_cost -- --ignored --nocapture` (`src/ui/outline.rs`, 20 giri): la scansione
+gira una volta per documento e per ricarica (`outline::Cache`, chiave `doc_view::rows_version`), sul thread della
+UI alla prima vista che la chiede.
+
+| file | blocchi | titoli | p50 | max |
+|---|---|---|---|---|
+| big.md, 1 MB | 3041 | 435 | 0,10 ms | 0,13 ms |
+| big.md ripetuto, 16 MB | 48 656 | 6960 | 1,81 ms | 2,34 ms |
+
+Prima del filtro setext dal fondo e del caso ATX senza parser la scansione dei 16 MB costava 4,7 ms (p50).

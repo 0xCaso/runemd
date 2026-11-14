@@ -54,11 +54,16 @@ pub struct Tab {
     mark_wake: Option<Wake>,
     /// L'orologio di Rune a cui si è acceso il dither "sta arrivando"; `None` quando è spento.
     pub(crate) dither_since: Option<f64>,
+    /// La posizione di `visible_first` all'ultimo rapporto: dopo una ricarica può non valere più
+    /// (allora si cerca l'id).
+    visible_start: usize,
+    /// I titoli dell'indice "In questo file", ricalcolati solo quando il documento cambia.
+    pub(crate) outline: ui::outline::Cache,
 }
 
 impl Tab {
     pub(crate) fn new(doc: Document, follow: Follow) -> Tab {
-        Tab { doc, mode: Mode::Read, below: Below::default(), changed: Changed::default(), follow, visible_last: 0, visible_first: 0, fire_since: None, fire_armed: None, mark_wake: None, dither_since: None }
+        Tab { doc, mode: Mode::Read, below: Below::default(), changed: Changed::default(), follow, visible_last: 0, visible_first: 0, fire_since: None, fire_armed: None, mark_wake: None, dither_since: None, visible_start: 0, outline: ui::outline::Cache::default() }
     }
 
     /// Il file come lo riporta FSEvents (canonico): la chiave degli anelli.
@@ -128,17 +133,21 @@ impl Tab {
 
     /// Le righe visibili sono cambiate (scroll, ricarica, ridimensionamento): l'ultima esce dal
     /// conto del fuoco e diventa l'ancora delle ricariche seguenti. Vero se la vista cambia
-    /// (etichetta o fuoco). Il fuoco si accende qui, al primo rapporto dopo la ricarica che l'ha
+    /// (etichetta, fuoco o titolo evidenziato nell'indice). Il fuoco si accende qui, al primo rapporto dopo la ricarica che l'ha
     /// armato (con l'orologio di quella ricarica), e si spegne quando il conto arriva a 0.
     pub fn visible_rows(&mut self, rows: Range<usize>) -> bool {
         let doc = &self.doc;
         // Rune riporta gli indici dell'ultimo layout: con una ricarica in mezzo possono andare
         // oltre i blocchi di adesso, e allora si aspetta il prossimo rapporto.
         let Some(last) = rows.end.checked_sub(1).filter(|&i| i < doc.blocks.len() && !rows.is_empty()) else { return false };
-        self.visible_last = doc.blocks[last].id;
-        self.visible_first = doc.blocks[rows.start].id;
+        // L'indice evidenzia un altro titolo: la vista deve rigirare.
+        let heading = self.active_heading();
+        self.visible_last = self.doc.blocks[last].id;
+        self.visible_first = self.doc.blocks[rows.start].id;
+        self.visible_start = rows.start;
+        let heading_moved = self.active_heading() != heading;
         let before = self.below.count();
-        let order: Vec<u64> = doc.blocks.iter().map(|b| b.id).collect();
+        let order: Vec<u64> = self.doc.blocks.iter().map(|b| b.id).collect();
         self.below.on_scroll(last, &order);
         let was = self.fire_since;
         if self.below.count() == 0 {
@@ -147,7 +156,21 @@ impl Tab {
             self.fire_since = self.fire_armed;
         }
         self.fire_armed = None;
-        self.below.count() != before || self.fire_since != was
+        heading_moved || self.below.count() != before || self.fire_since != was
+    }
+
+    /// Il titolo dell'indice evidenziato: quello della sezione del primo blocco visibile. Segue
+    /// l'id del blocco, così vale anche dopo una ricarica, prima del nuovo rapporto di Rune.
+    pub fn active_heading(&self) -> Option<usize> {
+        if self.visible_first == 0 {
+            return None;
+        }
+        let blocks = &self.doc.blocks;
+        let start = match blocks.get(self.visible_start) {
+            Some(b) if b.id == self.visible_first => self.visible_start,
+            _ => blocks.iter().position(|b| b.id == self.visible_first)?,
+        };
+        ui::outline::active(&self.outline.get(&self.doc), start)
     }
 }
 
@@ -432,6 +455,17 @@ impl App {
             }
             _ => tx.scroll_to_instant("doc", 0.0, 0.0),
         }
+    }
+
+    /// Un clic su un titolo dell'indice: il suo blocco va in cima alla vista, senza planata (come
+    /// `restore_view`: la riga può non essere montata e la sua altezza è solo stimata). Solo se
+    /// la scheda `doc` è ancora davanti e in lettura.
+    pub fn go_to_heading(&mut self, doc: u64, block: u64, tx: &mut Tx) {
+        let Some(tab) = self.tab().filter(|t| t.doc.id == doc && matches!(t.mode, Mode::Read)) else { return };
+        let Some(i) = tab.doc.blocks.iter().position(|b| b.id == block) else { return };
+        let key = ui::doc_view::row_key(i, &tab.doc);
+        tx.scroll_center_in_instant("doc", key.clone());
+        tx.scroll_key_to(key, 0.0);
     }
 
     /// Un clic su una riga della sidebar: il file va in una scheda (o si porta davanti la sua).
