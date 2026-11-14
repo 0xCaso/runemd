@@ -68,8 +68,9 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
     let dark = dark_mode();
     let theme = ui::theme::Theme::for_mode(dark);
     let reduced = cx.is_reduced_motion();
+    let hooks = ui::sidebar::Hooks { get: |s: &App| &s.sidebar, get_mut: |s: &mut App| &mut s.sidebar, open: App::open_from_sidebar, ring: App::ring_of, query: App::requery_sidebar };
     let body = match s.tab() {
-        Some(tab @ app::Tab { mode: app::Mode::Source(src), .. }) => ui::source::view(tab, src, &theme),
+        Some(tab @ app::Tab { mode: app::Mode::Source(src), .. }) => ui::source::view(s, hooks, tab, src, &theme, reduced, !cx.hover_none()),
         Some(tab) => {
             // Il dither: una barra alta una riga e larga come il testo, nello spazio sotto l'ultimo blocco.
             let tail = tab.dither_since.map(|since| fx::dither::slot(el().w_full().h(ui::theme::BODY_LINE), since, dark, reduced));
@@ -80,7 +81,6 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
     };
     // Pannello pieno con la barra delle schede e il documento, a `FRAME` dai bordi alto, destro e
     // basso; a sinistra la sidebar, tutto sul vetro di sistema.
-    let hooks = ui::sidebar::Hooks { get: |s: &App| &s.sidebar, get_mut: |s: &mut App| &mut s.sidebar, open: App::open_from_sidebar, ring: App::ring_of, query: App::requery_sidebar };
     let bar = ui::tabs::view(s, hooks, &theme, reduced, !cx.hover_none());
     let content = rune::col().w_full().h_full().child(bar).child(body);
     let mut panel = el().w_full().h_full().fill(theme.panel).radius(ui::theme::R_PANEL).clip_rounded(ui::theme::R_PANEL).child(content);

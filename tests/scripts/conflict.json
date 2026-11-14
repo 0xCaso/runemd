@@ -1,0 +1,9 @@
+[
+  {"t": 0.5, "type": "key", "name": "e", "cmd": true},
+  {"t": 0.8, "type": "type", "text": "Nota mia. ", "every": 0.03},
+  {"t": 1.5, "type": "mark", "name": "typed"},
+  {"t": 2.5, "type": "key", "name": "s", "cmd": true},
+  {"t": 3.0, "type": "mark", "name": "row"},
+  {"t": 3.5, "type": "tap", "key": "source-keep"},
+  {"t": 4.0, "type": "mark", "name": "kept"}
+]

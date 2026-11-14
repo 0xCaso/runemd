@@ -4,14 +4,30 @@
 //!
 //! Invio va a capo (un `text_input` multilinea lo userebbe per inviare). Cmd+S e Cmd+E stanno in
 //! `main::on_key`: il campo non li prende.
+//!
+//! Quando un salvataggio non scrive, sopra il sorgente compare una riga alta come la barra delle
+//! schede, con una linea sotto: "Il file è cambiato su disco" con "Ricarica" e "Tieni il mio"
+//! (righe premibili come le schede, testo `fg2`, hover `sel`), o "Salvataggio non riuscito" da
+//! sola. Testo UI in `fg`, nessun accento.
 
-use rune::{El, Family, ScrollSpec, Span, TextStyle, Tx, col, el, text_input};
+use rune::{El, Family, ScrollSpec, Span, TextStyle, Tx, col, el, row, text, text_input};
 use rune_kit::syntax::{self, Syntax, SyntaxTheme};
 
 use super::doc_view::{BOTTOM, TOP};
-use super::theme::{CODE_TEXT, COLUMN, ROW_PAD_X, Theme, UI_STRONG_WEIGHT};
+use super::sidebar::{self, Hooks, Motion};
+use super::theme::{CODE_TEXT, COLUMN, HAIRLINE, ROW, ROW_PAD, ROW_PAD_X, TAB_BAR_H, TAB_GAP, Theme, UI_STRONG_WEIGHT};
 use crate::app::{App, Tab};
-use crate::edit::SourceEdit;
+use crate::edit::{Notice, SourceEdit};
+
+/// I testi della riga (spec, "Modifica"; "Salvataggio non riuscito": scelta del controller).
+pub const CONFLICT_TEXT: &str = "Il file è cambiato su disco";
+pub const RELOAD_TEXT: &str = "Ricarica";
+pub const KEEP_TEXT: &str = "Tieni il mio";
+pub const FAILED_TEXT: &str = "Salvataggio non riuscito";
+/// Le chiavi della riga e dei suoi due bottoni.
+pub const NOTICE_KEY: &str = "source-notice";
+pub const RELOAD_KEY: &str = "source-reload";
+pub const KEEP_KEY: &str = "source-keep";
 
 /// Il testo del sorgente: `typography.doc-code` (mono 13,5).
 pub fn font() -> TextStyle {
@@ -60,8 +76,9 @@ pub fn spans(text: &str, theme: &SyntaxTheme) -> Vec<Span> {
     theme.spans(&syntax::highlight(Some("markdown"), text), 0)
 }
 
-/// La vista del sorgente della scheda `tab`, in modifica con `src`.
-pub fn view(tab: &Tab, src: &SourceEdit, theme: &Theme) -> El {
+/// La vista del sorgente della scheda `tab`, in modifica con `src`, con la riga sopra se
+/// l'ultimo salvataggio non ha scritto. `hover`: il puntatore è fine e può passare sopra.
+pub fn view(s: &App, hooks: Hooks<App>, tab: &Tab, src: &SourceEdit, theme: &Theme, reduced: bool, hover: bool) -> El {
     let id = tab.doc.id;
     let input = text_input(&src.edit, font())
         .key("source-input")
@@ -78,8 +95,51 @@ pub fn view(tab: &Tab, src: &SourceEdit, theme: &Theme) -> El {
         });
     let column = col().w_full().max_w(COLUMN).self_center().px(ROW_PAD_X).child(input);
     let page = col().w_full().pt(TOP).pb(BOTTOM).child(column);
-    let scroll = col().key("source").w_full().h_full().scroll(ScrollSpec { stick_bottom: false }).child(page);
-    el().key(format!("source-{id:x}")).w_full().grow(1.0).min_h(0.0).child(scroll)
+    let scroll = col().key("source").w_full().grow(1.0).min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(page);
+    let mut view = col().key(format!("source-{id:x}")).w_full().grow(1.0).min_h(0.0);
+    if let Some(notice) = src.notice {
+        view = view.child(notice_row(s, hooks, id, notice, theme, Motion { reduced, hover }));
+    }
+    view.child(scroll)
+}
+
+/// La riga sopra il sorgente: il testo allineato a quello del sorgente, i bottoni a destra con il
+/// loro testo allineato al bordo destro della colonna; una linea di 0,5 in `line` sotto.
+fn notice_row(s: &App, hooks: Hooks<App>, id: u64, notice: Notice, theme: &Theme, motion: Motion) -> El {
+    let message = match notice {
+        Notice::Conflict => CONFLICT_TEXT,
+        Notice::SaveFailed => FAILED_TEXT,
+    };
+    let mut line = row()
+        .w_full()
+        .max_w(COLUMN)
+        .self_center()
+        .h(TAB_BAR_H)
+        .pl(ROW_PAD_X)
+        .pr(ROW_PAD_X - ROW_PAD)
+        .gap(TAB_GAP)
+        .center_y()
+        .child(text(message).font(sidebar::ui_font()).color(theme.fg).truncate().grow(1.0).shrink().min_w(0.0));
+    if notice == Notice::Conflict {
+        let reload = button(s, hooks, RELOAD_KEY, RELOAD_TEXT, theme, motion, move |s: &mut App| s.reload_source(id));
+        let keep = button(s, hooks, KEEP_KEY, KEEP_TEXT, theme, motion, move |s: &mut App| s.keep_mine(id));
+        line = line.child(reload).child(keep);
+    }
+    col().key(NOTICE_KEY).role("alert").label(message).w_full().child(line).child(el().w_full().h(HAIRLINE).fill(theme.line))
+}
+
+/// Un bottone della riga: come una scheda in secondo piano (alta `ROW`, `ROW_PAD` ai lati, testo
+/// `fg2`, hover `sel`, scala 0,98 premuta).
+fn button(s: &App, hooks: Hooks<App>, key: &str, label: &str, theme: &Theme, motion: Motion, on: impl Fn(&mut App) + 'static) -> El {
+    let e = row()
+        .h(ROW)
+        .px(ROW_PAD)
+        .center_y()
+        .role("button")
+        .label(label)
+        .child(text(label).font(sidebar::ui_font()).color(theme.fg2).a11y_hidden())
+        .on_press(on);
+    sidebar::pressable(e, key.to_owned(), &s.sidebar, hooks, theme, motion, true).key(key)
 }
 
 #[cfg(test)]
@@ -147,6 +207,123 @@ mod tests {
         assert!(source_text(&rt).is_none(), "di nuovo in lettura");
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "X\n# a\n\nuno\n");
         assert_eq!(rt.state.active_document().blocks.len(), 3, "la lettura mostra il testo salvato (X, titolo, uno)");
+    }
+
+    fn texts(rt: &Runtime<App>) -> Vec<String> {
+        rt.elements().into_iter().filter_map(|e| e.text).collect()
+    }
+
+    fn has(rt: &Runtime<App>, key: &str) -> bool {
+        rt.elements().iter().any(|e| e.key.as_deref() == Some(key))
+    }
+
+    fn tap(rt: &mut Runtime<App>, key: &str) {
+        let (x, y) = rt.find(key).unwrap_or_else(|| panic!("{key} non c'è"));
+        rt.pointer_move(x, y);
+        rt.pointer_down(x, y);
+        rt.pointer_up(x, y);
+        settle(rt);
+    }
+
+    /// Cmd+E, si scrive, il file cambia su disco, Cmd+S: compare la riga e niente si scrive.
+    /// "Tieni il mio" scrive il testo locale e la riga sparisce.
+    #[test]
+    fn conflict_row_and_keep_mine() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("a.md");
+        std::fs::write(&path, "# a\n\nuno\n").unwrap();
+        let mut rt = open(&path);
+        rt.key(cmd('e'));
+        rt.key(typed("X"));
+        settle(&mut rt);
+        assert!(!has(&rt, NOTICE_KEY), "nessuna riga prima del conflitto");
+        std::fs::write(&path, "# a\n\ndell'agente\n").unwrap();
+        rt.key(cmd('s'));
+        settle(&mut rt);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "# a\n\ndell'agente\n", "non scrive");
+        assert!(has(&rt, NOTICE_KEY), "compare la riga");
+        let t = texts(&rt);
+        for want in [CONFLICT_TEXT, RELOAD_TEXT, KEEP_TEXT] {
+            assert!(t.iter().any(|x| x == want), "{want} in {t:?}");
+        }
+        // Con la riga sopra il campo tiene il fuoco: si continua a scrivere.
+        rt.key(typed("Y"));
+        settle(&mut rt);
+        assert_eq!(source_text(&rt), Some("XY# a\n\nuno\n"));
+        tap(&mut rt, KEEP_KEY);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "XY# a\n\nuno\n", "il disco ha il testo locale");
+        assert!(!has(&rt, NOTICE_KEY), "la riga sparisce");
+        assert_eq!(source_text(&rt), Some("XY# a\n\nuno\n"), "resta nel sorgente");
+    }
+
+    /// "Ricarica" scarta le modifiche: il sorgente mostra il testo dell'agente, il disco non cambia.
+    #[test]
+    fn conflict_reload_discards() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("a.md");
+        std::fs::write(&path, "# a\n\nuno\n").unwrap();
+        let mut rt = open(&path);
+        rt.key(cmd('e'));
+        rt.key(typed("X"));
+        settle(&mut rt);
+        let agent = "# a\n\ndell'agente\n";
+        std::fs::write(&path, agent).unwrap();
+        rt.key(cmd('e'));
+        settle(&mut rt);
+        assert!(has(&rt, NOTICE_KEY), "Cmd+E non esce: riga");
+        tap(&mut rt, RELOAD_KEY);
+        assert_eq!(source_text(&rt), Some(agent));
+        assert!(!has(&rt, NOTICE_KEY));
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), agent);
+        rt.key(cmd('e'));
+        settle(&mut rt);
+        assert!(source_text(&rt).is_none(), "senza modifiche Cmd+E torna alla lettura");
+    }
+
+    /// Cmd+W rifiutato su una scheda in secondo piano (clic centrale): la riga si vede quando la
+    /// scheda torna davanti.
+    #[test]
+    fn a_refused_close_shows_the_row_when_the_tab_comes_to_the_front() {
+        let dir = tempfile::tempdir().unwrap();
+        let (a, b) = (dir.path().join("a.md"), dir.path().join("b.md"));
+        std::fs::write(&a, "# a\n").unwrap();
+        std::fs::write(&b, "# b\n").unwrap();
+        let mut rt = open(&a);
+        rt.key(cmd('e'));
+        rt.key(typed("X"));
+        settle(&mut rt);
+        rt.update(|s, _| s.open_paths(vec![b.clone()]));
+        settle(&mut rt);
+        std::fs::write(&a, "# a\n\ndell'agente\n").unwrap();
+        rt.update(|s, _| assert!(!s.close(0), "non si chiude"));
+        settle(&mut rt);
+        assert!(!has(&rt, NOTICE_KEY), "la scheda davanti è b");
+        rt.key(cmd('1'));
+        settle(&mut rt);
+        assert!(has(&rt, NOTICE_KEY), "a davanti: la riga");
+        assert!(texts(&rt).iter().any(|x| x == CONFLICT_TEXT));
+    }
+
+    /// Un errore di scrittura: la riga dice "Salvataggio non riuscito", senza i due bottoni.
+    #[test]
+    fn a_failed_save_says_so() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("a.md");
+        std::fs::write(&path, "# a\n").unwrap();
+        let mut rt = open(&path);
+        rt.key(cmd('e'));
+        rt.key(typed("X"));
+        settle(&mut rt);
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o555)).unwrap();
+        rt.key(cmd('s'));
+        settle(&mut rt);
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(has(&rt, NOTICE_KEY));
+        let t = texts(&rt);
+        assert!(t.iter().any(|x| x == FAILED_TEXT), "{t:?}");
+        assert!(!t.iter().any(|x| x == CONFLICT_TEXT || x == KEEP_TEXT));
+        assert_eq!(source_text(&rt), Some("X# a\n"), "le modifiche restano");
     }
 
     /// Costo per frame digitando nel sorgente: un tasto a metà del file e il frame che lo mostra,

@@ -21,13 +21,6 @@ use crate::live::below::Below;
 use crate::live::{Follow, Live};
 use crate::{edit, index, probe, ui};
 
-/// Il salvataggio non ha scritto: il file è cambiato su disco (o non si scrive). La riga "Il file
-/// è cambiato su disco" con "Ricarica" e "Tieni il mio" è del task 21; intanto il sorgente resta
-/// aperto con le modifiche e lo si dice sul terminale.
-fn conflict(tab: &Tab) {
-    eprintln!("runemd: {}: il file è cambiato su disco, non salvato", tab.doc.path.display());
-}
-
 /// Come una scheda mostra il file: la lettura, o il sorgente in modifica (Cmd+E). Ogni scheda ha
 /// il suo.
 #[derive(Debug, Default)]
@@ -290,12 +283,12 @@ impl App {
     }
 
     /// Chiude la scheda `i` (Cmd+W per quella davanti, il clic centrale per le altre). Una scheda
-    /// nel sorgente con modifiche le salva prima, come Cmd+E; con un conflitto (il file è cambiato
-    /// su disco) resta aperta nel sorgente. Vero se si è chiusa.
+    /// nel sorgente con modifiche le salva prima, come Cmd+E; se il salvataggio non scrive (il file
+    /// è cambiato su disco, o un errore) resta aperta nel sorgente con la riga, che si vede anche
+    /// in secondo piano quando la scheda torna davanti. Vero se si è chiusa.
     pub fn close(&mut self, i: usize) -> bool {
         let Some(tab) = self.tabs.get_mut(i) else { return false };
         if matches!(&tab.mode, Mode::Source(s) if s.dirty) && edit::save(tab, &mut self.live.own).is_err() {
-            conflict(tab);
             return false;
         }
         let tab = self.tabs.remove(i);
@@ -317,8 +310,8 @@ impl App {
     /// disco resta quello di fuori e le modifiche si perdono (lo si dice sul terminale).
     pub fn save_all(&mut self) {
         for tab in &mut self.tabs {
-            if matches!(&tab.mode, Mode::Source(s) if s.dirty) && edit::save(tab, &mut self.live.own).is_err() {
-                conflict(tab);
+            if matches!(&tab.mode, Mode::Source(s) if s.dirty) && matches!(edit::save(tab, &mut self.live.own), Err(edit::SaveError::Conflict)) {
+                eprintln!("runemd: {}: il file è cambiato su disco, modifiche non salvate", tab.doc.path.display());
             }
         }
     }
@@ -411,27 +404,42 @@ impl App {
     }
 
     /// Cmd+E sulla scheda davanti: entra nel sorgente o, se c'è già, salva se ci sono modifiche e
-    /// torna alla lettura, dal blocco dove la lettura era rimasta. Con un conflitto (il file è
-    /// cambiato su disco) non scrive e resta nel sorgente. Vero se c'era una scheda.
+    /// torna alla lettura, dal blocco dove la lettura era rimasta. Se il salvataggio non scrive (il
+    /// file è cambiato su disco, o un errore) resta nel sorgente con la riga. Vero se c'era una
+    /// scheda.
     pub fn toggle_source(&mut self, tx: &mut Tx) -> bool {
         let Some(tab) = self.tabs.get_mut(self.active) else { return false };
         match tab.mode {
             Mode::Read => tab.mode = Mode::Source(Box::new(edit::enter(&tab.doc))),
-            Mode::Source(_) => match edit::leave(tab, &mut self.live.own) {
-                Ok(()) => self.restore_view(tx),
-                Err(edit::Conflict) => conflict(tab),
-            },
+            Mode::Source(_) => {
+                if edit::leave(tab, &mut self.live.own).is_ok() {
+                    self.restore_view(tx);
+                }
+            }
         }
         true
     }
 
-    /// Cmd+S: salva il sorgente della scheda davanti. Vero se la scheda era nel sorgente.
+    /// Cmd+S: salva il sorgente della scheda davanti (se non scrive, la riga lo dice). Vero se la
+    /// scheda era nel sorgente.
     pub fn save_source(&mut self) -> bool {
         let Some(tab) = self.tabs.get_mut(self.active).filter(|t| matches!(t.mode, Mode::Source(_))) else { return false };
-        if edit::save(tab, &mut self.live.own).is_err() {
-            conflict(tab);
-        }
+        let _ = edit::save(tab, &mut self.live.own);
         true
+    }
+
+    /// "Ricarica" nella riga del conflitto della scheda `id`: scarta le modifiche e riparte dal disco.
+    pub fn reload_source(&mut self, id: u64) {
+        if let Some(tab) = self.tab_of(id) {
+            edit::reload(tab);
+        }
+    }
+
+    /// "Tieni il mio" nella riga del conflitto della scheda `id`: scrive il testo del sorgente.
+    pub fn keep_mine(&mut self, id: u64) {
+        if let Some(i) = self.tabs.iter().position(|t| t.doc.id == id) {
+            let _ = edit::keep_mine(&mut self.tabs[i], &mut self.live.own);
+        }
     }
 
     /// Il campo del sorgente della scheda `id` (`on_edit` della vista). Se la scheda non c'è più o
@@ -728,7 +736,7 @@ mod tests {
             s.edit = TextEdit::new(mine);
             s.dirty = true;
         }
-        assert_eq!(edit::leave(tab, &mut app.live.own), Ok(()));
+        assert!(edit::leave(tab, &mut app.live.own).is_ok());
         assert_eq!(fs::read_to_string(&p[0]).unwrap(), mine);
         let hash = crate::doc::ids::hash_str(mine);
         assert!(app.live.own.is_own(&app.tabs[0].doc.path, hash));
@@ -746,6 +754,52 @@ mod tests {
         assert_eq!((tab.fire_since, tab.fire_armed, tab.below.count()), (None, None, 0), "nessun fuoco");
         assert_eq!(tab.dither_since, None, "nessun dither");
         assert!(app.live.writing_left(tab.path(), Instant::now()).is_none() && !app.ring_lit(), "nessun anello");
+    }
+
+    /// "Tieni il mio" dopo un conflitto: come un salvataggio, la rilettura del watcher è una
+    /// scrittura dell'app; tornati alla lettura niente segni, fuoco, dither o anello.
+    #[test]
+    fn keeping_mine_lights_nothing() {
+        let (_dir, p) = files(&["a.md"]);
+        let mut app = empty_app();
+        app.open_paths(p.clone());
+        app.tabs[0].visible_rows(0..1);
+        let mine = "# a.md\n\nuno\n\ndue\n";
+        edit_tab(&mut app, 0, mine);
+        fs::write(&p[0], "# a.md\n\ndell'agente\n").unwrap();
+        assert!(app.save_source(), "Cmd+S sulla scheda davanti, nel sorgente");
+        let id = app.tabs[0].doc.id;
+        assert!(matches!(&app.tabs[0].mode, Mode::Source(s) if s.notice == Some(edit::Notice::Conflict)));
+        app.keep_mine(id);
+        assert_eq!(fs::read_to_string(&p[0]).unwrap(), mine);
+        let hash = crate::doc::ids::hash_str(mine);
+        assert!(edit::leave(&mut app.tabs[0], &mut app.live.own).is_ok());
+        let t0 = Instant::now();
+        while app.live.own.is_own(&app.tabs[0].doc.path, hash) {
+            assert!(t0.elapsed() < Duration::from_secs(5), "rilettura mai arrivata");
+            let (changed, _) = app.poll_tabs(1.0, Instant::now());
+            assert!(!changed, "la vista non cambia per la nostra scrittura");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let tab = &app.tabs[0];
+        assert_eq!((tab.doc.file_hash, tab.doc.blocks.len()), (hash, 3), "la lettura mostra il mio testo");
+        assert!(tab.doc.blocks.iter().all(|b| !tab.is_marked(b.id)), "nessun segno");
+        assert_eq!((tab.fire_since, tab.fire_armed, tab.below.count()), (None, None, 0), "nessun fuoco");
+        assert_eq!(tab.dither_since, None, "nessun dither");
+        assert!(app.live.writing_left(tab.path(), Instant::now()).is_none() && !app.ring_lit(), "nessun anello");
+    }
+
+    /// Una chiusura rifiutata per conflitto lascia la riga sulla scheda, anche in secondo piano.
+    #[test]
+    fn a_refused_close_keeps_the_conflict_on_the_tab() {
+        let (_dir, p) = files(&["a.md", "b.md"]);
+        let mut app = empty_app();
+        app.open_paths(p.clone());
+        assert_eq!(app.active, 1);
+        edit_tab(&mut app, 0, "# a.md\n\nmio\n");
+        fs::write(&p[0], "# a.md\n\ndell'agente\n").unwrap();
+        assert!(!app.close(0));
+        assert!(matches!(&app.tabs[0].mode, Mode::Source(s) if s.notice == Some(edit::Notice::Conflict)));
     }
 
     /// Mette la scheda `i` nel sorgente con il testo `text` modificato.
@@ -815,7 +869,7 @@ mod tests {
             std::thread::sleep(Duration::from_millis(5));
         }
         assert_eq!(app.tabs[0].doc.blocks.len(), 1, "sospesa nel sorgente");
-        assert_eq!(edit::leave(&mut app.tabs[0], &mut app.live.own), Ok(()));
+        assert!(edit::leave(&mut app.tabs[0], &mut app.live.own).is_ok());
         let t0 = Instant::now();
         while app.tabs[0].doc.blocks.len() != 2 {
             assert!(t0.elapsed() < Duration::from_secs(5), "rilettura mai arrivata");
