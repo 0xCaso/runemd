@@ -22,6 +22,7 @@ mod index;
 mod live;
 mod open;
 mod probe;
+mod repo;
 mod ui;
 mod watch;
 
