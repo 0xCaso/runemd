@@ -1,0 +1,5 @@
+[
+ {"t": 1.2, "type": "mark", "name": "ready"},
+ {"t": 1.4, "type": "move", "x": 90, "y": 184},
+ {"t": 2.0, "type": "mark", "name": "hover"}
+]
