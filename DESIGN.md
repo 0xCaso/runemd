@@ -1,6 +1,6 @@
 ---
 name: RuneMD
-description: Lettore Markdown per Mac, in Rune, per i file che gli agenti scrivono nei repo.
+description: A Markdown reader for the Mac, in Rune, for the files that agents write in repos.
 colors:
   panel-light: "oklch(0.995 0.001 270)"
   panel-dark: "oklch(0.155 0.004 270)"
@@ -116,7 +116,7 @@ motion:
   press: "scale 0.98, 160ms ease-out"
   hover: "120ms ease"
   ease-out: "cubic-bezier(0.23, 1, 0.32, 1)"
-  mode: "lettura ↔ sorgente: dissolvenza incrociata, molla critica 0.22 s entra (95 % a ~165 ms), 0.17 s esce (< 5 % a ~130 ms)"
+  mode: "reading ↔ source: crossfade, critically damped spring 0.22 s in (95 % at ~165 ms), 0.17 s out (< 5 % at ~130 ms)"
 components:
   sidebar-row:
     height: "{spacing.row}"
@@ -139,435 +139,438 @@ components:
 
 ## Overview
 
-**Creative North Star: "Il foglio fermo"**
+**Creative North Star: "The still page"**
 
-RuneMD serve a leggere i file Markdown che gli agenti scrivono, mentre li scrivono. Il testo sta fermo in un
-pannello pieno (nero nel tema scuro, bianco nel chiaro). Tutto il resto, cioè sidebar, schede e cornice, è vetro
-traslucido attorno al pannello, come in Current. L'app è calma: nessun colore d'accento, nessuna pillola di stato,
-nessuna statistica. Gli unici elementi che si muovono sono tre effetti GPU di Rune, e ognuno dice una sola cosa.
+RuneMD is for reading the Markdown files that agents write, while they write them. The text stays still in a
+solid panel (black in the dark theme, white in the light one). Everything else, that is the sidebar, the tabs and
+the frame, is translucent glass around the panel, as in Current. The app is calm: no accent color, no status pills,
+no statistics. The only elements that move are three Rune GPU effects, and each one says one thing only.
 
-Schermata di riferimento: variante `scheda` in `design/mockups/2026-11-13-runemd-main/index.html`
-(decisione: `docs/decisions/2026-11-13-runemd-main-screen.md`).
+Reference screen: the `scheda` variant in `design/mockups/2026-11-13-runemd-main/index.html`
+(decision: `docs/decisions/2026-11-13-runemd-main-screen.md`).
 
 **Key Characteristics:**
-- Due materiali: vetro (cornice, sidebar, barra delle schede) e pannello pieno (documento).
-- Grigi neutri con una punta di blu (hue 260–270); nessun accento.
-- Tre segnali live, ognuno con un solo significato: metallo, fuoco, caret.
-- Densità da app Mac: righe da 28 px, testo UI 13 px; il documento respira (15,5 px, interlinea 1,62).
+- Two materials: glass (frame, sidebar, tab bar) and a solid panel (the document).
+- Neutral grays with a touch of blue (hue 260–270); no accent.
+- Three live signals, each with one meaning only: metal, fire, caret.
+- Mac app density: 28 px rows, 13 px UI text; the document breathes (15.5 px, line height 1.62).
 
 ## Colors
 
-Una scala di grigi OKLCH a bassissimo croma, in due temi. In Rune si scrivono uguali con `oklcha(l, c, h, a)`.
+A scale of OKLCH grays with very low chroma, in two themes. In Rune they are written the same way with
+`oklcha(l, c, h, a)`.
 
-| Ruolo | Chiaro | Scuro | Uso |
+| Role | Light | Dark | Use |
 |---|---|---|---|
-| `panel` | 0.995 | 0.155 | Pannello del documento |
-| `fg` | 0.22 | 0.95 | Titoli, nomi file, testo forte |
-| `body` | 0.28 | 0.90 | Corpo del documento |
-| `fg-2` | 0.36 | 0.82 | Intestazioni di tabella, campo "Apri file" |
-| `fg-3` | 0.45 | 0.72 | Branch, etichette di sezione, meta del file (fuori dalle righe con hover: lì `fg-2`) |
-| `glass` | 0.965 / 60 % | 0.18 / 60 % | Tinta sopra il vetro di sistema, su cornice e sidebar (scelta di Matteo, 14/11/2026) |
-| `line` | nero 9 % | bianco 14 % | Linee solo decorative: righe di tabella, linee guida dell'albero, bordi dei campi |
-| `sel` | nero 6 % | bianco 12 % | Riga selezionata, hover, selezione, riempimento dei risultati di Cerca |
-| `mark` | `fg-3` chiaro al 70 % | `fg-3` scuro al 65 % | Segni con un significato: anello dei risultati di Cerca, segno "cambiato" |
+| `panel` | 0.995 | 0.155 | Document panel |
+| `fg` | 0.22 | 0.95 | Headings, file names, strong text |
+| `body` | 0.28 | 0.90 | Document body |
+| `fg-2` | 0.36 | 0.82 | Table headers, "Open file" field |
+| `fg-3` | 0.45 | 0.72 | Branch, section labels, file meta (outside rows with hover: there `fg-2`) |
+| `glass` | 0.965 / 60 % | 0.18 / 60 % | Tint over the system glass, on frame and sidebar (Matteo's choice, 2026-11-14) |
+| `line` | black 9 % | white 14 % | Decorative lines only: table rows, tree guides, field borders |
+| `sel` | black 6 % | white 12 % | Selected row, hover, selection, fill of Find results |
+| `mark` | light `fg-3` at 70 % | dark `fg-3` at 65 % | Marks with a meaning: ring of Find results, "changed" mark |
 
-**Contrasto.** I rapporti di ogni token sono nella sezione "Contrasto" qui sotto. Con la tinta al 60 % i grigi del
-pannello sul vetro scendono sotto i minimi (misure sotto, "Vetro vero al 60 %"): sul vetro, cioè in tutta la sidebar
-(`Theme::on_glass`), `fg-2` e `fg-3` sono i token `-glass`, più forti; il pannello del documento tiene i suoi.
+**Contrast.** The ratios of each token are in the "Contrast" section below. With the tint at 60 % the panel grays
+on glass fall under the minimums (measurements below, "Real glass at 60 %"): on glass, that is in the whole sidebar
+(`Theme::on_glass`), `fg-2` and `fg-3` are the stronger `-glass` tokens; the document panel keeps its own.
 
-Nell'app il vetro è `El::system_material` (Liquid Glass su macOS 26+) in una finestra trasparente: Rune accende il
-vetro di sistema solo lì, e quando c'è non dipinge il riempimento dell'elemento. La tinta `glass` sta quindi in uno
-strato sopra il vetro, a tutta finestra. Senza vetro di sistema (headless, materiale spento) la radice è la tinta
-piena (`Theme::glass_fallback`): dark `0f1216`, light `f2f3f6`, come prima. `RUNEMD_GLASS=<percento>` cambia la
-tinta per le foto. Se il contrasto di `fg-3` scende sotto 4,5:1 sul materiale vero, si alza `fg-3`, non si toglie
-il vetro.
+In the app the glass is `El::system_material` (Liquid Glass on macOS 26+) in a transparent window: Rune turns on the
+system glass only there, and when it is there it does not paint the element's fill. So the `glass` tint sits in a
+layer over the glass, across the whole window. Without system glass (headless, material off) the root is the solid
+tint (`Theme::glass_fallback`): dark `0f1216`, light `f2f3f6`, as before. `RUNEMD_GLASS=<percent>` changes the tint
+for photos. If the contrast of `fg-3` falls under 4.5:1 on the real material, raise `fg-3`, do not remove the
+glass.
 
-**Vetro vero al 60 %** (14/11/2026, finestra vera, fondo della sidebar misurato su 40×40 px e rapporti WCAG con i
-token): sfondo bianco nel tema scuro (vetro `3c3e40`): `fg` 9,28, `fg-2` 6,15, `fg-3` 4,33, `fg-2` su vetro + `sel`
-4,27. Sfondo nero nel tema chiaro (`999a9c`): `fg` 6,15, `fg-2` 3,86, `fg-3` 2,64, `fg-2` su vetro + `sel` 3,44.
-Sfondo Sonoma: scuro (`354416`) `fg-3` 4,25, `fg-2` + `sel` 4,23; chiaro (`becb9d`) `fg-3` 4,33, `fg-2` + `sel` 5,57.
-Questi erano i grigi del pannello. Misurato una seconda volta, il vetro varia di qualche punto (scuro `3e3f40` e
-`374618`, chiaro `9e9fa1` e `bfcd9f`): il test usa la misura più difficile di ogni caso. Con i token `-glass`
-(scuro `fg-2` 0.90, `fg-3` 0.86; chiaro `fg-2` 0.25, `fg-3` 0.28):
+**Real glass at 60 %** (2026-11-14, real window, sidebar background measured on 40×40 px and WCAG ratios with the
+tokens): white background in the dark theme (glass `3c3e40`): `fg` 9.28, `fg-2` 6.15, `fg-3` 4.33, `fg-2` on glass +
+`sel` 4.27. Black background in the light theme (`999a9c`): `fg` 6.15, `fg-2` 3.86, `fg-3` 2.64, `fg-2` on glass +
+`sel` 3.44. Sonoma background: dark (`354416`) `fg-3` 4.25, `fg-2` + `sel` 4.23; light (`becb9d`) `fg-3` 4.33,
+`fg-2` + `sel` 5.57.
+These were the panel grays. Measured a second time, the glass varies by a few points (dark `3e3f40` and
+`374618`, light `9e9fa1` and `bfcd9f`): the test uses the hardest measurement of each case. With the `-glass` tokens
+(dark `fg-2` 0.90, `fg-3` 0.86; light `fg-2` 0.25, `fg-3` 0.28):
 
-| Fondo misurato | `fg` | `fg-2` | `fg-3` | `fg-2` + `sel` | `fg-3` + `sel` | Fuoco |
+| Measured background | `fg` | `fg-2` | `fg-3` | `fg-2` + `sel` | `fg-3` + `sel` | Focus |
 |---|---|---|---|---|---|---|
-| Scuro, scrivania bianca (`3e3f40`) | 9,12 | 7,83 | 6,89 | 5,45 | 4,80 | 3,66 |
-| Scuro, Sonoma (`374618`) | 8,84 | 7,59 | 6,69 | 5,34 | 4,70 | 3,55 |
-| Chiaro, scrivania nera (`999a9c`) | 6,15 | 5,68 | 5,18 | 5,06 | 4,61 | 3,17 |
-| Chiaro, Sonoma (`becb9d`) | 10,08 | 9,31 | 8,49 | 8,21 | 7,49 | 5,19 |
+| Dark, white desktop (`3e3f40`) | 9.12 | 7.83 | 6.89 | 5.45 | 4.80 | 3.66 |
+| Dark, Sonoma (`374618`) | 8.84 | 7.59 | 6.69 | 5.34 | 4.70 | 3.55 |
+| Light, black desktop (`999a9c`) | 6.15 | 5.68 | 5.18 | 5.06 | 4.61 | 3.17 |
+| Light, Sonoma (`becb9d`) | 10.08 | 9.31 | 8.49 | 8.21 | 7.49 | 5.19 |
 
-### Contrasto
+### Contrast
 
-Rapporti WCAG calcolati da `src/ui/contrast.rs` (`cargo test --profile perf contrast_table -- --nocapture`), con
-il colore composto sullo sfondo, alpha inclusa, in sRGB codificato come lo compone la finestra. "Vetro" è il fondo
-della sidebar misurato nella finestra vera sul fondo peggiore della scrivania (bianco nel tema scuro, `3e3f40`; nero
-nel chiaro, `999a9c`; `contrast::GLASS_GROUNDS`, che misura anche Sonoma), con il testo in `Theme::on_glass`. Minimi: 4,5:1 per il testo, 3:1 per i segni con un significato in tutti e due i temi, nessuno per le
-linee solo decorative e i riempimenti. I test falliscono se un minimo non è rispettato o se il tema chiaro peggiora.
-"Prima" è il 13/11/2026, "dopo" il fix del 14/11/2026 (`docs/decisions/2026-11-14-find-dark-contrast.md`).
+WCAG ratios computed by `src/ui/contrast.rs` (`cargo test --profile perf contrast_table -- --nocapture`), with the
+color composited on the background, alpha included, in encoded sRGB as the window composites it. "Glass" is the
+sidebar background measured in the real window on the worst desktop background (white in the dark theme, `3e3f40`;
+black in light, `999a9c`; `contrast::GLASS_GROUNDS`, which also measures Sonoma), with the text in
+`Theme::on_glass`. Minimums: 4.5:1 for text, 3:1 for marks with a meaning in both themes, none for decorative lines
+and fills. The tests fail if a minimum is not met or if the light theme gets worse. "Before" is 2026-11-13, "after"
+the fix of 2026-11-14 (`docs/decisions/2026-11-14-find-dark-contrast.md`).
 
-| Cosa | Scuro prima | Scuro dopo | Chiaro prima | Chiaro dopo | Minimo |
+| What | Dark before | Dark after | Light before | Light after | Minimum |
 |---|---|---|---|---|---|
-| `fg` su panel | 16,89 | 16,89 | 17,07 | 17,07 | 4,5 |
-| `body` su panel | 14,50 | 14,50 | 14,39 | 14,39 | 4,5 |
-| `fg-2` su panel | 10,46 | 11,19 | 10,71 | 10,71 | 4,5 |
-| `fg-3` su panel | 7,04 | 7,88 | 7,34 | 7,34 | 4,5 |
-| `fg-3` su vetro (`fg-3-glass` dopo) | 4,26 | 6,89 | 4,89 | 5,18 | 4,5 |
-| `fg-2` su vetro (`fg-2-glass` dopo) | 6,32 | 7,83 | 7,13 | 5,68 | 4,5 |
-| `fg-3-glass` su vetro + `sel` (hover) | — | 4,80 | — | 4,61 | 4,5 |
-| `fg-2-glass` su vetro + `sel` (hover) | — | 5,45 | — | 5,06 | 4,5 |
-| Nome doppio della riga scelta su vetro + `sel` (`fg-3` prima, `fg-2-glass` dopo) | 3,22 | 5,45 | 4,30 | 5,06 | 4,5 |
-| Testo piccolo delle righe premibili (tempo di Recenti, nome doppio, "Apri Impostazioni di Sistema") su vetro + `sel` (hover; `fg-3` prima, `fg-2-glass` dopo) | 3,22 | 5,45 | 4,30 | 5,06 | 4,5 |
-| Titolo evidenziato dell'indice (`fg`) su panel + `sel` (hover) | — | 12,53 | — | 14,94 | 4,5 |
-| Titoli dell'indice (`fg-2`) su panel + `sel` (hover) | — | 8,30 | — | 9,38 | 4,5 |
-| `mark` su panel (anello dei risultati di Cerca, segno "cambiato") | 1,19 | 3,89 | 1,22 | 3,52 | 3 |
-| `mark` su `sel` (anello di Cerca, lato interno) | 1,27 | 3,34 | 1,22 | 3,27 | 3 |
-| Anello del risultato attivo su `sel` (`fg-3` prima, `fg-2` dopo) | 5,73 | 8,30 | 6,42 | 9,38 | 3 |
-| Anello "sta scrivendo" sulla barra delle schede (pixel, minimo, banda 5 px; vedi sotto) | — | 5,01 | 3,17 | 4,74 | 3 |
-| Anello "sta scrivendo" sul riempimento `sel` della scheda (pixel, minimo, banda 5 px) | — | 3,73 | 2,78 | 4,16 | 3 |
-| Fuoco della tastiera su vetro | 1,77 | 3,66 | 1,68 | 3,17 | 3 |
-| Fuoco della tastiera su panel | 2,13 | 6,78 | 1,97 | 8,80 | 3 |
-| Impostazioni: scelta fatta e sua spunta (`fg`) su panel + `sel` | — | 12,53 | — | 14,94 | 4,5 |
-| Impostazioni: scelte e bottoni (`fg-2`) su panel + `sel` (hover) | — | 8,30 | — | 9,38 | 4,5 |
-| Documento: casella dei compiti spenta, bordo `fg-3` su panel | — | 7,88 | — | 7,34 | 3 |
-| Documento: casella dei compiti accesa (`fg-2`) e sua spunta (`panel`) | — | 11,19 | — | 10,71 | 3 |
-| Documento: casella dei compiti spenta, bordo `fg-3` su panel + `sel` (selezione) | — | 5,84 | — | 6,42 | 3 |
-| Documento: casella dei compiti accesa (`fg-2`) su panel + `sel` (selezione) | — | 8,30 | — | 9,38 | 3 |
-| Impostazioni: casella spenta, bordo `fg-3` su panel | — | 7,88 | — | 7,34 | 3 |
-| Impostazioni: casella accesa (`fg-2`) e sua spunta (`panel`) | — | 11,19 | — | 10,71 | 3 |
-| Impostazioni: casella spenta, bordo `fg-3` su panel + `sel` (hover) | — | 5,84 | — | 6,42 | 3 |
-| Impostazioni: casella accesa (`fg-2`) su panel + `sel` (hover) | — | 8,30 | — | 9,38 | 3 |
-| Impostazioni: binario della larghezza (`fg-3`) e pomello (`fg-2`) su panel | — | 7,88 | — | 7,34 | 3 |
-| Impostazioni: riga del fuoco (`fg-2`) su panel + `sel` (hover) | — | 8,30 | — | 9,38 | 4,5 |
-| Impostazioni: "Già osservata" (`fg-2`) su panel | — | 11,19 | — | 10,71 | 4,5 |
-| Etichetta del fuoco spento (`fg-2`) su panel | — | 11,19 | — | 10,71 | 4,5 |
-| Frontmatter (`fg-2`) su panel + `sel` a metà | — | 9,89 | — | 10,03 | 4,5 |
-| × della scheda (`fg-2`) su panel + `sel` | — | 8,30 | — | 9,38 | 3 |
-| × della scheda (`fg-2`) in hover su panel + `sel` + `sel` | — | 5,67 | — | 8,22 | 3 |
-| Pulsante ↔ della larghezza (`fg-2`) su panel | — | 11,19 | — | 10,71 | 3 |
-| Pulsante ↔ della larghezza (`fg-2`) su panel + `sel` (hover, popover aperto) | — | 8,30 | — | 9,38 | 3 |
-| Popover della larghezza: titolo (`fg-2`) e valore (`fg`) su panel | — | 11,19 / 16,89 | — | 10,71 / 17,07 | 4,5 |
-| Popover della larghezza: scorciatoie e binario (`fg-3`) su panel | — | 7,88 | — | 7,34 | 4,5 |
-| Pulsante ⌘ delle scorciatoie (`fg-2`) su panel / panel + `sel` | — | 11,19 / 8,30 | — | 10,71 / 9,38 | 3 |
-| Popover delle scorciatoie: righe, tasti (`fg-2`) e gruppi (`fg-3`) su panel | — | 11,19 / 7,88 | — | 10,71 / 7,34 | 4,5 |
-| ⌘P: nome (`fg`) e repo o cartella e ora (`fg-2`) su panel + `sel` | — | 12,53 / 8,30 | — | 14,94 / 9,38 | 4,5 |
-| `line` su panel (linee decorative) | 1,19 | 1,44 | 1,22 | 1,22 | — |
-| `line` su vetro (bordo dei campi) | 1,28 | 1,52 | 1,21 | 1,19 | — |
-| `sel` su panel | 1,23 | 1,35 | 1,14 | 1,14 | — |
-| `sel` accanto al codice in linea | 1,04 | 1,15 | 1,03 | 1,03 | — |
+| `fg` on panel | 16.89 | 16.89 | 17.07 | 17.07 | 4.5 |
+| `body` on panel | 14.50 | 14.50 | 14.39 | 14.39 | 4.5 |
+| `fg-2` on panel | 10.46 | 11.19 | 10.71 | 10.71 | 4.5 |
+| `fg-3` on panel | 7.04 | 7.88 | 7.34 | 7.34 | 4.5 |
+| `fg-3` on glass (`fg-3-glass` after) | 4.26 | 6.89 | 4.89 | 5.18 | 4.5 |
+| `fg-2` on glass (`fg-2-glass` after) | 6.32 | 7.83 | 7.13 | 5.68 | 4.5 |
+| `fg-3-glass` on glass + `sel` (hover) | — | 4.80 | — | 4.61 | 4.5 |
+| `fg-2-glass` on glass + `sel` (hover) | — | 5.45 | — | 5.06 | 4.5 |
+| Duplicate name of the selected row on glass + `sel` (`fg-3` before, `fg-2-glass` after) | 3.22 | 5.45 | 4.30 | 5.06 | 4.5 |
+| Small text of pressable rows (Recent time, duplicate name, "Open System Settings") on glass + `sel` (hover; `fg-3` before, `fg-2-glass` after) | 3.22 | 5.45 | 4.30 | 5.06 | 4.5 |
+| Highlighted outline heading (`fg`) on panel + `sel` (hover) | — | 12.53 | — | 14.94 | 4.5 |
+| Outline headings (`fg-2`) on panel + `sel` (hover) | — | 8.30 | — | 9.38 | 4.5 |
+| `mark` on panel (ring of Find results, "changed" mark) | 1.19 | 3.89 | 1.22 | 3.52 | 3 |
+| `mark` on `sel` (Find ring, inner side) | 1.27 | 3.34 | 1.22 | 3.27 | 3 |
+| Ring of the active result on `sel` (`fg-3` before, `fg-2` after) | 5.73 | 8.30 | 6.42 | 9.38 | 3 |
+| "Is writing" ring on the tab bar (pixels, minimum, 5 px band; see below) | — | 5.01 | 3.17 | 4.74 | 3 |
+| "Is writing" ring on the tab's `sel` fill (pixels, minimum, 5 px band) | — | 3.73 | 2.78 | 4.16 | 3 |
+| Keyboard focus on glass | 1.77 | 3.66 | 1.68 | 3.17 | 3 |
+| Keyboard focus on panel | 2.13 | 6.78 | 1.97 | 8.80 | 3 |
+| Settings: chosen option and its check mark (`fg`) on panel + `sel` | — | 12.53 | — | 14.94 | 4.5 |
+| Settings: options and buttons (`fg-2`) on panel + `sel` (hover) | — | 8.30 | — | 9.38 | 4.5 |
+| Document: unchecked task box, `fg-3` border on panel | — | 7.88 | — | 7.34 | 3 |
+| Document: checked task box (`fg-2`) and its check mark (`panel`) | — | 11.19 | — | 10.71 | 3 |
+| Document: unchecked task box, `fg-3` border on panel + `sel` (selection) | — | 5.84 | — | 6.42 | 3 |
+| Document: checked task box (`fg-2`) on panel + `sel` (selection) | — | 8.30 | — | 9.38 | 3 |
+| Settings: unchecked box, `fg-3` border on panel | — | 7.88 | — | 7.34 | 3 |
+| Settings: checked box (`fg-2`) and its check mark (`panel`) | — | 11.19 | — | 10.71 | 3 |
+| Settings: unchecked box, `fg-3` border on panel + `sel` (hover) | — | 5.84 | — | 6.42 | 3 |
+| Settings: checked box (`fg-2`) on panel + `sel` (hover) | — | 8.30 | — | 9.38 | 3 |
+| Settings: width track (`fg-3`) and knob (`fg-2`) on panel | — | 7.88 | — | 7.34 | 3 |
+| Settings: fire row (`fg-2`) on panel + `sel` (hover) | — | 8.30 | — | 9.38 | 4.5 |
+| Settings: "Already watched" (`fg-2`) on panel | — | 11.19 | — | 10.71 | 4.5 |
+| Label of the fire when off (`fg-2`) on panel | — | 11.19 | — | 10.71 | 4.5 |
+| Frontmatter (`fg-2`) on panel + half `sel` | — | 9.89 | — | 10.03 | 4.5 |
+| Tab × (`fg-2`) on panel + `sel` | — | 8.30 | — | 9.38 | 3 |
+| Tab × (`fg-2`) on hover on panel + `sel` + `sel` | — | 5.67 | — | 8.22 | 3 |
+| Width ↔ button (`fg-2`) on panel | — | 11.19 | — | 10.71 | 3 |
+| Width ↔ button (`fg-2`) on panel + `sel` (hover, popover open) | — | 8.30 | — | 9.38 | 3 |
+| Width popover: title (`fg-2`) and value (`fg`) on panel | — | 11.19 / 16.89 | — | 10.71 / 17.07 | 4.5 |
+| Width popover: shortcuts and track (`fg-3`) on panel | — | 7.88 | — | 7.34 | 4.5 |
+| Shortcuts ⌘ button (`fg-2`) on panel / panel + `sel` | — | 11.19 / 8.30 | — | 10.71 / 9.38 | 3 |
+| Shortcuts popover: rows, keys (`fg-2`) and groups (`fg-3`) on panel | — | 11.19 / 7.88 | — | 10.71 / 7.34 | 4.5 |
+| ⌘P: name (`fg`) and repo or folder and time (`fg-2`) on panel + `sel` | — | 12.53 / 8.30 | — | 14.94 / 9.38 | 4.5 |
+| `line` on panel (decorative lines) | 1.19 | 1.44 | 1.22 | 1.22 | — |
+| `line` on glass (field border) | 1.28 | 1.52 | 1.21 | 1.19 | — |
+| `sel` on panel | 1.23 | 1.35 | 1.14 | 1.14 | — |
+| `sel` beside inline code | 1.04 | 1.15 | 1.03 | 1.03 | — |
 
-- Il fuoco della tastiera è il colore del sistema (`Cx::focus_color`, AppKit lo dà al 50 %), 3 pt, pieno in
-  tutti e due i temi; nel chiaro è anche scurito del 68 % verso il nero e nello scuro schiarito del 10 % verso il
-  bianco (in luce lineare), perché sul vetro vero al 60 % il blu scurito del 20 % dava 1,70:1 nel chiaro e il blu
-  pieno 2,94:1 nello scuro. Misurato con il blu predefinito.
-- I bordi dei campi restano in `line`: il campo si riconosce dall'icona e dal segnaposto in `fg-2`, non dal bordo.
-- L'anello "sta scrivendo" è metallo liquido di Rune (`LiquidMetalParams::chrome`), non un token: non ha un
-  colore nostro da regolare. Misurato sui pixel di `docs/proof/contrast-dark-after.png` (scala 2, un fotogramma):
-  per ogni punto dei lati dritti attorno alla scheda si prende il pixel più contrastato sui 3 px di spessore; il
-  minimo è 4,62:1 sul pannello e 3,44:1 sul `sel` della scheda (mediane 11,37 e 8,46), cioè ≥ 3:1 su tutto il
-  perimetro. Lo studio riflesso gira, quindi un altro fotogramma dà valori un po' diversi.
-- Nel tema chiaro (review finale I5) lo stesso metodo (`bench/ring_contrast.py`, scala 2, `RUNEMD_THEME=light`,
-  scheda di `bench/worst_case.sh` a rect 258,16,240×28 pt) sul cromo di Rune dava minimo 3,17:1 sulla barra e
-  2,78:1 sul `sel` (mediane 8,30 e 7,28): sotto 3 sul `sel`. Nel chiaro il metallo è più scuro (`fx::ring::metal`:
-  tinta `d8dbe0` e luci `e6e7ea` al posto di `e9ecf0` e `ffffff`); ora minimo 4,86:1 sulla barra e 4,26:1 sul
-  `sel` (mediane 11,01 e 9,65), e su un secondo fotogramma 1,5 s dopo 4,77 e 4,19 (mediane 10,54 e 9,24). Prove:
-  `docs/proof/ring-light-before.png`, `docs/proof/ring-light-after.png`. Nello scuro il metallo resta il cromo;
-  con lo stesso script sulla scheda di `bench/worst_case.sh` dà minimo 4,43 sulla barra e 3,30 sul `sel`
-  (mediane 10,66 e 7,93).
-- I numeri sopra sono dell'anello di 1,5 px (banda di 3 px a scala 2). Con l'anello di 2,5 px (`fx::ring::RING_W`,
-  commit 94c9fa9) la banda è 5 px (`bench/ring_contrast.py`, default; 15/11/2026, `bench/worst_case.sh`, scheda a
-  258,16,240×28 pt, due run con lo stesso fotogramma): scuro minimo 5,01 sulla barra e 3,73 sul `sel` (mediane 13,92
-  e 10,36), chiaro 4,74 e 4,16 (mediane 13,87 e 12,16); ≥ 3:1 su tutto il perimetro in tutti e due i temi. Rispetto
-  ai valori di prima lo scuro sale (4,62 → 5,01, 3,44 → 3,73), il chiaro scende di poco (4,86 → 4,74, 4,26 → 4,16),
-  sempre sopra 3. Sullo stesso fotogramma la banda di 3 px darebbe scuro 3,15/2,34 e chiaro 2,43/2,13: vede solo i 3 px
-  interni dell'anello, non tutto il suo spessore. Prove: `docs/proof/ring-2-5px-dark.png`,
+- The keyboard focus is the system color (`Cx::focus_color`, AppKit gives it at 50 %), 3 pt, solid in both
+  themes; in light it is also darkened by 68 % toward black and in dark lightened by 10 % toward white (in linear
+  light), because on the real glass at 60 % the blue darkened by 20 % gave 1.70:1 in light and the full blue
+  2.94:1 in dark. Measured with the default blue.
+- Field borders stay in `line`: the field is recognized by its icon and the placeholder in `fg-2`, not by the
+  border.
+- The "is writing" ring is Rune's liquid metal (`LiquidMetalParams::chrome`), not a token: it has no color of ours
+  to adjust. Measured on the pixels of `docs/proof/contrast-dark-after.png` (scale 2, one frame): for each point of
+  the straight sides around the tab the pixel with the most contrast over the 3 px thickness is taken; the minimum
+  is 4.62:1 on the panel and 3.44:1 on the tab's `sel` (medians 11.37 and 8.46), that is ≥ 3:1 on the whole
+  perimeter. The reflected studio turns, so another frame gives slightly different values.
+- In the light theme (final review I5) the same method (`bench/ring_contrast.py`, scale 2, `RUNEMD_THEME=light`,
+  the tab of `bench/worst_case.sh` at rect 258,16,240×28 pt) on Rune's chrome gave a minimum of 3.17:1 on the bar
+  and 2.78:1 on `sel` (medians 8.30 and 7.28): under 3 on `sel`. In light the metal is darker (`fx::ring::metal`:
+  tint `d8dbe0` and highlights `e6e7ea` in place of `e9ecf0` and `ffffff`); now a minimum of 4.86:1 on the bar and
+  4.26:1 on `sel` (medians 11.01 and 9.65), and on a second frame 1.5 s later 4.77 and 4.19 (medians 10.54 and
+  9.24). Proof: `docs/proof/ring-light-before.png`, `docs/proof/ring-light-after.png`. In dark the metal stays the
+  chrome; with the same script on the tab of `bench/worst_case.sh` it gives a minimum of 4.43 on the bar and 3.30
+  on `sel` (medians 10.66 and 7.93).
+- The numbers above are for the 1.5 px ring (a 3 px band at scale 2). With the 2.5 px ring (`fx::ring::RING_W`,
+  commit 94c9fa9) the band is 5 px (`bench/ring_contrast.py`, default; 2026-11-15, `bench/worst_case.sh`, tab at
+  258,16,240×28 pt, two runs with the same frame): dark minimum 5.01 on the bar and 3.73 on `sel` (medians 13.92
+  and 10.36), light 4.74 and 4.16 (medians 13.87 and 12.16); ≥ 3:1 on the whole perimeter in both themes. Compared
+  with the earlier values dark goes up (4.62 → 5.01, 3.44 → 3.73), light goes down a little (4.86 → 4.74,
+  4.26 → 4.16), always above 3. On the same frame the 3 px band would give dark 3.15/2.34 and light 2.43/2.13: it
+  sees only the inner 3 px of the ring, not its whole thickness. Proof: `docs/proof/ring-2-5px-dark.png`,
   `docs/proof/ring-2-5px-light.png`.
-- Il nome doppio (repo o cartella) è in `fg-2` sulla riga scelta di ⌘P: in `fg-3` sul `sel` scendeva a 3,2:1.
-- Ogni testo piccolo dentro una riga che prende `sel` in hover sul vetro (seconda riga di Recenti, cioè cartella o
-  repo e tempo; nome doppio di ⌘P; link "Apri Impostazioni di Sistema") è in `fg-2` (`sidebar::row_meta`): con i grigi del pannello `fg-3` su vetro + `sel`
-  dava 3,28:1 nello scuro e 4,30:1 nel chiaro (review finale I4); oggi anche `fg-3-glass` + `sel` passa (4,80 / 4,61). `fg-3` resta solo fuori dalle righe premibili:
-  etichette di sezione, branch e icone del titolo dell'albero (che non ha hover), "⌘E sorgente" sul pannello.
+- The duplicate name (repo or folder) is in `fg-2` on the selected ⌘P row: in `fg-3` on `sel` it went down to
+  3.2:1.
+- Each small text inside a row that takes `sel` on hover on glass (the second line of Recent, that is folder or
+  repo and time; the ⌘P duplicate name; the "Open System Settings" link) is in `fg-2` (`sidebar::row_meta`): with
+  the panel grays `fg-3` on glass + `sel` gave 3.28:1 in dark and 4.30:1 in light (final review I4); today
+  `fg-3-glass` + `sel` passes too (4.80 / 4.61). `fg-3` stays only outside pressable rows: section labels, the
+  branch and icons of the tree title (which has no hover), "⌘E source" on the panel.
 
 ## Typography
 
-Inter per tutto, `ui-monospace` per il codice (in Rune: `families: ("Inter", "ui-monospace, Menlo")`, altrimenti
-il codice esce in Inter). Cifre tabellari ovunque (`tnum`).
+Inter for everything, `ui-monospace` for code (in Rune: `families: ("Inter", "ui-monospace, Menlo")`, otherwise
+the code comes out in Inter). Tabular figures everywhere (`tnum`).
 
-| Ruolo | Dimensione | Peso | Interlinea |
+| Role | Size | Weight | Line height |
 |---|---|---|---|
-| Titolo del file (H1) | 28 | 680 | 1,2, tracking −0,015em |
-| H2 | 19 | 640 | 1,3 |
-| H3 | 17 | 640 | 1,3 |
-| H4 | 15,5 | 600 | 1,3 |
-| H5 (`fg-2`) | 14 | 600 | 1,3 |
-| H6 (`fg-3`) | 13 | 500 | 1,3 |
-| Corpo | 15,5 | 400 | 1,62 |
-| Tabella | 14 (intestazioni 13, peso 560) | 400 | — |
-| Codice | 13,5 mono | 400 | — |
-| UI (righe, schede) | 13 | 400; repo 600 | — |
-| UI piccola (tempi, sezioni, meta) | 12 | 500 | — |
+| File title (H1) | 28 | 680 | 1.2, tracking −0.015em |
+| H2 | 19 | 640 | 1.3 |
+| H3 | 17 | 640 | 1.3 |
+| H4 | 15.5 | 600 | 1.3 |
+| H5 (`fg-2`) | 14 | 600 | 1.3 |
+| H6 (`fg-3`) | 13 | 500 | 1.3 |
+| Body | 15.5 | 400 | 1.62 |
+| Table | 14 (headers 13, weight 560) | 400 | — |
+| Code | 13.5 mono | 400 | — |
+| UI (rows, tabs) | 13 | 400; repo 600 | — |
+| Small UI (times, sections, meta) | 12 | 500 | — |
 
-Il grassetto nel corpo è peso 620 in `fg`. I titoli non sono enormi: la gerarchia viene dal peso e dal colore.
-I titoli da 1 a 4 hanno il colore del corpo; il 5 scende a `fg-2` e il 6 a `fg-3`: ogni livello si distingue dal
-precedente e il 3 non pesa come una riga in grassetto.
+Bold in the body is weight 620 in `fg`. Headings are not huge: the hierarchy comes from weight and color. Headings
+1 to 4 have the body color; 5 goes down to `fg-2` and 6 to `fg-3`: each level stands apart from the one before, and
+3 does not weigh like a bold line.
 
-Una parola più lunga della riga (un percorso, un nome di file) va a capo dopo `/`, `-`, `_` o `.`, così la riga
-finisce con il separatore e la seguente comincia con il pezzo dopo; si spezza in un punto qualsiasi solo un tratto
-senza separatori più largo di una riga (un hash). Nessuna riga esce dalla colonna. Un URL nudo lungo va a capo
-allo stesso modo e resta un link solo, con l'indirizzo intatto.
+A word longer than the line (a path, a file name) wraps after `/`, `-`, `_` or `.`, so the line ends with the
+separator and the next one starts with the piece after it; only a run without separators wider than a line (a
+hash) breaks at any point. No line overflows the column. A long bare URL wraps the same way and stays a single link,
+with the address intact.
 
-**Callout** (`> [!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]`, `[!CAUTION]`): la citazione con sopra
-l'etichetta in parole (Nota, Suggerimento, Importante, Attenzione, Cautela), 13/600 in `fg`, con l'icona da 14 in
-`fg-2` 6 prima; 6 sotto l'etichetta, sulla stessa linea della citazione. Il segno `[!NOTE]` non si vede. Nessun
-colore: il tipo lo dicono parola e icona.
+**Callouts** (`> [!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]`, `[!CAUTION]`): the quote with the label in words
+above it (Note, Tip, Important, Warning, Caution), 13/600 in `fg`, with the 14 icon in `fg-2` 6 before it; 6 under
+the label, on the same line as the quote. The `[!NOTE]` marker is not shown. No color: the word and the icon say the
+type.
 
-**Note a piè di pagina** (`[^1]`): nel testo il numero in apice, in ordine di primo riferimento; le definizioni
-non si disegnano dove sono scritte ma in fondo al file, sotto una linea di 0,5 in `line` e 12 di spazio, come lista
-numerata a 13,5 in `fg-2`. Un riferimento senza definizione resta scritto com'è. Cerca trova il testo delle note
-nella lista in fondo, dove si vede.
+**Footnotes** (`[^1]`): in the text the number in superscript, in order of first reference; the definitions are not
+drawn where they are written but at the end of the file, under a 0.5 line in `line` and 12 of space, as a numbered
+list at 13.5 in `fg-2`. A reference without a definition stays written as it is. Find finds the text of the notes in
+the list at the end, where it is shown.
 
-**Percorsi e nomi di file** (con o senza backtick; record `2026-11-16-paths-name-and-link`, mockup p-mix): in
-monospaziato a 13,5, senza pastiglia; cartelle e `:riga` in `fg-3`, nome del file in `fg` 600. Se il file esiste
-(accanto al file, nel repo, assoluto o `~`) è un link: linea di 1 in `fg-3` sotto tutto il percorso (il kit non ha la
-linea a puntini del mockup), in hover fondo `sel`, linea in `fg-2` e "Apri in RuneMD"; il clic apre il file in una
-scheda, con `:riga` alla riga. Se non esiste non è un link (niente mano né clic): codice in linea, nome in `fg`
-(peso del codice, 400), senza pastiglia se è il solo codice del blocco, con la pastiglia se no. Nei blocchi di codice niente; restano
-testo le parole con un punto (`ecc.`, `v1.2`, `Node.js`) e gli URL.
+**Paths and file names** (with or without backticks; record `2026-11-16-paths-name-and-link`, mockup p-mix): in
+monospace at 13.5, without a pill; folders and `:line` in `fg-3`, file name in `fg` 600. If the file exists (beside
+the file, in the repo, absolute or `~`) it is a link: a 1 line in `fg-3` under the whole path (the kit does not have
+the mockup's dotted line), on hover a `sel` background, the line in `fg-2` and "Open in RuneMD"; the click opens the
+file in a tab, with `:line` at the line. If it does not exist it is not a link (no hand cursor, no click): inline
+code, name in `fg` (the code weight, 400), without a pill if it is the only code in the block, with the pill if not.
+Nothing in code blocks; words with a dot (`etc.`, `v1.2`, `Node.js`) and URLs stay text.
 
-**Registri e piani** (record `2026-11-16-tasks-sections-and-columns` con `2026-11-16-wrap-only-label-blocks`,
-mockup t-mix): un paragrafo in cui più della metà delle righe, e almeno due, comincia con un'etichetta (da una a tre
-parole con la maiuscola o una cifra e i due punti, come `Task 1` o `Ruling`) tiene ogni a capo del file, con le
-etichette in grassetto. Gli altri paragrafi restano Markdown standard: un a capo vale uno spazio. Un titolo
-`Task N: titolo` mostra il numero nel font del titolo in `fg-3`, poi il titolo, e a destra l'avanzamento ("2 di 4",
-font piccolo dell'interfaccia in `fg-3`) dalle caselle fra il titolo e il seguente di livello uguale o più alto. Se la colonna del testo (senza i margini
-delle righe) è larga almeno 480, un blocco a etichetta va su due colonne: etichette in grassetto senza i due punti a
-sinistra, larghe quanto la più larga e al massimo 10 em, 16 di spazio, testo a destra allineato riga per riga; più
-stretta, una colonna.
+**Registers and plans** (record `2026-11-16-tasks-sections-and-columns` with `2026-11-16-wrap-only-label-blocks`,
+mockup t-mix): a paragraph in which more than half of the lines, and at least two, start with a label (one to three
+words with a capital or a digit and a colon, like `Task 1` or `Ruling`) keeps each line break of the file, with the
+labels in bold. The other paragraphs stay standard Markdown: a line break counts as a space. A `Task N: title`
+heading shows the number in the heading font in `fg-3`, then the title, and on the right the progress ("2 of 4",
+the small interface font in `fg-3`) from the boxes between the heading and the next one of the same or a higher
+level. If the text column (without the rows' margins) is at least 480 wide, a label block goes on two columns: bold
+labels without the colon on the left, as wide as the widest and at most 10 em, 16 of space, text on the right
+aligned row by row; narrower, one column.
 
-**Casella delle liste di compiti**: come quella delle Impostazioni, 14 pt, raggio 4, 8 dentro la colonna dei segni;
-spenta vuota con il bordo di 1 in `fg-3`, accesa piena in `fg-2` con la spunta in `panel` (tabella "Contrasto").
+**Task list box**: like the one in Settings, 14 pt, radius 4, 8 inside the marker column; unchecked empty with a 1
+border in `fg-3`, checked solid in `fg-2` with the check mark in `panel` ("Contrast" table).
 
 ## Layout
 
-- Finestra: sidebar di vetro larga 248 px a sinistra; il pannello del documento sta a 8 px dai bordi alto,
-  destro e basso, e il vetro lo circonda su tutti e quattro i lati.
-- Sidebar, dall'alto: semafori; campo "Apri file ⌘P"; sezione "Recenti" (righe su due righe: nome del file
-  sopra, cartella o repo e tempo relativo sotto); una linea; il titolo dell'albero (icona repo, nome del repo e
-  sotto il branch con la sua icona), poi i file indentati di 16 px con linea guida verticale. Nessuna etichetta
-  sopra l'albero: il nome del repo fa da titolo. (`docs/decisions/2026-11-15-recent-two-lines.md`, mockup A
-  in `design/mockups/2026-11-14-recenti-leggibili/`.)
-- Recenti prende al massimo il 40 % dell'altezza della sidebar (`recent-share`) e poi scorre, con la barra del
-  sistema (sottile, a scomparsa); 3 px fra le righe (`recent-gap`), con o senza anelli. Con righe da 44 ci
-  stanno circa 5 file (6 in una sidebar alta 800) invece di 7–8; l'ordine resta quello d'apertura. Aprendo un file l'albero
-  scorre quanto basta per mostrarne la riga. (D1, D2: `docs/decisions/2026-11-14-sidebar-tabs-long-names.md`.)
-- Nomi lunghi di file (Recenti, albero, schede, ⌘P) e il branch si tagliano in mezzo: restano la fine e
-  l'estensione (`2026-11-14-arc…definitiva.md`). Il nome del repo si taglia in fondo. (D4)
-- Pannello: barra delle schede in alto (nomi dei file aperti, "⌘E sorgente" a destra); colonna del documento
-  larga al massimo 680 px e centrata; indice "In questo file" a destra, separato da una linea.
-- L'indice "In questo file" si nasconde quando la finestra è più stretta di sidebar + colonna + 200 (1128 pt,
-  `outline-min-window`), e nel sorgente (⌘E).
-- Sotto il titolo, una riga meta: cartella, stato ("modificato 2 min fa" / "si aggiorna"), parole. Gli elementi
-  si separano con spazio (16 px), mai con " · ".
+- Window: a glass sidebar 248 px wide on the left; the document panel sits 8 px from the top, right and bottom
+  edges, and the glass surrounds it on all four sides.
+- Sidebar, from the top: traffic lights; the "Open file ⌘P" field; the "Recent" section (rows on two lines: file
+  name above, folder or repo and relative time below); a line; the tree title (repo icon, repo name and below it the
+  branch with its icon), then the files indented by 16 px with a vertical guide line. No label above the tree: the
+  repo name is the title. (`docs/decisions/2026-11-15-recent-two-lines.md`, mockup A in
+  `design/mockups/2026-11-14-recenti-leggibili/`.)
+- Recent takes at most 40 % of the sidebar height (`recent-share`) and then scrolls, with the system scroll bar
+  (thin, auto-hiding); 3 px between rows (`recent-gap`), with or without rings. With 44 rows about 5 files fit (6
+  in a sidebar 800 tall) instead of 7–8; the order stays the order of opening. When a file opens the tree scrolls
+  just enough to show its row. (D1, D2: `docs/decisions/2026-11-14-sidebar-tabs-long-names.md`.)
+- Long file names (Recent, tree, tabs, ⌘P) and the branch are cut in the middle: the end and the extension stay
+  (`2026-11-14-arc…definitiva.md`). The repo name is cut at the end. (D4)
+- Panel: the tab bar at the top (names of the open files, "⌘E source" on the right); the document column at most
+  680 px wide and centered; the "In this file" outline on the right, separated by a line.
+- The "In this file" outline hides when the window is narrower than sidebar + column + 200 (1128 pt,
+  `outline-min-window`), and in the source (⌘E).
+- Under the title, a meta line: folder, state ("modified 2 min ago" / "updating"), words. The items are separated
+  with space (16 px), never with " · ".
 
 ## Elevation & Depth
 
-Piatto. L'unica profondità è il pannello sul vetro: bordo di 0,5 px a `ink` 10 % e un'ombra morbida
-(`0 10px 30px` nero 35 %). Niente ombre su righe, schede o campi.
+Flat. The only depth is the panel on the glass: a 0.5 px border at `ink` 10 % and a soft shadow (`0 10px 30px`
+black 35 %). No shadows on rows, tabs or fields.
 
 ## Shapes
 
-Raggi piccoli e costanti: pannello 10, campo 7, riga 6, tasto ⌘ 4. Le linee sono di 0,5 px.
+Small, constant radii: panel 10, field 7, row 6, ⌘ key 4. Lines are 0.5 px.
 
 ## Components
 
-**Riga della sidebar.** Alta 28 px (26 nell'albero), raggio 6. Hover `sel`, solo con puntatore fine. Premuta:
-scala 0,98 in 160 ms ease-out. Selezionata: riempimento `sel`, testo `fg`.
-Misure della sidebar (dal mockup `scheda`, ora token in `spacing`): spazio sopra di 44 per i semafori,
-margini 8 ai lati e 10 in fondo, margine interno delle righe 10 (8 nell'albero), 8 fra icona, nome e tempo,
-6 fra nome e repo/cartella di un nome doppio, icone da 14 e freccia delle cartelle da 10, etichette di sezione
-con 14 sopra e 6 sotto. Il riempimento `sel` dell'hover entra ed esce in 120 ms (`ease`); la scala della
-riga premuta va e torna in 160 ms con la curva `motion.ease-out`. Con "riduci movimento" tutti e due sono
-immediati.
+**Sidebar row.** 28 px tall (26 in the tree), radius 6. Hover `sel`, only with a fine pointer. Pressed: scale 0.98
+in 160 ms ease-out. Selected: `sel` fill, `fg` text.
+Sidebar measurements (from the `scheda` mockup, now tokens in `spacing`): 44 of space at the top for the traffic
+lights, 8 margins at the sides and 10 at the bottom, row inner margin 10 (8 in the tree), 8 between icon, name and
+time, 6 between the name and the repo/folder of a duplicate name, 14 icons and a 10 folder arrow, section labels
+with 14 above and 6 below. The hover's `sel` fill goes in and out in 120 ms (`ease`); the pressed row's scale goes
+and comes back in 160 ms with the `motion.ease-out` curve. With "Reduce motion" both are immediate.
 
-**Riga di Recenti.** Alta 44 (`recent-row`), raggio 6, margine 10 ai lati, hover `sel` e scala premuta come le
-altre righe. Prima riga: il nome del file (UI 13/400, interlinea 16) in `fg`, largo quanto la riga; si taglia in
-mezzo solo se non ci sta. Seconda riga, 2 sotto (interlinea 15): a sinistra dove sta il file, 12/400, tagliato
-in fondo; a destra il tempo relativo, 12/500 cifre tabellari; 8 fra i due. Tutti e due in `fg-2` (`fg-2-glass`,
-`sidebar::row_meta`), anche in hover. Dove sta il file: il repo (la cartella del file fuori da un repo); per un
-nome che ritorna, il repo o la cartella che lo distingue (regola dei nomi doppi). (Record
-`2026-11-15-recent-two-lines`, vincoli 1–2.)
+**Recent row.** 44 tall (`recent-row`), radius 6, 10 margin at the sides, hover `sel` and pressed scale like the
+other rows. First line: the file name (UI 13/400, line height 16) in `fg`, as wide as the row; it is cut in the
+middle only if it does not fit. Second line, 2 below (line height 15): on the left where the file is, 12/400, cut at
+the end; on the right the relative time, 12/500 tabular figures; 8 between the two. Both in `fg-2` (`fg-2-glass`,
+`sidebar::row_meta`), also on hover. Where the file is: the repo (the file's folder outside a repo); for a name that
+comes back, the repo or folder that tells it apart (duplicate names rule). (Record `2026-11-15-recent-two-lines`,
+constraints 1–2.)
 
-**Titolo dell'albero (repo).** Al posto dell'etichetta "Repo del file", sotto una linea 0,5 in `line` (12 sopra,
-8 sotto, 10 ai lati). Icona repo (un libro, 14) in `fg-3` a sinistra, centrata sulle due righe; 8 dopo, il nome
-13/600 in `fg` (interlinea 16, tagliato in fondo) e 1 sotto l'icona branch (12) e il branch, 12/400 in `fg-3`
-(interlinea 15, tagliato in mezzo, senza cifre tabellari: i trattini restano stretti), 4 fra icona e branch. Alta
-almeno 44, 4 sopra e sotto. La riga non ha hover, quindi `fg-3` sta sul vetro (`fg-3-glass`, 6,89:1 / 5,18:1 sul
-fondo peggiore misurato). Le due icone sono disegnate come quelle del kit (viewBox 16, tratto 1, giunti tondi;
-quella del branch, più piccola, con tratto 1,2 per lo stesso spessore). Fuori da un repo il titolo è la cartella
-del file: icona cartella e nome, niente branch, alta almeno 30. (D3; record `2026-11-15-recent-two-lines`,
-vincoli 4–5.)
+**Tree title (repo).** In place of the "File's repo" label, under a 0.5 line in `line` (12 above, 8 below, 10 at
+the sides). Repo icon (a book, 14) in `fg-3` on the left, centered on the two lines; 8 after it, the name 13/600 in
+`fg` (line height 16, cut at the end) and 1 below the branch icon (12) and the branch, 12/400 in `fg-3` (line height
+15, cut in the middle, without tabular figures: the dashes stay narrow), 4 between icon and branch. At least 44
+tall, 4 above and below. The row has no hover, so `fg-3` sits on glass (`fg-3-glass`, 6.89:1 / 5.18:1 on the worst
+measured background). The two icons are drawn like the kit's (viewBox 16, stroke 1, round joins; the branch one,
+smaller, with a 1.2 stroke for the same weight). Outside a repo the title is the file's folder: folder icon and
+name, no branch, at least 30 tall. (D3; record `2026-11-15-recent-two-lines`, constraints 4–5.)
 
-**Campo "Apri file".** Alto 30 px, raggio 7, riempimento `field`, bordo interno 0,5 px in `line`. Icona,
-testo e "⌘P" in `fg-2` (deve leggersi: commento di Matteo). Il tasto "⌘P" è testo `kbd` (11 px, 400) con
-bordo 0,5 px in `line`, raggio 4 e margine interno `kbd-pad`; il campo ha margine `field-margin`.
+**"Open file" field.** 30 px tall, radius 7, `field` fill, 0.5 px inner border in `line`. Icon, text and "⌘P" in
+`fg-2` (it must be readable: Matteo's comment). The "⌘P" key is `kbd` text (11 px, 400) with a 0.5 px border in
+`line`, radius 4 and inner margin `kbd-pad`; the field has margin `field-margin`.
 
-**Apri veloce (⌘P).** Il campo "Apri file" è un campo di testo: ⌘P gli dà il fuoco. Finché la ricerca non è
-vuota, la lista dei risultati prende il posto di Recenti e dell'albero. Le righe sono quelle della sidebar (28 px,
-raggio 6, hover `sel`, scala 0,98 premuta); la riga scelta con le frecce ha riempimento `sel` e testo `fg`. Un nome
-doppio mostra repo o cartella in `fg-2`, come in Recenti. Invio apre, Esc svuota e chiude, nessuna animazione di
-apertura (azione da tastiera). Nessun accento: caret `fg`, selezione `sel`. Nessun risultato: "Nessun file" in `fg-3`.
+**Quick Open (⌘P).** The "Open file" field is a text field: ⌘P gives it focus. While the query is not empty, the
+results list takes the place of Recent and the tree. The rows are the sidebar's (28 px, radius 6, hover `sel`,
+pressed scale 0.98); the row chosen with the arrows has a `sel` fill and `fg` text. A duplicate name shows repo or
+folder in `fg-2`, as in Recent. Return opens, Esc clears and closes, no opening animation (a keyboard action). No
+accent: caret `fg`, selection `sel`. No results: "No files" in `fg-3`.
 
-**Scheda.** Una riga come quelle della sidebar, larga quanto il nome del file fino a 240 (`tab-max`, D5; oltre,
-il nome si taglia in mezzo): alta 28 (`row`), raggio 6, testo UI
-13 px con 10 ai lati (`row-pad`), hover `sel`, scala 0,98 premuta. La scheda del file attivo ha riempimento `sel` e
-testo `fg`; le altre testo `fg-2`. Barra alta 44 (`tab-bar`), margine 10 ai lati (`tab-bar-pad`), 2 fra le schede
-(`tab-gap`), linea di 0,5 in `line` sotto; nessun separatore né icona. In fondo alla scheda una "×" (glifo 14 in
-`fg-2`, area di 16, raggio 4, hover `sel`, 4 dopo il nome e 6 dal bordo destro): si vede sempre sulla scheda
-davanti e sulle altre solo in hover (o col fuoco della tastiera), ma il suo posto c'è sempre, così il nome non si
-sposta. Etichetta "Chiudi <nome>"; un clic chiude come ⌘W (stessa domanda con modifiche non salvate); il clic
-centrale resta. Contrasto del glifo: 8,30 / 9,38 su `sel`, 5,67 / 8,22 in hover sulla ×. Scheda di anteprima (clic
-singolo nella sidebar, come VS Code): stesso aspetto, nome in corsivo; al massimo una, il clic singolo dopo la
-sostituisce nello stesso posto. Troppe schede: la riga scorre di lato. "⌘E
-sorgente" a destra come il tasto "⌘P", in `fg-3`.
+**Tab.** A row like the sidebar ones, as wide as the file name up to 240 (`tab-max`, D5; beyond that, the name is
+cut in the middle): 28 tall (`row`), radius 6, UI text 13 px with 10 at the sides (`row-pad`), hover `sel`, pressed
+scale 0.98. The active file's tab has a `sel` fill and `fg` text; the others `fg-2` text. Bar 44 tall (`tab-bar`), 10
+margin at the sides (`tab-bar-pad`), 2 between tabs (`tab-gap`), a 0.5 line in `line` below; no separator or icon. At
+the end of the tab a "×" (glyph 14 in `fg-2`, area of 16, radius 4, hover `sel`, 4 after the name and 6 from the right
+edge): always shown on the front tab and on the others only on hover (or with keyboard focus), but its space is
+always there, so the name does not move. Label "Close <name>"; a click closes like ⌘W (the same question with unsaved
+changes); the middle click stays. Glyph contrast: 8.30 / 9.38 on `sel`, 5.67 / 8.22 on hover on the ×. Preview tab
+(a single click in the sidebar, like VS Code): the same look, name in italics; at most one, the next single click
+replaces it in the same place. Too many tabs: the row scrolls sideways. "⌘E source" on the right like the "⌘P" key,
+in `fg-3`.
 
-**Larghezza del testo (pulsante ↔).** Nella barra delle schede, subito a sinistra di "⌘E sorgente": 28 × 28
-(`row`), raggio 6, glifo "↔" 15 in `fg-2`, hover `sel`; col popover aperto ha il riempimento `sel`. Etichetta
-"Larghezza del testo". Un clic apre sotto il pulsante, allineato al suo bordo destro e 4 più in basso, un popover
-largo 248 (`sidebar`): riempimento `panel`, raggio 10, bordo 0,5 a `ink` 10 % e l'ombra del pannello (le stesse
-della sola profondità che c'è); dentro "Larghezza del testo" (UI 13 in `fg-2`), lo stesso cursore a passi delle
-impostazioni e "⌘⌥+ e ⌘⌥− un passo alla volta" (12 in `fg-3`). Il valore è uno solo, `settings.column`: cursore,
-impostazioni e scorciatoie lo cambiano insieme e si salva. Esc, un clic fuori o il pulsante lo chiudono.
-⌘⌥+ (anche ⌘⌥=) e ⌘⌥− fanno un passo anche col popover chiuso. Contrasto: glifo 11,19 / 10,71 su panel e
-8,30 / 9,38 su `sel`; scorciatoie 7,88 / 7,34.
+**Text width (↔ button).** In the tab bar, just left of "⌘E source": 28 × 28 (`row`), radius 6, glyph "↔" 15 in
+`fg-2`, hover `sel`; with the popover open it has the `sel` fill. Label "Text width". A click opens under the button,
+aligned to its right edge and 4 lower, a popover 248 wide (`sidebar`): `panel` fill, radius 10, 0.5 border at `ink`
+10 % and the panel's shadow (the same as the only depth there is); inside "Text width" (UI 13 in `fg-2`), the same
+stepped slider as in settings and "⌘⌥+ and ⌘⌥− one step at a time" (12 in `fg-3`). There is only one value,
+`settings.column`: slider, settings and shortcuts change it together and it is saved. Esc, a click outside or the
+button close it. ⌘⌥+ (also ⌘⌥=) and ⌘⌥− take a step also with the popover closed. Contrast: glyph 11.19 / 10.71 on
+panel and 8.30 / 9.38 on `sel`; shortcuts 7.88 / 7.34.
 
-**Scorciatoie (pulsante ⌘).** Subito a sinistra di ↔, uguale a lui: 28 × 28, glifo "⌘" 15 in `fg-2`, hover
-`sel`, `sel` pieno col popover aperto, tooltip ed etichetta "Scorciatoie" (anche ↔ ha il suo tooltip, "Larghezza
-del testo"). Un clic apre sotto il pulsante il popover della larghezza con un altro contenuto: largo 300, margini
-12 / 14, "Scorciatoie" (13 in `fg-2`), i gruppi File, Schede, Lettura, App (12 peso 500 in `fg-3`) e righe da 24
-con l'azione (13 in `fg-2`) e i tasti a destra (11,5 in `fg-2`, bordo `line` 0,5, raggio 4). Esc, un clic fuori o
-il pulsante lo chiudono; aprire ⌘ chiude ↔ e viceversa. L'elenco è `ui::shortcuts::GROUPS`
-(docs/decisions/2026-11-15-shortcuts-popover.md).
+**Shortcuts (⌘ button).** Just left of ↔, the same as it: 28 × 28, glyph "⌘" 15 in `fg-2`, hover `sel`, full `sel`
+with the popover open, tooltip and label "Shortcuts" (↔ has its own tooltip too, "Text width"). A click opens under
+the button the width popover with other content: 300 wide, margins 12 / 14, "Shortcuts" (13 in `fg-2`), the groups
+File, Tabs, Reading, App (12 weight 500 in `fg-3`) and 24 rows with the action (13 in `fg-2`) and the keys on the
+right (11.5 in `fg-2`, border `line` 0.5, radius 4). Esc, a click outside or the button close it; opening ⌘ closes ↔
+and the other way round. The list is `ui::shortcuts::GROUPS` (docs/decisions/2026-11-15-shortcuts-popover.md).
 
-**Apri file (⌘P).** Un pannello largo 560 (meno con la finestra stretta, 16 dai bordi), centrato nella finestra,
-20 sotto la barra delle schede, sopra un velo `panel` al 60 %: non sposta niente. Riempimento `panel`, raggio 10,
-bordo e ombra del popover. In alto il campo (48, testo 15, icona in `fg-2`), poi le righe su una riga sola (40: icona
-del file, nome in `fg`, subito dopo repo o cartella in `fg-2`, l'ora in `fg-2` in fondo a destra; se lo spazio non
-basta si accorcia prima repo o cartella, fino a 40, poi il nome con il taglio in mezzo), scelta e hover `sel`, otto in vista; in fondo
-(36) ↑ ↓ scegli, ↵ apri, Esc chiudi (tasti in `fg-2`, parole in `fg-3`) e "N file". Con la ricerca vuota le righe
-sono Recenti. Il campo "Apri file ⌘P" della sidebar è un pulsante che apre il pannello. Clic: anteprima, il pannello
-resta; doppio clic: scheda fissa e il pannello si chiude; Invio apre in anteprima e chiude. Esc o un clic fuori
-chiudono (pannello modale). Record docs/decisions/2026-11-15-compact-quick-open.md e
-docs/decisions/2026-11-15-quick-open-one-line.md (una riga sola; i Recenti nella sidebar restano su due righe).
+**Open file (⌘P).** A panel 560 wide (less with a narrow window, 16 from the edges), centered in the window, 20 under
+the tab bar, over a `panel` veil at 60 %: it moves nothing. `panel` fill, radius 10, the popover's border and shadow.
+At the top the field (48, text 15, icon in `fg-2`), then the rows on a single line (40: file icon, name in `fg`, right
+after it repo or folder in `fg-2`, the time in `fg-2` at the far right; if there is not enough room the repo or folder
+shrinks first, down to 40, then the name with the cut in the middle), selection and hover `sel`, eight in view; at the
+bottom (36) ↑ ↓ choose, ↵ open, Esc close (keys in `fg-2`, words in `fg-3`) and "N files". With an empty query the
+rows are Recent. The sidebar's "Open file ⌘P" field is a button that opens the panel. Click: preview, the panel stays;
+double click: pinned tab and the panel closes; Return opens in preview and closes. Esc or a click outside close it (a
+modal panel). Records docs/decisions/2026-11-15-compact-quick-open.md and
+docs/decisions/2026-11-15-quick-open-one-line.md (a single line; Recent in the sidebar stays on two lines).
 
-**Cerca nel file (⌘F).** Solo in lettura. Il campo sta nella barra delle schede, a destra delle schede e prima
-di "⌘E sorgente", così il documento non si sposta: largo 240 (`find-field`), alto 30, raggio 7, riempimento
-`field`, bordo interno 0,5 px in `line`, 8 a destra (`row-gap`); icona lente e segnaposto "Cerca nel file" in
-`fg-2`, testo `fg`. Il contatore a destra è UI piccola in `fg-3`: "3 di 12", oppure "Nessun risultato"; con la
-ricerca vuota non c'è. Nel testo i risultati hanno il riempimento
-`sel` e un anello interno di 1 px in `mark` (`find-ring`), che li stacca dal codice in linea e dalla selezione;
-quello attivo ha l'anello in `fg-2` e di 2 px (`find-ring-active`), più scuro e spesso il doppio, così si
-riconosce a colpo d'occhio in tutti e due i temi. L'anello `mark` è a 3,9:1 sul pannello nel tema scuro e a 3,5:1 nel chiaro. Nessun accento, nessun giallo. Invio va al risultato dopo, Maiusc+Invio a
-quello prima, in giro; la vista lo porta al centro. Esc chiude e toglie i segni. Il campo di ⌘P, quello di ⌘N e
-questo si chiudono a vicenda.
+**Find in file (⌘F).** Only in reading. The field sits in the tab bar, to the right of the tabs and before "⌘E
+source", so the document does not move: 240 wide (`find-field`), 30 tall, radius 7, `field` fill, 0.5 px inner border
+in `line`, 8 on the right (`row-gap`); magnifier icon and placeholder "Find in file" in `fg-2`, text `fg`. The counter
+on the right is small UI in `fg-3`: "3 of 12", or "No results"; with an empty query it is not there. In the text the
+results have the `sel` fill and a 1 px inner ring in `mark` (`find-ring`), which sets them apart from inline code and
+the selection; the active one has the ring in `fg-2` and 2 px (`find-ring-active`), darker and twice as thick, so it is
+recognized at a glance in both themes. The `mark` ring is at 3.9:1 on the panel in the dark theme and at 3.5:1 in
+light. No accent, no yellow. Return goes to the next result, Shift+Return to the previous one, wrapping around; the
+view brings it to the center. Esc closes and removes the marks. The ⌘P field, the ⌘N one and this one close each
+other.
 
-**Indice dei titoli ("In questo file").** Dal mockup `scheda`: colonna larga 196 (`outline`) a destra del
-documento, separata da una linea di 0,5 in `line` alta quanto il documento. Etichetta "In questo file" in UI
-piccola `fg-3`, 4 sopra il primo titolo (`outline-label-gap`), allineata alla prima riga del documento (31 dal
-bordo alto, cioè il margine del documento più quello della riga). I titoli H1–H3 del file, uno per riga: 12,5 px,
-interlinea 2 (righe alte 25, `outline-row`), testo `fg-2` troncato con "…"; il testo sta a 16 dalla linea (10 di
-margine della colonna più 6 dentro la riga, `outline-row-pad`, che lascia spazio all'hover). Ogni livello sotto il
-più alto del file rientra di 10 (`outline-indent`). Il titolo della sezione che si legge (l'ultimo sopra il primo
-blocco visibile) è in `fg` e peso 600: colore e peso insieme, perché `fg` e `fg-2` da soli si distinguono poco nel
-tema scuro. Nessun segno né accento. Hover `sel`, scala 0,98 premuta, come le righe della sidebar. Un clic porta il
-titolo in cima alla vista, senza planata (come Cerca: la riga può non essere montata), e quel titolo resta
-evidenziato anche se non arriva in cima, finché si vede e non si scorre a mano. Con lo scroll in fondo è evidenziato
-l'ultimo titolo che si vede: le sezioni corte in fondo non arrivano mai in cima. Se l'indice è più alto
-della finestra scorre da solo e l'evidenziato resta in vista. Un file senza titoli non ha la colonna. Nel sorgente
-(⌘E) l'indice non c'è: i blocchi a cui porta non esistono lì e i titoli cambiano mentre si scrive.
+**Outline of headings ("In this file").** From the `scheda` mockup: a column 196 wide (`outline`) to the right of the
+document, separated by a 0.5 line in `line` as tall as the document. Label "In this file" in small UI `fg-3`, 4 above
+the first heading (`outline-label-gap`), aligned to the document's first line (31 from the top edge, that is the
+document's margin plus the row's). The file's H1–H3 headings, one per row: 12.5 px, line height 2 (rows 25 tall,
+`outline-row`), `fg-2` text truncated with "…"; the text is 16 from the line (10 of column margin plus 6 inside the
+row, `outline-row-pad`, which leaves room for the hover). Each level below the file's highest one is indented by 10
+(`outline-indent`). The heading of the section being read (the last one above the first visible block) is in `fg` and
+weight 600: color and weight together, because `fg` and `fg-2` alone are hard to tell apart in the dark theme. No mark
+and no accent. Hover `sel`, pressed scale 0.98, like the sidebar rows. A click brings the heading to the top of the
+view, without a glide (like Find: the row may not be mounted), and that heading stays highlighted even if it does not
+reach the top, as long as it is in view and you do not scroll by hand. With the scroll at the bottom the last visible
+heading is highlighted: short sections at the end never reach the top. If the outline is taller than the window it
+scrolls by itself and the highlighted heading stays in view. A file without headings has no column. In the source
+(⌘E) there is no outline: the blocks it points to do not exist there and the headings change while you type.
 
-**Frontmatter.** Un file che comincia al byte 0 con una riga `---` e ha una riga di chiusura `---` o `...`
-(`doc::frontmatter`) mostra in lettura il YAML fra le due righe come un solo blocco di metadati: mono 12 (UI
-piccola), testo `fg-2`, riempimento `sel` a metà, raggio 6, margine interno 12 × 10, nella colonna come un
-blocco di codice ma più quieto. L'indice dei titoli non lo elenca; il sorgente (⌘E) resta il file com'è. Senza
-riga di chiusura è Markdown normale (riga orizzontale, paragrafi).
+**Frontmatter.** A file that starts at byte 0 with a `---` line and has a closing `---` or `...` line
+(`doc::frontmatter`) shows in reading the YAML between the two lines as a single metadata block: mono 12 (small UI),
+`fg-2` text, half `sel` fill, radius 6, inner margin 12 × 10, in the column like a code block but quieter. The outline
+does not list it; the source (⌘E) stays the file as it is. Without a closing line it is normal Markdown (a horizontal
+rule, paragraphs).
 
-**Lettura ↔ sorgente (⌘E).** Dissolvenza incrociata: la vista che entra arriva al 95 % in ~165 ms, quella che
-esce scende sotto il 5 % in ~130 ms (molle criticamente smorzate di 0,22 e 0,17 s, `motion.mode`: Rune anima
-entrate e uscite solo con molle, e una molla critica ha già la coda di una ease-out forte). Prima era la
-dissolvenza di default di Rune (0,30 / 0,24 s: 95 % a ~230 ms). Con "riduci movimento" è un taglio netto.
+**Reading ↔ source (⌘E).** Crossfade: the incoming view reaches 95 % in ~165 ms, the outgoing one goes under 5 % in
+~130 ms (critically damped springs of 0.22 and 0.17 s, `motion.mode`: Rune animates entries and exits only with
+springs, and a critical spring already has the tail of a strong ease-out). Before, it was Rune's default fade (0.30 /
+0.24 s: 95 % at ~230 ms). With "Reduce motion" it is a hard cut.
 
-**Riga di avviso (sorgente).** Sotto la barra delle schede, sopra il sorgente: alta 44 (`tab-bar`), testo UI
-13 px in `fg` allineato a quello del sorgente, bottoni a destra come schede in secondo piano (alti 28, `row-pad`
-ai lati, testo `fg-2`, hover `sel`, scala 0,98 premuta), linea di 0,5 in `line` sotto. È annunciata come avviso
-(`alert`). Dice "Il file è cambiato su disco" ("Ricarica", "Tieni il mio") o "Salvataggio non riuscito" quando un
-salvataggio non scrive. Alla chiusura (⌘W o clic centrale su una scheda con modifiche non salvate) la scheda viene
-davanti e la stessa riga chiede "Salvare le modifiche a <nome file>?" con "Salva" (anche Invio), "Non salvare" e
-"Annulla" (anche Esc); il campo tiene il fuoco. Senza modifiche ⌘W chiude subito. Chiudere la finestra o uscire
-salva tutto, senza chiedere (Rune non può annullare la chiusura). Nessun accento.
+**Notice row (source).** Under the tab bar, above the source: 44 tall (`tab-bar`), UI text 13 px in `fg` aligned
+with the source's, buttons on the right like background tabs (28 tall, `row-pad` at the sides, `fg-2` text, hover
+`sel`, pressed scale 0.98), a 0.5 line in `line` below. It is announced as an alert (`alert`). It says "The file
+changed on disk" ("Reload", "Keep mine") or "Save failed" when a save does not write. On close (⌘W or a middle click
+on a tab with unsaved changes) the tab comes to the front and the same row asks "Save changes to <file name>?" with
+"Save" (also Return), "Don't Save" and "Cancel" (also Esc); the field keeps the focus. Without changes ⌘W closes at
+once. Closing the window or quitting saves everything, without asking (Rune cannot cancel the close). No accent.
 
-**Impostazioni (⌘,).** Nessun mockup: solo token. Colonna larga come la sidebar (248, `sidebar`) a destra del
-documento, nel pannello, al posto dell'indice dei titoli, separata da una linea di 0,5 in `line`; ⌘, la apre e la
-chiude, Esc la chiude. Titolo "Impostazioni" (UI, 600, `fg`), poi sezioni con etichetta come quelle della sidebar:
-"Cartelle osservate" (icona cartella in `fg-3`, percorso in `fg-2` con la home come "~", "Togli" a destra;
-"Aggiungi cartella…" apre il dialogo delle cartelle; una cartella già osservata, o sotto una osservata, non si
-aggiunge e sotto compare "Già osservata" in `fg-2` per 3 s o fino alla prossima azione), "Font" (Inter, SF Pro, New York se installato col suo nome,
-poi le famiglie installate; lista virtuale alta 8 righe e mezza, così la nona tagliata dice che scorre), "Dimensione" ("−", "15,5 pt", "+"; titoli, tabelle e
-codice scalano col corpo), "Larghezza del testo" (cursore a passi da 680 a 1240 di 80 in 80, l'ultimo "Intera": la colonna segue il pannello, i margini delle righe restano; binario di 2 in `fg-3`, parte scelta e pomello di 12 in `fg-2`, valore a destra in `fg` con cifre tabulari; frecce un passo alla volta; il blocco in cima alla vista resta in cima), "Tema" ("Sistema", "Chiaro", "Scuro"), la casella "Fuoco in fondo al pannello" (accende e spegne il fuoco, a riposo e col testo nuovo) e sotto
-l'aspetto del fuoco: "Intensità" (40–175 %), "Altezza" (55–176 pt col fuoco acceso, 110 il default), "Velocità"
-(0,25–3×), tre cursori a passi uguali a quello della larghezza con l'etichetta 13 in `fg-2` sopra, e "Colore"
-("Fuoco", "Blu", "Viola", "Verde", "Accento di sistema", scelte come quelle del tema). I default sono il fuoco di
-sempre. La parte calda di ogni colore resta chiara, così l'etichetta del testo nuovo sopra le fiamme tiene 4,5:1.
-Con il fuoco spento questi controlli sono al 40 % e disabilitati (fuori dal giro del Tab, senza hover né clic):
-un controllo disabilitato non ha obbligo di contrasto. Le
-righe sono quelle della sidebar (28, raggio 6, hover `sel`, scala 0,98). La scelta fatta ha riempimento `sel`,
-testo `fg` e una spunta in `fg`; le altre testo `fg-2`. La casella ha il bordo di 1 in `fg-3`; accesa è piena in
-`fg-2` con la spunta in `panel`. Con il fuoco spento l'etichetta "N paragrafi nuovi più in basso" resta, in `fg-2`
-su una fascia `panel` alta 44 con la linea `line` sopra. Tutto cambia subito, senza riavvio.
+**Settings (⌘,).** No mockup: tokens only. A column as wide as the sidebar (248, `sidebar`) to the right of the
+document, in the panel, in place of the outline, separated by a 0.5 line in `line`; ⌘, opens and closes it, Esc
+closes it. Title "Settings" (UI, 600, `fg`), then sections with labels like the sidebar's: "Watched folders" (folder
+icon in `fg-3`, path in `fg-2` with the home as "~", "Remove" on the right; "Add folder…" opens the folder dialog; a
+folder already watched, or under a watched one, is not added and "Already watched" shows below in `fg-2` for 3 s or
+until the next action), "Font" (Inter, SF Pro, New York if installed under its name, then the installed families; a
+virtual list 8 and a half rows tall, so the ninth, cut, says it scrolls), "Size" ("−", "15.5 pt", "+"; headings,
+tables and code scale with the body), "Text width" (a stepped slider from 680 to 1240 in steps of 80, the last one
+"Full": the column follows the panel, the rows' margins stay; a 2 track in `fg-3`, the chosen part and a 12 knob in
+`fg-2`, the value on the right in `fg` with tabular figures; arrows one step at a time; the block at the top of the
+view stays at the top), "Theme" ("System", "Light", "Dark"), the "Fire at the bottom of the panel" box (turns the
+fire on and off, at rest and with new text) and below it the fire's look: "Intensity" (40–175 %), "Height" (55–176 pt
+with the fire lit, 110 the default), "Speed" (0.25–3×), three stepped sliders like the width one with the 13 label in
+`fg-2` above, and "Color" ("Fire", "Blue", "Violet", "Green", "System accent", options like the theme's). The defaults
+are the usual fire. The hot part of each color stays light, so the new text label over the flames keeps 4.5:1. With
+the fire off these controls are at 40 % and disabled (out of the Tab order, without hover or click): a disabled
+control has no contrast requirement. The rows are the sidebar's (28, radius 6, hover `sel`, scale 0.98). The chosen
+option has a `sel` fill, `fg` text and a check mark in `fg`; the others `fg-2` text. The box has a 1 border in `fg-3`;
+checked it is solid in `fg-2` with the check mark in `panel`. With the fire off the label "N new paragraphs further
+down" stays, in `fg-2` on a `panel` band 44 tall with the `line` line above. Everything changes at once, without a
+restart.
 
-**Larghezza di sidebar e indice.** Il bordo destro della sidebar e quello sinistro dell'indice si trascinano: una
-fascia invisibile di 8 nel margine del pannello, cursore ↔. Sidebar 180–420 (default 248), indice 150–360 (default
-196); la soglia dell'indice si sposta con le due larghezze, e il trascinamento si ferma prima che l'indice si
-nasconda (senza indice, il pannello resta largo almeno 400). Lo scatto impara come Snappy: lasciando il bordo la
-larghezza si ricorda (le ultime 4); passando a meno di 8 da una ricordata, o dal default, il bordo si ferma lì.
-Doppio clic: il default. Esc durante il trascinamento: com'era. Le larghezze restano dopo il riavvio.
+**Sidebar and outline width.** The right edge of the sidebar and the left edge of the outline can be dragged: an
+invisible 8 band in the panel's margin, ↔ cursor. Sidebar 180–420 (default 248), outline 150–360 (default 196); the
+outline's threshold moves with the two widths, and the drag stops before the outline hides (without the outline, the
+panel stays at least 400 wide). The snap learns like Snappy: when you let go of the edge the width is remembered (the
+last 4); passing within 8 of a remembered one, or of the default, the edge stops there. Double click: the default. Esc
+during the drag: as it was. The widths stay after a restart.
 
-**Segnali live (effetti GPU di Rune).** Ognuno ha un solo significato, e nessun altro elemento lo usa.
+**Live signals (Rune GPU effects).** Each has one meaning only, and no other element uses it.
 
-| Effetto | Significato | Dove | Inizio | Fine |
+| Effect | Meaning | Where | Start | End |
 |---|---|---|---|---|
-| Metallo liquido (anello su 4 lati, 2,5 px, giro di 3 s) | Un agente sta scrivendo questo file | Scheda del file, sua riga in "Recenti", sua riga nell'albero | Appare in 220 ms ease-out alla prima modifica | Si ferma quando il file non cambia più (ipotesi: 3 s senza scritture) |
-| Fuoco di Rune (fiamme e braci) | A riposo, basso (26 px): è il fondo del pannello. Alto 110 px: c'è testo nuovo sotto la parte che stai leggendo | Fondo del pannello, sempre in lettura; alto, con l'etichetta "N paragrafi nuovi più in basso" | Da riposo sale a 110 in 420 ms ease-out | Torna a riposo in 300 ms ease-out quando scorri fino al testo nuovo |
-| Caret (2 px, `fg`, pulsa a 4 passi in 1,6 s: opacità 100/81/62/81 %) | Qui un agente ha appena scritto | Nel punto dell'ultima modifica, anche a metà file: dopo l'ultima parola cambiata (o aggiunta in fondo), alto quanto la lettera; fuori dal flusso, il testo non si sposta | Alla prima ricarica da fuori | Con l'anello (il file non cambia più); se è fuori vista la vista non salta |
+| Liquid metal (ring on 4 sides, 2.5 px, a 3 s turn) | An agent is writing this file | The file's tab, its row in "Recent", its row in the tree | Appears in 220 ms ease-out at the first change | Stops when the file no longer changes (assumption: 3 s without writes) |
+| Rune fire (flames and embers) | At rest, low (26 px): it is the bottom of the panel. 110 px tall: there is new text below the part you are reading | Bottom of the panel, always in reading; tall, with the label "N new paragraphs further down" | From rest it rises to 110 in 420 ms ease-out | Goes back to rest in 300 ms ease-out when you scroll to the new text |
+| Caret (2 px, `fg`, pulses in 4 steps over 1.6 s: opacity 100/81/62/81 %) | An agent has just written here | At the point of the last change, also in the middle of the file: after the last word changed (or added at the end), as tall as the letter; outside the flow, the text does not move | At the first reload from outside | With the ring (the file no longer changes); if it is out of view the view does not jump |
 
-Nel tema chiaro il fuoco usa la luminanza come maschera (sul bianco lo screen sparirebbe). Il caret al passo
-più tenue resta ≥ 4,5:1 sul pannello e sul `sel` (`ui::contrast`): il minimo è 62 % e non il 50 % del
-record `caret-piu-forte`, perché al 50 % fa 3,32:1 nel chiaro (4,30:1 nello scuro su `sel`); al 62 %, pannello e `sel`: chiaro
-4,83/4,60, scuro 6,80/5,78 (minimo). Con "riduci movimento" l'anello e il caret
-non si animano (restano fermi e visibili, il caret pieno) e il fuoco
-è fermo, a riposo o alto, senza salire né scendere; con la finestra non attiva è fermo allo stesso modo. A riposo
-le fiamme non tengono il display link: si ridisegnano 12 volte al secondo (CPU a riposo ~3,5 % contro ~11 % a
-120 Hz, misure in `.superpowers/sdd/plan/v11-batch-a-report.md`).
+In the light theme the fire uses luminance as a mask (on white, screen would disappear). The caret at its faintest
+step stays ≥ 4.5:1 on the panel and on `sel` (`ui::contrast`): the minimum is 62 % and not the 50 % of the
+`caret-piu-forte` record, because at 50 % it gives 3.32:1 in light (4.30:1 in dark on `sel`); at 62 %, panel and
+`sel`: light 4.83/4.60, dark 6.80/5.78 (minimum). With "Reduce motion" the ring and the caret do not animate (they stay
+still and visible, the caret solid) and the fire is still, at rest or tall, without rising or falling; with the window
+inactive it is still in the same way. At rest the flames do not hold the display link: they redraw 12 times a second
+(CPU at rest ~3.5 % against ~11 % at 120 Hz, measurements in `.superpowers/sdd/plan/v11-batch-a-report.md`).
 
 ## Do's and Don'ts
 
 **Do**
-- Tenere fermo il pannello del testo: niente effetti sul documento, salvo il caret nel punto dell'ultima modifica.
-- Dare a ogni effetto un solo significato; un nuovo stato prende un segnale nuovo o nessuno.
-- Scrivere i numeri con cifre tabellari, allineati a destra in tabella.
-- Misurare il contrasto sul materiale vero ogni volta che cambia un grigio o l'opacità del vetro.
+- Keep the text panel still: no effects on the document, except the caret at the point of the last change.
+- Give each effect one meaning only; a new state gets a new signal or none.
+- Write numbers with tabular figures, right-aligned in tables.
+- Measure the contrast on the real material each time a gray or the glass opacity changes.
 
-**Don't** (base anti-slop di `app-design`, più le regole di RuneMD)
-- Niente " · " o "—" per unire meta informazioni: spazio, campi con nome o parole.
-- Niente etichette sopra un titolo che ripetono il contesto; niente etichette MAIUSCOLE spaziate.
-- Niente card dentro card, niente griglie di card uguali, niente sfumature decorative.
-- Un solo accento al massimo, solo per azioni, selezione e stato. RuneMD oggi non ne ha.
-- Niente etichette riempitive, niente "→" in coda ai bottoni, niente testo che spiega ciò che la UI già mostra.
-- Niente bagliori fluo, pillole di stato, pallini luminosi o barre arancioni (commento di Matteo).
-- Niente righe di statistiche decorative ("Oggi 165 file…").
-- Il repo non sta allo stesso livello dei suoi file.
+**Don't** (the anti-slop base of `app-design`, plus RuneMD's rules)
+- No " · " or "—" to join meta information: space, named fields or words.
+- No labels above a heading that repeat the context; no spaced UPPERCASE labels.
+- No cards inside cards, no grids of identical cards, no decorative gradients.
+- At most one accent, only for actions, selection and state. RuneMD has none today.
+- No filler labels, no "→" at the end of buttons, no text that explains what the UI already shows.
+- No neon glows, status pills, glowing dots or orange bars (Matteo's comment).
+- No decorative stats rows ("Today 165 files…").
+- The repo is not at the same level as its files.
 
-**Eccezioni volute alle regole delle skill**
-- Vetro su cornice e sidebar: Impeccable lo vieta, qui è l'identità (Current) ed è materiale di sistema.
-- Effetti GPU (metallo, fuoco, caret): Impeccable e il "no decorazione" li sospetterebbero; qui ognuno porta
-  uno stato e sparisce con lo stato.
-- Press scale 0,98 (Emil 0,97, `better-ui` 0,96): righe dense da 28 px, una scala più forte sembra un salto.
+**Intended exceptions to the skills' rules**
+- Glass on the frame and the sidebar: Impeccable forbids it, here it is the identity (Current) and it is system
+  material.
+- GPU effects (metal, fire, caret): Impeccable and "no decoration" would suspect them; here each one carries a state
+  and goes away with the state.
+- Press scale 0.98 (Emil 0.97, `better-ui` 0.96): dense 28 px rows, a stronger scale looks like a jump.
