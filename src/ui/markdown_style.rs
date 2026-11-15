@@ -43,19 +43,37 @@ pub fn style(theme: &Theme, body_size: f32) -> MarkdownStyle {
     style_with(theme, Typeface { family: Family::Sans, size: body_size })
 }
 
+/// I font del testo del documento: corpo, titoli 1–3 (dal 4 come il corpo) e celle.
+#[derive(Clone, Copy, Debug)]
+pub struct Fonts {
+    pub body: TextStyle,
+    pub headings: [TextStyle; 3],
+    pub table: TextStyle,
+}
+
+/// I font del documento con la famiglia e la dimensione `face` (anche per misurare le parole
+/// lunghe, `doc::breaks`).
+pub fn fonts(face: Typeface) -> Fonts {
+    let k = face.size / BODY_TEXT;
+    let family = face.family;
+    let heading = |size: f32, weight: f32, lh: f32, tracking_em: f32| {
+        let size = size * k;
+        TextStyle::new(size, weight).lh(size * lh).tracking(size * tracking_em).family(family)
+    };
+    Fonts {
+        body: TextStyle::new(face.size, 400.0).lh(face.size * BODY_LEADING).family(family),
+        headings: [heading(28.0, 680.0, 1.2, -0.015), heading(19.0, 640.0, 1.3, -0.005), heading(15.5, 640.0, 1.3, 0.0)],
+        table: TextStyle::new(14.0 * k, 400.0).family(family),
+    }
+}
+
 /// Lo stile con la famiglia e la dimensione delle impostazioni: corpo, titoli e tabelle nella
 /// famiglia scelta; il codice resta monospaziato. Titoli, tabelle e codice scalano con il corpo
 /// (DESIGN.md, "Typography": 28, 19, 15,5, 14 e 13,5 con il corpo a 15,5).
 /// `MarkdownStyle` ha un solo colore di testo: corpo, titoli e grassetto usano `theme.body`.
 pub fn style_with(theme: &Theme, face: Typeface) -> MarkdownStyle {
-    let body_size = face.size;
-    let k = body_size / BODY_TEXT;
-    let family = face.family;
-    let body = TextStyle::new(body_size, 400.0).lh(body_size * BODY_LEADING).family(family);
-    let heading = |size: f32, weight: f32, lh: f32, tracking_em: f32| {
-        let size = size * k;
-        TextStyle::new(size, weight).lh(size * lh).tracking(size * tracking_em).family(family)
-    };
+    let k = face.size / BODY_TEXT;
+    let Fonts { body, headings: [h1, h2, h3], table } = fonts(face);
     // Il testo dei diagrammi non ha un setter su `MarkdownStyle`: viene dal kit. Si parte dal kit
     // neutro con testo e testo smorzato del tema, e si rimette ciò che ne dipende e che non deve
     // cambiare (riempimento del codice in linea, testo dei diff) ai valori del kit neutro.
@@ -79,13 +97,13 @@ pub fn style_with(theme: &Theme, face: Typeface) -> MarkdownStyle {
         .text_width(COLUMN)
         .muted(theme.fg3)
         .body_font(body)
-        .heading_font(1, heading(28.0, 680.0, 1.2, -0.015))
-        .heading_font(2, heading(19.0, 640.0, 1.3, -0.005))
-        .heading_font(3, heading(15.5, 640.0, 1.3, 0.0))
+        .heading_font(1, h1)
+        .heading_font(2, h2)
+        .heading_font(3, h3)
         .code_block_font(TextStyle::new(CODE_TEXT * k, 400.0).family(Family::Mono))
         .inline_code_font(CODE_TEXT / BODY_TEXT, 400.0)
         .strong_weight(620.0)
-        .table_font(TextStyle::new(14.0 * k, 400.0).family(family))
+        .table_font(table)
         .table_tabular_figures(true)
         .table_header_text(theme.fg2)
         .table_header_weight(560.0)

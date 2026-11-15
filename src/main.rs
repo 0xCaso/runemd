@@ -105,7 +105,7 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
         Some(tab) => {
             // Il dither: una barra alta una riga e larga come il testo, nello spazio sotto l'ultimo blocco.
             let tail = tab.dither_since.map(|since| fx::dither::slot(el().w_full().h(s.settings.size * ui::theme::BODY_LEADING), since, dark, reduced));
-            let signals = ui::doc_view::Signals { marked: App::is_marked, mark: theme.mark, tail, hits: App::find_hits, edge: App::doc_edge, meta: theme.meta() };
+            let signals = ui::doc_view::Signals { marked: App::is_marked, mark: theme.mark, tail, hits: App::find_hits, edge: App::doc_edge, meta: theme.meta(), fonts: ui::markdown_style::fonts(fonts::Typeface::of(&s.settings.font, s.settings.size)) };
             let doc = ui::doc_view::view(s, App::active_document, s.style(dark), s.settings.column, App::visible_rows, signals);
             // L'indice dei titoli a destra, solo se la finestra è larga almeno sidebar + colonna
             // + 200 (prima del primo layout non si sa: niente indice). La vista la legge da Rune,

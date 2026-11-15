@@ -40,6 +40,8 @@ pub struct Signals<S> {
     pub edge: fn(&mut S, u64, Edge) -> bool,
     /// I colori del blocco del frontmatter YAML: testo (`fg2`) e riempimento.
     pub meta: Meta,
+    /// I font del documento, per misurare dove vanno a capo le parole lunghe (`doc::breaks`).
+    pub fonts: super::markdown_style::Fonts,
 }
 
 /// Il blocco del frontmatter YAML in lettura (DESIGN.md, "Frontmatter"): monospaziato, piccolo,
@@ -111,7 +113,7 @@ pub fn view<S: 'static>(s: &S, doc_of: fn(&S) -> &Document, style: &MarkdownStyl
                 Some(b) if i == 0 && crate::doc::frontmatter::is_block(&b.source) => frontmatter_row(&b.source, signals.meta),
                 Some(b) => {
                     let hits = (signals.hits)(s, b, &row_key(i, doc_of(s)));
-                    block_row(&b.source, &style, (signals.marked)(s, b.id).then_some(signals.mark), hits)
+                    block_row(&b.source, &style, signals.fonts, (signals.marked)(s, b.id).then_some(signals.mark), hits)
                 }
                 None => el(),
             },
@@ -262,15 +264,47 @@ const FRONTMATTER_PAD_Y: f32 = 10.0;
 
 /// Una riga del documento, con i segni di Cerca `hits`; con `mark` ha il segno "cosa è cambiato"
 /// nel margine sinistro, fuori dal flusso (il testo non si sposta), alto quanto il testo del blocco.
-fn block_row(source: &str, style: &MarkdownStyle, mark: Option<Color>, hits: super::find::Marks) -> El {
+fn block_row(source: &str, style: &MarkdownStyle, fonts: super::markdown_style::Fonts, mark: Option<Color>, hits: super::find::Marks) -> El {
+    // Le parole lunghe vanno a capo dopo `/ - _ .`, e ovunque solo se più larghe di una riga: il
+    // testo disegnato ha degli U+200B in più, i segni di Cerca si spostano con loro.
+    let (shown, hits) = match crate::doc::breaks::soft_breaks(source, line_limit, |t, kind| rune::text::advance(t, font_of(&fonts, kind))) {
+        Some(b) => {
+            let hits = hits.into_iter().map(|(ranges, hl)| (ranges.iter().map(|r| b.map(r)).collect(), hl)).collect();
+            (b.text, hits)
+        }
+        None => (source.to_owned(), hits),
+    };
     // `selectable` fa di ogni blocco un selection_group a sé, che fermerebbe un trascinamento
     // al bordo del blocco: si toglie il flag e vale il gruppo unico sulle righe.
-    let body = rune_kit::Markdown::new(source).highlights(hits).selectable(true).render(style).selection_group(false);
+    let body = rune_kit::Markdown::new(shown).highlights(hits).selectable(true).render(style).selection_group(false);
     // Le righe virtuali vogliono padding interno, non gap tra righe.
     let row = col().w_full().px(ROW_PAD_X).py(ROW_PAD_Y).child(body);
     match mark {
         Some(c) => row.child(el().key("changed").pin(Some(CHANGED_MARK_X), Some(ROW_PAD_Y), None, Some(ROW_PAD_Y)).w(CHANGED_MARK_W).fill(c)),
         None => row,
+    }
+}
+
+/// La riga più stretta che ha un blocco di tipo `kind` con la colonna più stretta (`COLUMN`
+/// meno i margini): un titolo la prende tutta, un paragrafo ne lascia per due livelli di lista,
+/// una cella per tre colonne. Oltre, una parola si spezza ovunque (`doc::breaks`).
+fn line_limit(kind: crate::doc::breaks::Kind) -> f32 {
+    use crate::doc::breaks::Kind;
+    let line = super::theme::COLUMN - 2.0 * ROW_PAD_X;
+    match kind {
+        Kind::Heading(_) => line,
+        Kind::Body => line - 64.0,
+        Kind::Cell => line / 3.0,
+    }
+}
+
+/// Il font di un blocco di tipo `kind`.
+fn font_of(fonts: &super::markdown_style::Fonts, kind: crate::doc::breaks::Kind) -> TextStyle {
+    use crate::doc::breaks::Kind;
+    match kind {
+        Kind::Heading(n @ 1..=3) => fonts.headings[n as usize - 1],
+        Kind::Heading(_) | Kind::Body => fonts.body,
+        Kind::Cell => fonts.table,
     }
 }
 
@@ -1068,5 +1102,41 @@ mod tests {
         cmd(&mut rt, 'w');
         settle(&mut rt);
         assert_eq!(figures(&rt), ["Flowchart"]);
+    }
+
+    /// Le parole lunghe (fixtures/long-title.md: titolo-percorso, paragrafo, hash senza
+    /// separatori, lista, celle) vanno a capo: nessuna riga esce dalla colonna. Ogni testo è
+    /// dentro le righe e la sua parte più larga che non si spezza ci sta.
+    #[test]
+    fn long_words_never_overflow_the_column() {
+        let source = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/long-title.md")).unwrap();
+        let mut rt = open_themed(&source, true);
+        let els = rt.elements();
+        let rows = els.iter().find(|e| e.key.as_deref() == Some("rows")).unwrap().rect;
+        let right = rows[0] + rows[2] - crate::ui::theme::ROW_PAD_X;
+        let fonts = crate::ui::markdown_style::fonts(crate::fonts::Typeface::of("Inter", crate::ui::theme::BODY_TEXT));
+        let mut seen = 0;
+        for e in els.iter().filter(|e| e.text.as_deref().is_some_and(|t| !t.is_empty())) {
+            let t = e.text.as_deref().unwrap();
+            let mut up = e.parent;
+            let mut inside = false;
+            while let Some(i) = up {
+                inside |= els[i].key.as_deref() == Some("rows");
+                up = els[i].parent;
+            }
+            if !inside {
+                continue;
+            }
+            seen += 1;
+            assert!(e.rect[0] + e.rect[2] <= right + 0.5, "{t:?} esce: {:?} oltre {right}", e.rect);
+            let font = match (e.role, e.level) {
+                ("heading", Some(n @ 1..=3)) => fonts.headings[n as usize - 1],
+                _ => fonts.body,
+            };
+            let widest = rune::text::measure(t, &[], font, Some(0.0)).0;
+            assert!(e.rect[0] + widest <= right + 0.5, "{t:?}: la parte più larga ({widest} pt) esce da {right}");
+        }
+        assert!(seen >= 6, "testi controllati: {seen}");
+        let _ = &mut rt;
     }
 }

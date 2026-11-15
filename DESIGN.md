@@ -286,6 +286,10 @@ il codice esce in Inter). Cifre tabellari ovunque (`tnum`).
 
 Il grassetto nel corpo è peso 620 in `fg`. I titoli non sono enormi: la gerarchia viene dal peso e dal colore.
 
+Una parola più lunga della riga (un percorso, un nome di file) va a capo dopo `/`, `-`, `_` o `.`, così la riga
+finisce con il separatore e la seguente comincia con il pezzo dopo; si spezza in un punto qualsiasi solo un tratto
+senza separatori più largo di una riga (un hash). Nessuna riga esce dalla colonna.
+
 ## Layout
 
 - Finestra: sidebar di vetro larga 248 px a sinistra; il pannello del documento sta a 8 px dai bordi alto,

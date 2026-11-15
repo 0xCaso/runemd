@@ -123,6 +123,10 @@ aperto. Le cartelle osservate sono `~/Desktop/GitHub` (28 repo oggi), più altre
 - **Ancora di lettura.** `virtual_rows` tiene ferma la riga in cima per chiave
   (`crates/rune/src/el/virtual_rows.rs:50-53`). Se il blocco in cima cambia altezza, l'offset si corregge dentro il
   blocco; se sparisce, l'ancora passa al blocco seguente che esiste ancora.
+- **Parole lunghe.** Percorsi e nomi lunghi in titoli, paragrafi, liste e celle vanno a capo dopo `/ - _ .`
+  (fra due lettere o cifre); ovunque solo se il tratto senza questi segni è più largo di una riga. Codice a
+  blocchi, HTML, URL nudi e destinazioni dei link restano come sono. Copia, indice e Cerca leggono il sorgente
+  vero (`doc::breaks`, fixture `fixtures/long-title.md`).
 - Test di accettazione: con uno script che inserisce testo sopra la vista, che allunga il blocco in cima e che
   allunga l'ultimo blocco, il pixel in cima alla vista non si sposta.
 
