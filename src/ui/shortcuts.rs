@@ -32,19 +32,19 @@ const POPOVER_GAP: f32 = 4.0;
 
 /// The app's shortcuts, in the mockup's groups (design/mockups/2026-11-15-scorciatoie/scorciatoie.md).
 pub const GROUPS: &[(&str, &[(&str, &str)])] = &[
-    ("File", &[("Open file", "⌘P"), ("Pick and open in Open file", "↑↓  ↵"), ("New file", "⌘N"), ("Save (in source)", "⌘S"), ("Close tab", "⌘W")]),
+    ("File", &[("Open file", "⌘P"), ("Open the selected file", "↑↓  ↵"), ("New file", "⌘N"), ("Save (in source)", "⌘S"), ("Close tab", "⌘W")]),
     ("Tabs", &[("Go to tab", "⌘1 … ⌘8"), ("Last tab", "⌘9"), ("Next tab, previous tab", "⌃⇥  ⌃⇧⇥")]),
     (
         "Reading",
         &[
-            ("Source and reading", "⌘E"),
+            ("Toggle source", "⌘E"),
             ("Find in file", "⌘F"),
             ("Next match, previous match", "↵  ⇧↵"),
             ("Text width", "⌘⌥+  ⌘⌥−"),
             ("Select all", "⌘A"),
         ],
     ),
-    ("App", &[("Settings", "⌘,"), ("Close popover or Find", "Esc")]),
+    ("App", &[("Settings", "⌘,"), ("Close", "Esc")]),
 ];
 
 /// Opens or closes the shortcuts popover; opening it closes the width one.

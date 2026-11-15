@@ -1,11 +1,11 @@
-//! La sidebar (DESIGN.md, "Layout" e "Riga della sidebar"): campo "Apri file ⌘P", "Recenti" su
-//! due righe e, sotto una linea, le cartelle salvate, ognuna con il suo albero; la cartella del
-//! file aperto si apre da sola, con "Salva" se non è salvata (record
-//! `2026-11-15-cartelle-al-posto-albero`). In fondo "Aggiungi cartella".
+//! The sidebar (DESIGN.md, "Layout" and "Sidebar row"): the "Open file ⌘P" field, "Recent" on
+//! two lines and, below a rule, the saved folders, each with its tree; the folder of the
+//! open file opens by itself, with "Save" if it is not saved (record
+//! `2026-11-15-folders-instead-of-tree`). At the bottom, "Add folder".
 //!
-//! Lo stato (`Sidebar`) si ricalcola solo quando cambia l'indice, il file aperto, le salvate o il
-//! branch: la vista legge righe già pronte, senza toccare il disco. Gli alberi vengono dall'indice
-//! (solo cartelle con Markdown, spec "Sidebar"), non da una lettura del disco.
+//! The state (`Sidebar`) is recomputed only when the index, the open file, the saved folders or the
+//! branch change: the view reads rows that are already built, without touching the disk. The trees come
+//! from the index (only folders with Markdown, spec "Sidebar"), not from a disk read.
 
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
@@ -26,34 +26,34 @@ use crate::fx::{self, Mark};
 use crate::index::Index;
 use crate::repo::{self, Repo};
 
-/// Righe di Recenti al massimo (spec, "Sidebar": 20, ipotesi).
+/// Maximum number of Recent rows (spec, "Sidebar": 20, ipotesi).
 pub const RECENT_MAX: usize = 20;
-/// Recenti prende al massimo questa parte dell'altezza della sidebar e poi scorre.
+/// Recent takes at most this share of the sidebar height, then scrolls.
 pub const RECENT_SHARE: f32 = 0.4;
-/// Lo spazio fra le righe di Recenti, con o senza anelli (`recent-gap`).
+/// The space between Recent rows, with or without rings (`recent-gap`).
 pub const RECENT_GAP: f32 = 3.0;
-/// Una riga di Recenti è alta così (`recent-row`): il nome sopra, cartella o repo e ora sotto
-/// (record `2026-11-15-recenti-due-righe`, mockup A).
+/// A Recent row is this tall (`recent-row`): the name on top, folder or repo and time below
+/// (record `2026-11-15-recent-two-lines`, mockup A).
 pub const RECENT_ROW: f32 = 44.0;
-/// L'interlinea del nome (13 pt) e della seconda riga (12 pt), e lo spazio fra le due.
+/// The line height of the name (13 pt) and of the second line (12 pt), and the space between them.
 pub const RECENT_NAME_LH: f32 = 16.0;
 pub const RECENT_META_LH: f32 = 15.0;
 pub const RECENT_LINE_GAP: f32 = 2.0;
-/// Fra l'icona del branch e il branch.
+/// Between the branch icon and the branch.
 const BRANCH_GAP: f32 = 4.0;
-/// Il branch ha l'icona più piccola delle altre (mockup A, 12 contro 14).
+/// The branch icon is smaller than the others (mockup A, 12 against 14).
 const BRANCH_ICON: f32 = 12.0;
-/// La linea fra Recenti e il repo: 12 sopra, 8 sotto, `ROW_PAD` ai lati (mockup A, `.sep`).
+/// The rule between Recent and the repo: 12 above, 8 below, `ROW_PAD` at the sides (mockup A, `.sep`).
 const SEP_TOP: f32 = 12.0;
 const SEP_BOTTOM: f32 = 8.0;
 
-/// L'altezza massima di Recenti in una sidebar alta `sidebar_h`: il `RECENT_SHARE`, arrotondato
-/// in giù al punto.
+/// The maximum height of Recent in a sidebar `sidebar_h` tall: `RECENT_SHARE`, rounded
+/// down to the point.
 pub fn recent_cap(sidebar_h: f32) -> f32 {
     (sidebar_h * RECENT_SHARE).floor()
 }
 
-/// Il repo: un libro con il dorso a sinistra (mockup A), disegnato come le icone del kit
+/// The repo: a book with the spine on the left (mockup A), drawn like the kit icons
 /// (`glyphs::FOLDER`: viewBox 16, tratto 1, giunti tondi).
 pub static REPO_ICON: Icon = Icon {
     name: "runemd-repo",
@@ -61,54 +61,54 @@ pub static REPO_ICON: Icon = Icon {
     body: r#"<path d="M3.5 12.45V3a1.2 1.2 0 0 1 1.2-1.2H12.5V11.3H4.7a1.15 1.15 0 0 0 0 2.3H12.5" stroke="currentColor" stroke-linejoin="round" stroke-linecap="round"/><path d="M6.5 4.8H10" stroke="currentColor" stroke-linecap="round"/>"#,
 };
 
-/// Il branch: due commit sulla linea e un ramo che ne esce (mockup A). Si disegna a 12 pt, quindi
-/// il tratto è 1,2 nel viewBox 16 per avere lo spessore delle icone da 14 (0,9 pt).
+/// The branch: two commits on the line and a branch that leaves it (mockup A). Drawn at 12 pt, so
+/// the stroke is 1.2 in the 16 viewBox, to match the stroke of the 14 pt icons (0.9 pt).
 pub static BRANCH_ICON_GLYPH: Icon = Icon {
     name: "runemd-branch",
     view: 16.0,
     body: r#"<circle cx="4.5" cy="3.5" r="1.75" stroke="currentColor" stroke-width="1.2"/><circle cx="4.5" cy="12.5" r="1.75" stroke="currentColor" stroke-width="1.2"/><circle cx="11.5" cy="5" r="1.75" stroke="currentColor" stroke-width="1.2"/><path d="M4.5 5.25V10.75M11.5 6.75C11.5 9.75 4.5 8.35 4.5 10.75" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>"#,
 };
 
-/// La linea guida del livello 0 sta sotto la freccia della radice; ogni livello ne aggiunge
-/// una `TREE_INDENT` più a destra, sotto la freccia della cartella sopra.
+/// The level 0 guide line sits below the root arrow; each level adds one
+/// `TREE_INDENT` further right, below the arrow of the folder above.
 const GUIDE_X: f32 = TREE_ROW_PAD + CHEVRON / 2.0;
-/// "Salva" e "Togli": 6 pt ai lati, 1 sopra e sotto, raggio 4 (mockup "al posto", `.pin`).
+/// "Save" and "Remove": 6 pt at the sides, 1 above and below, radius 4 (mockup "al posto", `.pin`).
 const CHIP_PAD_X: f32 = 6.0;
 const CHIP_PAD_Y: f32 = 1.0;
 const CHIP_R: f32 = 4.0;
-/// Il nome di una radice non si stringe e arriva fino a 120 pt (mockup "al posto", `.froot .rn`,
-/// `flex:none`): si stringe il branch, a cui restano almeno 48 pt.
+/// A root name does not shrink and goes up to 120 pt (mockup "al posto", `.froot .rn`,
+/// `flex:none`): the branch shrinks instead, and keeps at least 48 pt.
 const ROOT_NAME_MAX: f32 = 120.0;
 const ROOT_BRANCH_MIN: f32 = 48.0;
 
-/// La larghezza massima del nome di una radice in una sidebar larga `width`: `ROOT_NAME_MAX`, o
-/// meno se la riga non ci sta con freccia, icona e `ROOT_BRANCH_MIN` per il branch.
+/// The maximum width of a root name in a sidebar `width` wide: `ROOT_NAME_MAX`, or
+/// less if the row does not fit with arrow, icon and `ROOT_BRANCH_MIN` for the branch.
 fn root_name_max(width: f32) -> f32 {
     let room = width - 2.0 * SIDEBAR_PAD - 2.0 * TREE_ROW_PAD - CHEVRON - ICON - 3.0 * ROW_GAP - ROOT_BRANCH_MIN;
     room.clamp(0.0, ROOT_NAME_MAX)
 }
-/// Le righe di livello `d` partono da qui (+ `d * TREE_INDENT`): la freccia della cartella cade
-/// sulla linea guida del livello sotto.
+/// Rows at level `d` start here (+ `d * TREE_INDENT`): the folder arrow falls
+/// on the guide line of the level below.
 const TREE_X: f32 = GUIDE_X + TREE_INDENT - TREE_ROW_PAD - CHEVRON / 2.0;
-/// Spazio dentro lo scroll dell'albero per l'anello, che sta fuori dalla riga di `RING_W`.
+/// Space inside the tree scroll for the ring, which sits `RING_W` outside the row.
 const RING_ROOM: f32 = fx::ring::RING_W + HAIRLINE;
 
-/// Una riga di Recenti.
+/// A Recent row.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RecentRow {
     pub path: PathBuf,
     pub name: String,
-    /// Dove sta il file. Per un nome che ritorna, il repo o la cartella che lo distingue: i file
-    /// di `.worktrees/` e `.repos/` restano in Recenti e si distinguono così (decisione Waggle
-    /// c_453c875b). In Recenti c'è sempre, perché è la seconda riga: per un nome unico è il repo
-    /// (la cartella fuori da un repo). In ⌘P è sempre "repo / cartella" (`place`).
+    /// Where the file is. For a repeated name, the repo or folder that tells it apart: the files
+    /// in `.worktrees/` and `.repos/` stay in Recent and are told apart this way (Waggle decision
+    /// c_453c875b). In Recent it is always there, because it is the second line: for a unique name it is the repo
+    /// (the folder outside a repo). In ⌘P it is always "repo / folder" (`place`).
     pub qualifier: Option<String>,
     pub mtime: SystemTime,
 }
 
-/// Il qualificatore di ogni riga con un nome che ritorna: il repo (o worktree) se i doppi stanno
-/// in repo diversi e quel repo ne ha uno solo, altrimenti la cartella. `repo_name` dà il nome
-/// del repo di un percorso (dalla cache della sidebar: niente disco per un percorso già visto).
+/// The qualifier of each row with a repeated name: the repo (or worktree) if the duplicates are
+/// in different repos and that repo has only one of them, otherwise the folder. `repo_name` gives the
+/// repo name of a path (from the sidebar cache: no disk access for a path already seen).
 fn qualify(rows: &mut [RecentRow], mut repo_name: impl FnMut(&Path) -> String) {
     let mut by_name: HashMap<&str, Vec<usize>> = HashMap::new();
     for (i, r) in rows.iter().enumerate() {
@@ -129,14 +129,14 @@ fn file_name(path: &Path) -> String {
     path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
 }
 
-/// Radice e nome del repo di un file (la sua cartella fuori da un repo).
+/// Root and repo name of a file (its folder outside a repo).
 fn repo_of(path: &Path) -> (PathBuf, String) {
     let r = repo::of(path);
     (r.root, r.name)
 }
 
-/// Dove sta un file in ⌘P: "repo / cartella" con la cartella relativa alla radice del repo, o
-/// solo il repo per un file nella radice.
+/// Where a file is in ⌘P: "repo / folder" with the folder relative to the repo root, or
+/// only the repo for a file in the root.
 fn place(path: &Path, root: &Path, name: &str) -> String {
     match path.parent().and_then(|d| d.strip_prefix(root).ok()).filter(|rel| !rel.as_os_str().is_empty()) {
         Some(rel) => format!("{name} / {}", rel.to_string_lossy()),
@@ -148,26 +148,26 @@ fn parent_name(path: &Path) -> String {
     path.parent().map(file_name).unwrap_or_default()
 }
 
-/// Una radice sotto Recenti: una cartella salvata, o quella del file aperto non salvata (con
-/// "Salva"). Il suo albero ha solo le cartelle con un Markdown, anche più giù.
+/// A root below Recent: a saved folder, or the unsaved folder of the open file (with
+/// "Save"). Its tree has only the folders with a Markdown file, also deeper down.
 pub struct Folder {
     pub root: PathBuf,
     pub name: String,
     pub branch: Option<String>,
-    /// La radice ha un `.git`: icona del repo e branch.
+    /// The root has a `.git`: repo icon and branch.
     pub git: bool,
     pub saved: bool,
-    /// La radice è aperta: le sue righe si vedono.
+    /// The root is expanded: its rows are visible.
     pub expanded: bool,
     pub tree: TreeModel<FileNode<PathBuf>>,
-    /// I file da cui è costruito l'albero, per non ricostruirlo se non cambiano.
+    /// The files the tree is built from, so it is not rebuilt if they do not change.
     files: Vec<PathBuf>,
-    /// Le cartelle aperte, per tenerle aperte quando l'albero si ricostruisce.
+    /// The expanded folders, to keep them expanded when the tree is rebuilt.
     open_dirs: HashSet<String>,
 }
 
 impl Folder {
-    /// Una radice nuova, chiusa. Il disco si legge qui (`.git`, branch), una volta per radice.
+    /// A new root, collapsed. The disk is read here (`.git`, branch), once per root.
     fn new(root: PathBuf, saved: bool, repo: Option<&Repo>) -> Folder {
         let git = root.join(".git").exists();
         let (name, branch) = match repo.filter(|r| r.root == root) {
@@ -177,14 +177,14 @@ impl Folder {
         Folder { root, name, branch: branch.filter(|_| git), git, saved, expanded: false, tree: TreeModel::default(), files: Vec::new(), open_dirs: HashSet::new() }
     }
 
-    /// Tutto ciò che sta sotto si vede per una cartella salvata o un repo; la cartella non salvata
-    /// di un file fuori da un repo mostra solo i suoi file (un `~/Desktop/nota.md` non porta tutto
-    /// il Desktop).
+    /// Everything below is shown for a saved folder or a repo; the unsaved folder
+    /// of a file outside a repo shows only its files (a `~/Desktop/nota.md` does not bring all
+    /// the Desktop).
     fn recursive(&self) -> bool {
         self.saved || self.git
     }
 
-    /// Ricostruisce l'albero se i suoi file sono cambiati (non per un mtime). Vero se è cambiato.
+    /// Rebuilds the tree if its files changed (not for an mtime). True if it changed.
     fn refresh(&mut self, index: &Index, open: Option<&Path>) -> bool {
         let files = shown_files(index.under(&self.root), &self.root, self.recursive(), open);
         if !self.tree.is_empty() && files.iter().copied().eq(self.files.iter().map(PathBuf::as_path)) {
@@ -205,27 +205,27 @@ impl Folder {
         true
     }
 
-    /// L'id nell'albero di `path` (relativo alla radice), se ci sta sotto.
+    /// The tree id of `path` (relative to the root), if it is below it.
     fn id_of(&self, path: &Path) -> Option<String> {
         let rel = path.strip_prefix(&self.root).ok()?;
         Some(rel.to_string_lossy().into_owned())
     }
 
-    /// Le righe che si vedono: la radice e, se aperta, il suo albero.
+    /// The visible rows: the root and, if expanded, its tree.
     fn rows(&self) -> usize {
         1 + if self.expanded { self.tree.visible_len() } else { 0 }
     }
 }
 
-/// Una cartella nascosta (`.worktrees`, `.claude`): fuori dall'albero.
+/// A hidden folder (`.worktrees`, `.claude`): left out of the tree.
 fn hidden(name: &std::ffi::OsStr) -> bool {
     name.to_string_lossy().starts_with('.')
 }
 
-/// I file da mostrare sotto `root` (record `2026-11-15-cartelle-al-posto-albero`, vincolo 3):
-/// l'indice ha solo Markdown, quindi le cartelle senza Markdown, anche vuote, non entrano; fuori
-/// le cartelle nascoste e, se non `recursive`, le sottocartelle. Il file aperto `open` c'è sempre
-/// se sta sotto `root`, anche in una cartella nascosta o prima della scansione.
+/// The files to show under `root` (record `2026-11-15-folders-instead-of-tree`, constraint 3):
+/// the index has only Markdown, so folders without Markdown, empty ones too, do not get in; left out
+/// are hidden folders and, if not `recursive`, subfolders. The open file `open` is always there
+/// if it is under `root`, also in a hidden folder or before the scan.
 fn shown_files<'a>(under: &'a [crate::index::Entry], root: &Path, recursive: bool, open: Option<&'a Path>) -> Vec<&'a Path> {
     let shown = |p: &Path| {
         let Some(dir) = p.strip_prefix(root).ok().and_then(Path::parent) else { return false };
@@ -240,53 +240,53 @@ fn shown_files<'a>(under: &'a [crate::index::Entry], root: &Path, recursive: boo
     files
 }
 
-/// Lo stato della sidebar.
+/// The sidebar state.
 #[derive(Default)]
 pub struct Sidebar {
     pub recent: Vec<RecentRow>,
-    /// Il tempo relativo di ogni riga di Recenti, calcolato in `tick` (la vista non legge l'orologio).
+    /// The relative time of each Recent row, computed in `tick` (the view does not read the clock).
     labels: Vec<String>,
-    /// Il risveglio armato per il prossimo cambio di etichetta: l'istante del cambio e quando
-    /// Rune lo fa scattare (orologio di `poll`).
+    /// The wake-up armed for the next label change: the instant of the change and when
+    /// Rune fires it (the `poll` clock).
     label_wake: Option<(SystemTime, f64)>,
-    /// Le candidate di Recenti dell'ultimo ricalcolo (i `2n` percorsi più recenti, in ordine),
-    /// e fra queste quelle che non sono più file: il disco si guarda solo per una candidata nuova.
+    /// The Recent candidates of the last recompute (the `2n` most recent paths, in order),
+    /// and among them the ones that are no longer files: the disk is checked only for a new candidate.
     candidates: Vec<PathBuf>,
     missing: HashSet<PathBuf>,
-    /// Radice e nome del repo di ogni percorso già visto (`repo::of`, una volta per percorso).
+    /// Root and repo name of each path already seen (`repo::of`, once per path).
     repo_names: HashMap<PathBuf, (PathBuf, String)>,
-    /// Il file aperto (canonico, come i percorsi dell'indice).
+    /// The open file (canonical, like the index paths).
     open: Option<PathBuf>,
-    /// Il repo del file aperto (o la sua cartella fuori da un repo), con il branch.
+    /// The repo of the open file (or its folder outside a repo), with the branch.
     pub repo: Option<Repo>,
-    /// Le cartelle salvate (canoniche), nell'ordine di `Settings::saved`.
+    /// The saved folders (canonical), in the order of `Settings::saved`.
     saved: Vec<PathBuf>,
-    /// Le radici sotto Recenti: le salvate e, in fondo, quella del file aperto se non sta in una
-    /// salvata (record `2026-11-15-cartelle-al-posto-albero`).
+    /// The roots below Recent: the saved ones and, at the end, the open file's one if it is not in a
+    /// saved one (record `2026-11-15-folders-instead-of-tree`).
     pub folders: Vec<Folder>,
-    /// Cresce a ogni cambio delle righe sotto Recenti: Rune rilegge le chiavi.
+    /// Grows at each change of the rows below Recent: Rune reads the keys again.
     pub tree_version: u64,
-    /// La radice salvata sotto il puntatore: la sua riga mostra "Togli" al posto del branch.
+    /// The saved root under the pointer: its row shows "Remove" instead of the branch.
     hover_folder: Option<PathBuf>,
-    /// La riga premuta adesso (la sua chiave): scala a 0,98 finché il puntatore non si alza.
+    /// The row pressed now (its key): scales to 0.98 until the pointer goes up.
     pressed: Option<String>,
-    /// macOS nega la lettura di una cartella osservata (Desktop): la sidebar lo dice.
+    /// macOS denies reading a watched folder (Desktop): the sidebar says so.
     pub no_access: bool,
-    /// Cmd+P: il campo e i risultati; le righe dei risultati hanno il qualificatore dei nomi doppi.
+    /// Cmd+P: the field and the results; the result rows carry the qualifier for repeated names.
     pub quick: QuickOpen,
     pub quick_rows: Vec<RecentRow>,
-    /// L'ora di ogni riga di `quick_rows`, calcolata quando i risultati cambiano.
+    /// The time of each row of `quick_rows`, computed when the results change.
     pub quick_labels: Vec<String>,
-    /// Cmd+N: il campo "Nuovo file" al posto di quello di Cmd+P.
+    /// Cmd+N: the "New file" field in place of the Cmd+P one.
     pub new_file: super::new_file::NewFile,
-    /// La riga dell'albero da portare in vista (il file appena aperto); la prende `poll`.
+    /// The tree row to scroll into view (the file just opened); `poll` takes it.
     reveal: Option<String>,
 }
 
 impl Sidebar {
-    /// Il file aperto è `path`: la sua radice (la salvata più profonda che lo contiene, o il suo
-    /// repo con "Salva") si apre da sola fino al file (vincolo 2). Il disco si legge qui
-    /// (`repo::of`), una volta per file aperto.
+    /// The open file is `path`: its root (the deepest saved one that contains it, or its
+    /// repo with "Save") expands by itself down to the file (constraint 2). The disk is read here
+    /// (`repo::of`), once per opened file.
     pub fn set_open(&mut self, path: &Path, index: &Index) {
         let path = path.canonicalize().unwrap_or_else(|_| path.to_owned());
         self.repo = Some(repo::of(&path));
@@ -311,30 +311,30 @@ impl Sidebar {
         self.tree_version += 1;
     }
 
-    /// Le cartelle salvate sono queste (canoniche, in ordine): le radici si rifanno, tenendo lo
-    /// stato di quelle che restano.
+    /// The saved folders are these (canonical, in order): the roots are rebuilt, keeping the
+    /// state of the ones that stay.
     pub fn set_saved(&mut self, saved: Vec<PathBuf>, index: &Index) {
         self.saved = saved;
         self.sync_folders(index);
         self.tree_version += 1;
     }
 
-    /// La radice del file aperto: la salvata più profonda che lo contiene, o quella non salvata.
+    /// The root of the open file: the deepest saved one that contains it, or the unsaved one.
     pub fn home(&self) -> Option<usize> {
         let open = self.open.as_ref()?;
         let saved = self.folders.iter().enumerate().filter(|(_, f)| f.saved && open.starts_with(&f.root)).max_by_key(|(_, f)| f.root.components().count());
         saved.or_else(|| self.folders.iter().enumerate().find(|(_, f)| !f.saved)).map(|(k, _)| k)
     }
 
-    /// L'albero della radice del file aperto (i test).
+    /// The tree of the open file's root (tests).
     #[cfg(test)]
     pub fn tree(&self) -> &TreeModel<FileNode<PathBuf>> {
-        &self.folders[self.home().expect("radice del file aperto")].tree
+        &self.folders[self.home().expect("root of the open file")].tree
     }
 
-    /// Rifà la lista delle radici: le salvate, poi quella del file aperto se nessuna salvata lo
-    /// contiene. Una radice che c'era tiene albero e cartelle aperte (anche passando da non
-    /// salvata a salvata); gli alberi si ricontrollano tutti.
+    /// Rebuilds the list of roots: the saved ones, then the open file's one if no saved one
+    /// contains it. A root that was there keeps its tree and expanded folders (also when going from
+    /// unsaved to saved); all trees are checked again.
     fn sync_folders(&mut self, index: &Index) {
         let mut old: Vec<Folder> = std::mem::take(&mut self.folders);
         let mut take = |root: &Path, saved: bool, repo: Option<&Repo>| match old.iter().position(|f| f.root == root) {
@@ -358,15 +358,15 @@ impl Sidebar {
         self.folders = folders;
     }
 
-    /// La riga dell'albero del file appena aperto, da portare in vista una volta
-    /// (`Tx::scroll_into_view_in("tree", …)`: lo scroll si muove solo se serve).
+    /// The tree row of the file just opened, to scroll into view once
+    /// (`Tx::scroll_into_view_in("tree", …)`: the scroll moves only if needed).
     pub fn take_reveal(&mut self) -> Option<String> {
         self.reveal.take()
     }
 
-    /// Nessun file aperto (l'ultima scheda chiusa): la radice non salvata sparisce, le salvate
-    /// restano senza riga scelta, e il branch non si aggiorna più (la cartella di HEAD può non
-    /// essere più guardata, `live::Live::unfollow`).
+    /// No open file (the last tab closed): the unsaved root goes away, the saved ones
+    /// stay with no selected row, and the branch is no longer updated (the HEAD folder may no
+    /// longer be watched, `live::Live::unfollow`).
     pub fn clear_open(&mut self) {
         self.open = None;
         self.repo = None;
@@ -377,13 +377,13 @@ impl Sidebar {
         self.tree_version += 1;
     }
 
-    /// Quante righe ci sono sotto Recenti: per ogni radice la sua riga e, se aperta, l'albero.
+    /// How many rows there are below Recent: for each root its row and, if expanded, the tree.
     pub fn flat_len(&self) -> usize {
         self.folders.iter().map(Folder::rows).sum()
     }
 
-    /// La riga `i` sotto Recenti: la radice `k` e, per una riga dell'albero, la sua posizione
-    /// fra le righe visibili.
+    /// Row `i` below Recent: root `k` and, for a tree row, its position
+    /// among the visible rows.
     pub fn flat(&self, mut i: usize) -> Option<(usize, Option<usize>)> {
         for (k, f) in self.folders.iter().enumerate() {
             if i < f.rows() {
@@ -394,7 +394,7 @@ impl Sidebar {
         None
     }
 
-    /// La chiave della riga `i` sotto Recenti (vedi [`flat_id`]).
+    /// The key of row `i` below Recent (see [`flat_id`]).
     pub fn flat_key(&self, i: usize) -> String {
         match self.flat(i) {
             Some((k, None)) => flat_id(k, ""),
@@ -403,14 +403,14 @@ impl Sidebar {
         }
     }
 
-    /// L'indice è cambiato. `touched` sono i percorsi (file o cartelle) che il cambio riguarda:
-    /// un albero si ricontrolla solo se uno di essi sta sopra o sotto la sua radice. Vero se la
-    /// vista cambia.
+    /// The index changed. `touched` are the paths (files or folders) the change is about:
+    /// a tree is checked again only if one of them is above or below its root. True if the
+    /// view changes.
     pub fn refresh(&mut self, index: &Index, touched: &[PathBuf], now: SystemTime) -> bool {
         let mut changed = self.refresh_recent(index);
         changed |= self.tick(now);
         if self.quick.active() {
-            // L'indice è cambiato, non la ricerca: la riga scelta resta quella.
+            // The index changed, not the query: the selected row stays the same.
             let before = (self.quick.hits.clone(), self.quick.selected);
             self.rank_quick(index, true);
             changed |= before != (self.quick.hits.clone(), self.quick.selected);
@@ -427,15 +427,15 @@ impl Sidebar {
         changed | trees
     }
 
-    /// La ricerca di Cmd+P è cambiata, o l'indice: ricalcola i risultati. I nomi doppi prendono il
-    /// qualificatore di Recenti (`qualify`).
+    /// The Cmd+P query changed, or the index: recompute the results. Repeated names get the
+    /// Recent qualifier (`qualify`).
     pub fn requery(&mut self, index: &Index) {
         self.rank_quick(index, false);
     }
 
-    /// `keep`: la ricerca è la stessa (l'indice è cambiato), la riga scelta resta per percorso.
-    /// Con la ricerca vuota i risultati sono Recenti. Ogni riga ha la seconda riga di Recenti:
-    /// il repo (la cartella fuori da un repo), per i nomi doppi quello che li distingue.
+    /// `keep`: the query is the same (the index changed), the selected row stays by path.
+    /// With an empty query the results are Recent. Each row has the Recent second line:
+    /// the repo (the folder outside a repo), for repeated names the one that tells them apart.
     fn rank_quick(&mut self, index: &Index, keep: bool) {
         if self.quick.empty_query() {
             self.quick.set_hits(self.recent.iter().map(|r| r.path.clone()).collect(), keep);
@@ -444,7 +444,7 @@ impl Sidebar {
         } else {
             self.quick.requery(index.names());
         }
-        // Ogni riga dice "repo / cartella" (mockup "compatto"): distingue già i nomi doppi.
+        // Each row says "repo / folder" (mockup "compatto"): it already tells repeated names apart.
         let names = &mut self.repo_names;
         let rows: Vec<RecentRow> = self
             .quick
@@ -460,15 +460,15 @@ impl Sidebar {
         self.quick_rows = rows;
     }
 
-    /// Il campo di Cmd+N ha perso il fuoco: si chiude. Il pannello di Cmd+P è modale e si chiude
-    /// da sé al clic fuori (`quick_open::panel`). Vero se il campo si è chiuso.
+    /// The Cmd+N field lost focus: it closes. The Cmd+P panel is modal and closes
+    /// by itself on a click outside (`quick_open::panel`). True if the field closed.
     pub fn blur_close(&mut self) -> bool {
         self.new_file.blur_close()
     }
 
-    /// Ricalcola Recenti: le `RECENT_MAX` voci più recenti che sono ancora file. Il disco si
-    /// guarda solo quando entra una candidata nuova (un `is_file`), il repo di ogni riga una
-    /// volta per percorso; un cambio di solo mtime non tocca il disco. Vero se le righe cambiano.
+    /// Recomputes Recent: the `RECENT_MAX` most recent entries that are still files. The disk is
+    /// checked only when a new candidate comes in (an `is_file`), the repo of each row once
+    /// per path; an mtime-only change does not touch the disk. True if the rows change.
     pub fn refresh_recent(&mut self, index: &Index) -> bool {
         let top = index.recent(RECENT_MAX * 2);
         if !top.iter().map(|e| &e.path).eq(self.candidates.iter()) {
@@ -490,7 +490,7 @@ impl Sidebar {
         let names = &mut self.repo_names;
         let mut repo_name = |p: &Path| names.entry(p.to_owned()).or_insert_with(|| repo_of(p)).1.clone();
         qualify(&mut rows, &mut repo_name);
-        // La seconda riga: un nome unico mostra il suo repo.
+        // The second line: a unique name shows its repo.
         for r in rows.iter_mut().filter(|r| r.qualifier.is_none()) {
             r.qualifier = Some(repo_name(&r.path));
         }
@@ -499,7 +499,7 @@ impl Sidebar {
         changed
     }
 
-    /// Ricontrolla tutti gli alberi (i test). Vero se uno è cambiato.
+    /// Checks all trees again (tests). True if one changed.
     #[cfg(test)]
     fn refresh_trees(&mut self, index: &Index) -> bool {
         let open = self.open.clone();
@@ -510,7 +510,7 @@ impl Sidebar {
         changed
     }
 
-    /// Un gesto sulla riga `key`: giù la preme, su la rilascia (anche annullato o fuori).
+    /// A gesture on row `key`: down presses it, up releases it (also when cancelled or outside).
     pub fn press(&mut self, key: &str, phase: Phase) {
         match phase {
             Phase::Down => self.pressed = Some(key.to_owned()),
@@ -523,9 +523,9 @@ impl Sidebar {
         self.pressed.as_deref() == Some(key)
     }
 
-    /// `.git/HEAD` di `root` è cambiato (checkout, anche in un worktree: `Live` guarda la
-    /// cartella di `repo::head_path`): si rilegge il branch del repo e della sua radice. Vero se
-    /// è cambiato.
+    /// `.git/HEAD` of `root` changed (checkout, also in a worktree: `Live` watches the
+    /// folder of `repo::head_path`): the branch of the repo and of its root is read again. True if
+    /// it changed.
     pub fn git_head(&mut self, root: &Path) -> bool {
         let Some(repo) = self.repo.as_mut().filter(|r| r.root == root) else { return false };
         let branch = repo::branch(root);
@@ -535,7 +535,7 @@ impl Sidebar {
         std::mem::replace(&mut repo.branch, branch.clone()) != branch
     }
 
-    /// Apre o chiude la cartella `id` dell'albero della radice `k`.
+    /// Expands or collapses folder `id` in the tree of root `k`.
     pub fn toggle(&mut self, k: usize, id: &str) {
         let Some(f) = self.folders.get_mut(k) else { return };
         f.tree.toggle(id);
@@ -547,7 +547,7 @@ impl Sidebar {
         self.tree_version += 1;
     }
 
-    /// Apre o chiude la radice `k`.
+    /// Expands or collapses root `k`.
     pub fn toggle_folder(&mut self, k: usize) {
         if let Some(f) = self.folders.get_mut(k) {
             f.expanded = !f.expanded;
@@ -555,7 +555,7 @@ impl Sidebar {
         }
     }
 
-    /// Il puntatore entra (`on`) o esce dalla riga della radice `root`. Vero se cambia.
+    /// The pointer enters (`on`) or leaves the row of root `root`. True if it changes.
     pub fn hover_folder(&mut self, root: &Path, on: bool) -> bool {
         let next = if on { Some(root.to_owned()) } else { self.hover_folder.clone().filter(|r| r != root) };
         let changed = next != self.hover_folder;
@@ -563,7 +563,7 @@ impl Sidebar {
         changed
     }
 
-    /// Ricalcola i tempi relativi a `now`. Vero se un'etichetta è cambiata.
+    /// Recomputes the relative times at `now`. True if a label changed.
     pub fn tick(&mut self, now: SystemTime) -> bool {
         let labels: Vec<String> = self.recent.iter().map(|r| relative_time::format(now.duration_since(r.mtime).unwrap_or_default())).collect();
         let changed = labels != self.labels;
@@ -571,9 +571,9 @@ impl Sidebar {
         changed
     }
 
-    /// Il risveglio da chiedere per il prossimo cambio di etichetta, come `rearm` in `main.rs`:
-    /// uno per cambio, e un altro se quello armato è scattato prima del cambio sul muro (Rune
-    /// misura da `clock`, l'inizio del frame). Un poll qualsiasi in mezzo non arma niente.
+    /// The wake-up to request for the next label change, like `rearm` in `main.rs`:
+    /// one per change, and another one if the armed one fired before the wall-clock change (Rune
+    /// measures from `clock`, the start of the frame). Any poll in between arms nothing.
     pub fn label_wake(&mut self, now: SystemTime, clock: f64) -> Option<Duration> {
         let next = self.recent.iter().map(|r| relative_time::next_change(r.mtime, now)).min();
         let due = self.label_wake.is_some_and(|(_, at)| clock >= at);
@@ -590,29 +590,29 @@ impl Sidebar {
     }
 }
 
-/// La chiave di una riga sotto Recenti: l'indice della radice e l'id nell'albero (vuoto per la
-/// radice). Le radici salvate possono stare una dentro l'altra: il percorso da solo non basta.
+/// The key of a row below Recent: the root index and the tree id (empty for the
+/// root). Saved roots can be nested: the path alone is not enough.
 pub fn flat_id(k: usize, id: &str) -> String {
     format!("{k}:{id}")
 }
 
-/// Come la vista raggiunge lo stato dell'app e cosa fa un clic.
+/// How the view reaches the app state and what a click does.
 pub struct Hooks<S> {
     pub get: fn(&S) -> &Sidebar,
     pub get_mut: fn(&mut S) -> &mut Sidebar,
-    /// Clic singolo: apre il file nella scheda di anteprima.
+    /// Single click: opens the file in the preview tab.
     pub open: fn(&mut S, PathBuf, &mut Tx),
-    /// Doppio clic: apre il file in una scheda fissa.
+    /// Double click: opens the file in a pinned tab.
     pub pin: fn(&mut S, PathBuf, &mut Tx),
-    /// L'orologio di Rune a cui si è acceso l'anello "sta scrivendo" del file; `None` se spento.
+    /// The Rune clock time at which the file's "writing" ring turned on; `None` if off.
     pub ring: fn(&S, &Path) -> Option<f64>,
-    /// La ricerca di Cmd+P è cambiata: ricalcola i risultati dall'indice.
+    /// The Cmd+P query changed: recompute the results from the index.
     pub query: fn(&mut S),
-    /// Cmd+N, Invio: crea il file e lo apre nel sorgente. Vero se il campo si chiude.
+    /// Cmd+N, Return: creates the file and opens it in the source. True if the field closes.
     pub create: fn(&mut S, String, &mut Tx) -> bool,
-    /// "Salva" sulla radice del file aperto, o la cartella scelta da "Aggiungi cartella".
+    /// "Save" on the open file's root, or the folder picked with "Add folder".
     pub save: fn(&mut S, PathBuf),
-    /// "Togli" sulla riga di una cartella salvata.
+    /// "Remove" on the row of a saved folder.
     pub unsave: fn(&mut S, PathBuf),
 }
 
@@ -624,7 +624,7 @@ impl<S> Clone for Hooks<S> {
 
 impl<S> Copy for Hooks<S> {}
 
-/// Testo UI (13/400) e UI piccola (12/500, cifre tabellari) di DESIGN.md.
+/// UI text (13/400) and small UI (12/500, tabular figures) from DESIGN.md.
 pub(super) fn ui_font() -> TextStyle {
     TextStyle::new(UI_TEXT, UI_WEIGHT)
 }
@@ -633,11 +633,11 @@ pub(super) fn small_font() -> TextStyle {
     TextStyle::new(UI_SMALL, UI_SMALL_WEIGHT).features("'tnum' 1")
 }
 
-/// La sidebar. `hover`: il puntatore è fine e può passare sopra (hover `sel` solo allora).
+/// The sidebar. `hover`: the pointer is fine and can hover (hover `sel` only then).
 pub fn view<S: 'static>(s: &S, hooks: Hooks<S>, width: f32, theme: &Theme, reduced: bool, hover: bool) -> El {
     let sb = (hooks.get)(s);
     let motion = Motion { reduced, hover };
-    // Tutto ciò che sta nella sidebar sta sul vetro: i suoi grigi (`Theme::on_glass`).
+    // Everything in the sidebar sits on the glass: its greys (`Theme::on_glass`).
     let glass = theme.on_glass();
     let theme = &glass;
     let mut side = col().key("sidebar").w(width).h_full().pt(SIDEBAR_TOP).px(SIDEBAR_PAD).pb(SIDEBAR_BOTTOM).child(if sb.new_file.open { super::new_file::field(sb, hooks, theme) } else { quick_open::launcher(hooks, theme) });
@@ -645,10 +645,10 @@ pub fn view<S: 'static>(s: &S, hooks: Hooks<S>, width: f32, theme: &Theme, reduc
         side = side.child(no_access(sb, hooks, theme, motion));
     }
     if !sb.recent.is_empty() {
-        // Al massimo `RECENT_SHARE` dell'altezza della sidebar, poi scorre (con la barra del
-        // sistema, a scomparsa): il repo e l'albero restano in vista anche con molti Recenti.
-        // Lo scroll taglia ciò che esce dai suoi bordi: dentro c'è `RING_ROOM` per gli anelli, e
-        // il margine negativo tiene le righe dove erano.
+        // At most `RECENT_SHARE` of the sidebar height, then it scrolls (with the system
+        // overlay scroll bar): the repo and the tree stay in view even with many Recent rows.
+        // The scroll clips what goes past its edges: inside there is `RING_ROOM` for the rings, and
+        // the negative margin keeps the rows where they were.
         let cap = rune::memo::layout_with("sidebar", |r| recent_cap(r[3]));
         let rows = col().w_full().gap(RECENT_GAP).padding(RING_ROOM).children(sb.recent.iter().enumerate().map(|(i, r)| {
             let label = sb.labels.get(i).cloned().unwrap_or_default();
@@ -661,7 +661,7 @@ pub fn view<S: 'static>(s: &S, hooks: Hooks<S>, width: f32, theme: &Theme, reduc
         side = side.child(section("Recent", theme)).child(list);
     }
     if !sb.folders.is_empty() {
-        // Niente etichetta: le radici sono i titoli dei loro alberi, sotto una linea.
+        // No label: the roots are the titles of their trees, below a rule.
         let sep = el().key("repo-sep").h(HAIRLINE).mx(ROW_PAD).mt(SEP_TOP).mb(SEP_BOTTOM).fill(theme.line);
         side = side.child(sep).child(tree(sb, hooks, width, theme, motion));
     } else {
@@ -671,11 +671,11 @@ pub fn view<S: 'static>(s: &S, hooks: Hooks<S>, width: f32, theme: &Theme, reduc
     side
 }
 
-/// Dove macOS tiene il permesso "File e cartelle".
+/// Where macOS keeps the "Files and Folders" permission.
 const PRIVACY_URL: &str = "x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders";
 
-/// L'avviso sotto il campo: il testo in `fg`, e sotto una riga premibile in [`row_meta`] che apre le
-/// Impostazioni di Sistema. Solo token di DESIGN.md: niente accento, niente pillola.
+/// The notice below the field: the text in `fg`, and below it a pressable row in [`row_meta`] that opens
+/// System Settings. Only DESIGN.md tokens: no accent, no pill.
 fn no_access<S: 'static>(sb: &Sidebar, hooks: Hooks<S>, theme: &Theme, motion: Motion) -> El {
     let link = row()
         .w_full()
@@ -685,7 +685,7 @@ fn no_access<S: 'static>(sb: &Sidebar, hooks: Hooks<S>, theme: &Theme, motion: M
         .child(text("Open System Settings").font(small_font()).color(row_meta(theme)).truncate().shrink().min_w(0.0))
         .on_press_tx(|_: &mut S, _: &mut Tx| {
             if let Err(e) = std::process::Command::new("open").arg(PRIVACY_URL).spawn() {
-                eprintln!("runemd: Impostazioni di Sistema non aperte: {e}");
+                eprintln!("runemd: could not open System Settings: {e}");
             }
         });
     let link = pressable(link, "no-access-link".into(), sb, hooks, theme, motion, true).key("no-access-link");
@@ -696,16 +696,16 @@ fn no_access<S: 'static>(sb: &Sidebar, hooks: Hooks<S>, theme: &Theme, motion: M
         .child(link)
 }
 
-/// Un'etichetta di sezione: 12/500 in `fg3` (`section-pad`).
+/// A section label: 12/500 in `fg3` (`section-pad`).
 fn section(label: &'static str, theme: &Theme) -> El {
     text(label).key(label).font(small_font()).color(theme.fg3).pt(SECTION_PAD_TOP).px(ROW_PAD).pb(SECTION_PAD_BOTTOM)
 }
 
-/// Come si muove una riga (DESIGN.md, `motion`); con "riduci movimento" tutto è immediato.
+/// How a row moves (DESIGN.md, `motion`); with "reduce motion" everything is immediate.
 #[derive(Clone, Copy)]
 pub(super) struct Motion {
     pub(super) reduced: bool,
-    /// Il puntatore è fine e può passare sopra: hover `sel` solo allora.
+    /// The pointer is fine and can hover: hover `sel` only then.
     pub(super) hover: bool,
 }
 
@@ -715,16 +715,16 @@ impl Motion {
         if self.reduced { Anim::INSTANT } else { Curve::tween(HOVER_FADE, Easing::EASE).into() }
     }
 
-    /// La scala della riga premuta va e torna in 160 ms ease-out.
+    /// The scale of the pressed row goes and comes back in 160 ms ease-out.
     fn press(self) -> Anim {
         if self.reduced { Anim::INSTANT } else { Curve::tween(PRESS_TIME, EASE_OUT).into() }
     }
 }
 
-/// Fa di `e` (la riga con chiave `key`) una riga premibile: hover `sel` con dissolvenza, solo con
-/// puntatore fine (`hover_ok`), e scala 0,98 in 160 ms finché è premuta. Rune non ha una curva per
-/// `press_scale` (scende subito e torna a molla): la pressione si segue con `on_drag` (giù/su) e
-/// la scala con `scale` + `scale_motion`. Il clic resta di `on_press` (rilascio dentro la riga).
+/// Makes `e` (the row with key `key`) a pressable row: hover `sel` with a fade, only with a
+/// fine pointer (`hover_ok`), and scale 0.98 in 160 ms while pressed. Rune has no curve for
+/// `press_scale` (down at once and back with a spring): the press is tracked with `on_drag` (down/up) and
+/// the scale with `scale` + `scale_motion`. The click stays with `on_press` (release inside the row).
 pub(super) fn pressable<S: 'static>(e: El, key: String, sb: &Sidebar, hooks: Hooks<S>, theme: &Theme, motion: Motion, hover_ok: bool) -> El {
     let down = sb.is_pressed(&key);
     let mut e = e
@@ -738,8 +738,8 @@ pub(super) fn pressable<S: 'static>(e: El, key: String, sb: &Sidebar, hooks: Hoo
     e
 }
 
-/// L'ospite dell'anello "sta scrivendo" attorno a una riga: sempre presente, così la struttura
-/// non cambia quando si accende.
+/// The host of the "writing" ring around a row: always there, so the structure
+/// does not change when it turns on.
 fn ring_host(row: El, mark: Mark, since: Option<f64>, reduced: bool, dark: bool) -> El {
     let host = el().w_full().radius(R_ROW).child(row);
     match since {
@@ -748,15 +748,15 @@ fn ring_host(row: El, mark: Mark, since: Option<f64>, reduced: bool, dark: bool)
     }
 }
 
-/// Il colore del testo piccolo dentro una riga premibile (tempo di Recenti, nome doppio, link):
-/// l'hover `sel` sul vetro porterebbe `fg3` sotto 4,5:1 (DESIGN.md, "Contrasto").
+/// The colour of small text inside a pressable row (Recent time, repeated name, link):
+/// the hover `sel` on the glass would bring `fg3` below 4.5:1 (DESIGN.md, "Contrast").
 pub fn row_meta(theme: &Theme) -> Color {
     theme.fg2
 }
 
-/// Una riga di Recenti su due righe (record `2026-11-15-recenti-due-righe`): sopra il nome, largo
-/// quanto la riga e tagliato in mezzo solo se non ci sta; sotto la cartella o il repo (tagliati in
-/// fondo) e l'ora a destra, in [`row_meta`] anche in hover.
+/// A Recent row on two lines (record `2026-11-15-recent-two-lines`): the name on top, as wide
+/// as the row and cut in the middle only if it does not fit; below, the folder or repo (cut in
+/// the end) and the time on the right, in [`row_meta`] also on hover.
 #[allow(clippy::too_many_arguments)]
 fn recent_row<S: 'static>(s: &S, hooks: Hooks<S>, i: usize, r: &RecentRow, label: String, theme: &Theme, motion: Motion) -> El {
     let name = text(r.name.clone()).font(ui_font().lh(RECENT_NAME_LH)).color(theme.fg).truncate_middle().w_full().min_w(0.0);
@@ -783,15 +783,15 @@ fn recent_row<S: 'static>(s: &S, hooks: Hooks<S>, i: usize, r: &RecentRow, label
     ring_host(e, Mark::RecentRing(i as u32), since, motion.reduced, theme.dark).key(key)
 }
 
-/// Il "+" di "Aggiungi cartella", disegnato come le icone del kit (viewBox 16, tratto 1).
+/// The "+" of "Add folder", drawn like the kit icons (viewBox 16, stroke 1).
 pub static PLUS_ICON: Icon = Icon {
     name: "runemd-plus",
     view: 16.0,
     body: r#"<path d="M8 3V13M3 8H13" stroke="currentColor" stroke-linecap="round"/>"#,
 };
 
-/// Un'azione piccola sulla riga di una radice ("Salva", "Togli"): 12/500 in [`row_meta`] dentro
-/// un bordo `line` da mezzo punto, raggio 4 (mockup "al posto", `.pin`).
+/// A small action on a root row ("Save", "Remove"): 12/500 in [`row_meta`] inside
+/// a half-point `line` border, radius 4 (mockup "al posto", `.pin`).
 fn chip<S: 'static>(label: &'static str, key: String, root: PathBuf, act: fn(&mut S, PathBuf), theme: &Theme) -> El {
     text(label)
         .key(key)
@@ -804,17 +804,17 @@ fn chip<S: 'static>(label: &'static str, key: String, root: PathBuf, act: fn(&mu
         .on_press(move |s: &mut S| act(s, root.clone()))
 }
 
-/// La riga di una radice (mockup "al posto", `.froot`): freccia, icona del repo (o cartella) in
-/// `fg3`, nome; a destra il branch in `fg3` (stretto per primo) e "Salva" se non è salvata; su
-/// una salvata in hover "Togli" prende il posto del branch (vincoli 2 e 5). Il nome di una salvata è 13/600 in `fg`, quello della non salvata 13/400 in
-/// `fg2`. Un clic apre o chiude la radice.
+/// A root row (mockup "al posto", `.froot`): arrow, repo (or folder) icon in
+/// `fg3`, name; on the right the branch in `fg3` (it shrinks first) and "Save" if not saved; on
+/// a saved one, on hover, "Remove" takes the place of the branch (constraints 2 and 5). A saved name is 13/600 in `fg`, an unsaved one 13/400 in
+/// `fg2`. A click expands or collapses the root.
 fn folder_row<S: 'static>(s: &S, hooks: Hooks<S>, k: usize, width: f32, theme: &Theme, motion: Motion) -> El {
     let sb = (hooks.get)(s);
     let Some(f) = sb.folders.get(k) else { return el() };
     let chevron = icon(&glyphs::CHEVRON_DOWN, CHEVRON).color(theme.fg3).icon_rotation(if f.expanded { 0.0 } else { -std::f32::consts::FRAC_PI_2 });
     let glyph = if f.git { &REPO_ICON } else { &glyphs::FOLDER };
     let (weight, color) = if f.saved { (UI_STRONG_WEIGHT, theme.fg) } else { (UI_WEIGHT, row_meta(theme)) };
-    // Il nome non si stringe (fino a `root_name_max`): si stringe il branch.
+    // The name does not shrink (up to `root_name_max`): the branch shrinks.
     let name = text(f.name.clone()).key(format!("folder-name-{k}")).font(TextStyle::new(UI_TEXT, weight)).color(color).truncate().shrink().min_w(0.0);
     let name = el().max_w(root_name_max(width)).child(name);
     let mut e = row()
@@ -852,8 +852,8 @@ fn folder_row<S: 'static>(s: &S, hooks: Hooks<S>, k: usize, width: f32, theme: &
     pressable(e, flat_id(k, ""), sb, hooks, theme, motion, true)
 }
 
-/// "Aggiungi cartella" in fondo alla sidebar (mockup "al posto"): il dialogo di macOS e la
-/// cartella scelta si salva.
+/// "Add folder" at the bottom of the sidebar (mockup "al posto"): the macOS dialog, and the
+/// picked folder is saved.
 fn add_folder<S: 'static>(sb: &Sidebar, hooks: Hooks<S>, theme: &Theme, motion: Motion) -> El {
     let e = row()
         .w_full()
@@ -868,14 +868,14 @@ fn add_folder<S: 'static>(sb: &Sidebar, hooks: Hooks<S>, theme: &Theme, motion: 
             tx.open_folder(rune::FileDialogOptions { title: "Add folder".into(), directory, ..Default::default() }, move |s: &mut S, result, _: &mut Tx| match result {
                 Ok(Some(path)) => (hooks.save)(s, path),
                 Ok(None) => {}
-                Err(e) => eprintln!("runemd: dialogo della cartella: {e}"),
+                Err(e) => eprintln!("runemd: folder dialog: {e}"),
             });
         });
     pressable(e, "add-folder".into(), sb, hooks, theme, motion, true).key("add-folder").mt(SEP_BOTTOM)
 }
 
-/// Le radici e i loro alberi: righe da 26 pt, rientro 16, linee guida, la radice del file aperto
-/// aperta fino al file.
+/// The roots and their trees: 26 pt rows, 16 indent, guide lines, the open file's root
+/// expanded down to the file.
 fn tree<S: 'static>(sb: &Sidebar, hooks: Hooks<S>, width: f32, theme: &Theme, motion: Motion) -> El {
     let theme = *theme;
     let rows = col()
@@ -893,9 +893,9 @@ fn tree_row<S: 'static>(s: &S, hooks: Hooks<S>, i: usize, width: f32, theme: &Th
     let Some(at) = at else { return folder_row(s, hooks, k, width, theme, motion) };
     let Some((node, r)) = sb.folders[k].tree.row(at) else { return el() };
     let depth = r.depth as f32;
-    // A destra lo spazio per l'anello: lo scroll dell'albero taglia ciò che esce dai suoi bordi.
+    // On the right, the room for the ring: the tree scroll clips what goes past its edges.
     let mut outer = row().w_full().h(TREE_ROW).pr(RING_ROOM);
-    // Una linea per livello, dalla radice fino a quello della riga: insieme fanno linee continue.
+    // One line per level, from the root down to the row's level: together they make continuous lines.
     for level in 0..=r.depth {
         let x = GUIDE_X + level as f32 * TREE_INDENT;
         outer = outer.child(el().key(format!("guide{level}")).pin(Some(x), Some(0.0), None, Some(0.0)).w(HAIRLINE).fill(theme.line));
@@ -924,11 +924,11 @@ fn tree_row<S: 'static>(s: &S, hooks: Hooks<S>, i: usize, width: f32, theme: &Th
         }
         None => e.on_press(move |s: &mut S| (hooks.get_mut)(s).toggle(k, &id)),
     };
-    // La riga selezionata tiene il suo `sel`: niente hover sopra.
+    // The selected row keeps its `sel`: no hover on top.
     let e = pressable(e, format!("tree-{}", flat_id(k, r.id)), sb, hooks, theme, motion, !r.selected);
     let since = node.data.as_deref().and_then(|p| (hooks.ring)(s, p));
-    // L'ospite è largo quanto la riga: col rientro deve stringersi, o esce dall'albero (nome
-    // tagliato senza "…", riempimento e anello senza il lato destro).
+    // The host is as wide as the row: with the indent it must shrink, or it goes out of the tree (name
+    // cut without "…", fill and ring without the right side).
     outer.child(ring_host(e, Mark::TreeRing(i as u32), since, motion.reduced, theme.dark).grow(1.0).shrink().min_w(0.0).ml(TREE_X + depth * TREE_INDENT))
 }
 
@@ -938,30 +938,30 @@ mod tests {
     use crate::index::Entry;
     use std::fs;
 
-    /// Quante righe di Recenti si vedono intere in `cap` (le righe e i `RECENT_GAP` fra loro).
+    /// How many Recent rows fit whole in `cap` (the rows and the `RECENT_GAP` between them).
     fn recent_rows_in(cap: f32) -> usize {
         ((cap + RECENT_GAP) / (RECENT_ROW + RECENT_GAP)).floor().max(0.0) as usize
     }
 
-    /// Le misure della riga a due righe: nome (16) + 2 + seconda riga (15) stanno nei 44 con
-    /// 5,5 sopra e sotto; nel 40 % della sidebar entrano circa 5 Recenti (record, vincolo 3)
-    /// invece dei 7–8 da 28.
+    /// The two-line row sizes: name (16) + 2 + second line (15) fit in 44 with
+    /// 5.5 above and below; in 40 % of the sidebar about 5 Recent rows fit (record, constraint 3)
+    /// instead of 7–8 at 28.
     #[test]
     fn recent_row_height_maths() {
         let pad = (RECENT_ROW - RECENT_NAME_LH - RECENT_LINE_GAP - RECENT_META_LH) / 2.0;
         assert_eq!(pad, 5.5);
         assert_eq!((recent_cap(616.0), recent_cap(800.0), recent_cap(1000.5)), (246.0, 320.0, 400.0));
-        // La finestra del mockup (sidebar alta 616), una finestra da 800 e una bassa da 600.
+        // The mockup window (sidebar 616 tall), an 800 window and a short 600 one.
         assert_eq!(recent_rows_in(recent_cap(616.0)), 5);
         assert_eq!(recent_rows_in(recent_cap(800.0)), 6);
         assert_eq!(recent_rows_in(recent_cap(600.0)), 5);
         assert_eq!(recent_rows_in(recent_cap(560.0)), 4);
         let old = |cap: f32| ((cap + RECENT_GAP) / (ROW + RECENT_GAP)).floor() as usize;
-        assert_eq!(old(recent_cap(616.0)), 8, "prima: righe da 28");
+        assert_eq!(old(recent_cap(616.0)), 8, "before: 28 pt rows");
         assert_eq!(recent_rows_in(0.0), 0);
     }
 
-    /// Recenti di un indice, da una sidebar nuova.
+    /// Recent rows of an index, from a new sidebar.
     fn recent_rows(index: &Index) -> Vec<RecentRow> {
         let mut sb = Sidebar::default();
         sb.refresh_recent(index);
@@ -987,7 +987,7 @@ mod tests {
         Entry { path: path.to_owned(), mtime: at(secs) }
     }
 
-    /// Un repo con `.git/HEAD` su `main` e i file `files` (relativi), tutti scritti.
+    /// A repo with `.git/HEAD` on `main` and the files `files` (relative), all written.
     fn repo_with(files: &[&str]) -> (tempfile::TempDir, PathBuf) {
         let d = tempfile::tempdir().unwrap();
         let root = d.path().canonicalize().unwrap().join("proj");
@@ -1001,11 +1001,11 @@ mod tests {
         (d, root)
     }
 
-    /// Un file lungo tre cartelle sotto il repo, nome lungo: ogni riga dell'albero (riempimento,
-    /// raggio e anello) finisce dentro l'albero, il rientro non la spinge oltre il bordo destro.
+    /// A file three folders deep in the repo, long name: every tree row (fill,
+    /// radius and ring) ends inside the tree, the indent does not push it past the right edge.
     #[test]
     fn deep_tree_rows_stay_inside_the_tree() {
-        let deep = "docs/architettura/sincronizzazione/2026-11-14-architettura-del-sistema-di-sincronizzazione-offline-v2.md";
+        let deep = "docs/architecture/synchronization/2026-11-14-architecture-of-the-offline-synchronization-system-v2.md";
         let (_d, root) = repo_with(&[deep, "README.md"]);
         let mut app = crate::App::bare(crate::index::Library::load(vec![root.clone()], None));
         app.open_paths(vec![root.join(deep)]);
@@ -1018,19 +1018,19 @@ mod tests {
         let tree = els.iter().find(|e| e.key.as_deref() == Some("tree")).expect("albero").rect;
         let right = tree[0] + tree[2];
         let rows: Vec<_> = els.iter().filter(|e| !e.exiting && e.path.contains("tree-rows/") && e.rect[2] > 0.0).collect();
-        assert!(rows.len() >= 5, "righe dell'albero: {}", rows.len());
+        assert!(rows.len() >= 5, "tree rows: {}", rows.len());
         for e in rows {
             assert!(e.rect[0] + e.rect[2] <= right + 0.5, "{} esce dall'albero: {:?}, bordo destro {right}", e.path, e.rect);
         }
     }
 
-    /// D1, D2, D3 e D5 (`docs/decisions/2026-11-14-sidebar-schede-nomi-lunghi.md`), con 60 file
-    /// in una cartella e nomi lunghi: Recenti ≤ 40 % dell'altezza della sidebar e 3 pt fra le
-    /// righe; l'albero scorre fino al file aperto; il branch sotto il nome del repo; la scheda
-    /// larga al massimo 240.
+    /// D1, D2, D3 and D5 (`docs/decisions/2026-11-14-sidebar-tabs-long-names.md`), with 60 files
+    /// in one folder and long names: Recent ≤ 40 % of the sidebar height and 3 pt between the
+    /// rows; the tree scrolls down to the open file; the branch below the repo name; the tab
+    /// at most 240 wide.
     #[test]
     fn long_lists_and_names_keep_their_bounds() {
-        let long = "2026-11-14-architettura-del-sistema-di-sincronizzazione-offline-v2-definitiva";
+        let long = "2026-11-14-architecture-of-the-offline-synchronization-system-v2-final";
         let files: Vec<String> = (1..=60).map(|n| format!("docs/molti/{long}-{n:02}.md")).collect();
         let refs: Vec<&str> = files.iter().map(String::as_str).collect();
         let (_d, root) = repo_with(&refs);
@@ -1048,7 +1048,7 @@ mod tests {
             }
         }
         let els = rt.elements();
-        let rect = |key: &str| els.iter().find(|e| e.key.as_deref() == Some(key) && !e.exiting).unwrap_or_else(|| panic!("{key} non c'è")).rect;
+        let rect = |key: &str| els.iter().find(|e| e.key.as_deref() == Some(key) && !e.exiting).unwrap_or_else(|| panic!("{key} missing")).rect;
         let side = rect("sidebar");
         let recent = rect("recent");
         assert!(recent[3] <= side[3] * RECENT_SHARE + 0.5, "Recenti alto {} su {}", recent[3], side[3]);
@@ -1056,22 +1056,22 @@ mod tests {
         rows.sort_by(|a, b| a[1].total_cmp(&b[1]));
         assert!(rows.len() >= 3);
         for w in rows.windows(2) {
-            assert!((w[1][1] - (w[0][1] + w[0][3]) - RECENT_GAP).abs() < 0.5, "spazio fra le righe: {w:?}");
+            assert!((w[1][1] - (w[0][1] + w[0][3]) - RECENT_GAP).abs() < 0.5, "space between rows: {w:?}");
         }
         for r in &rows {
-            assert!((r[3] - RECENT_ROW).abs() < 0.5, "riga di Recenti alta {}", r[3]);
+            assert!((r[3] - RECENT_ROW).abs() < 0.5, "Recent row {} tall", r[3]);
         }
-        assert!(els.iter().all(|e| e.key.as_deref() != Some("Repo del file")), "niente etichetta \"Repo del file\"");
+        assert!(els.iter().all(|e| e.key.as_deref() != Some("Repo del file")), "no \"Repo del file\" label");
         let tree = rect("tree");
         let id = flat_id(0, &files[59]);
         let row = rect(&id);
-        assert!(row[1] >= tree[1] - 0.5 && row[1] + row[3] <= tree[1] + tree[3] + 0.5, "riga del file aperto fuori vista: {row:?} in {tree:?}");
+        assert!(row[1] >= tree[1] - 0.5 && row[1] + row[3] <= tree[1] + tree[3] + 0.5, "open file row out of view: {row:?} in {tree:?}");
         let tab = rect(&format!("t-{:x}", rt.state.tabs[0].doc.id));
-        assert!(tab[2] <= crate::ui::theme::TAB_MAX_W + 0.5, "scheda larga {}", tab[2]);
+        assert!(tab[2] <= crate::ui::theme::TAB_MAX_W + 0.5, "tab {} wide", tab[2]);
     }
 
-    /// Due righe con lo stesso nome: sotto il nome il repo (worktree), o la cartella se il
-    /// repo è lo stesso. Un nome unico ha sotto il suo repo.
+    /// Two rows with the same name: below the name the repo (worktree), or the folder if the
+    /// repo is the same. A unique name has its repo below.
     #[test]
     fn doubles_show_their_repo_or_folder() {
         let (_d, root) = repo_with(&["PLAN.md", "docs/PLAN.md", "README.md", ".worktrees/feat/README.md"]);
@@ -1081,10 +1081,10 @@ mod tests {
         let q = |rel: &str| rows.iter().find(|r| r.path == root.join(rel)).unwrap().qualifier.clone();
         assert_eq!(q("README.md").as_deref(), Some("proj"));
         assert_eq!(q(".worktrees/feat/README.md").as_deref(), Some("feat"));
-        assert_eq!(q("PLAN.md").as_deref(), Some("proj"), "stesso repo: la cartella");
+        assert_eq!(q("PLAN.md").as_deref(), Some("proj"), "same repo: the folder");
         assert_eq!(q("docs/PLAN.md").as_deref(), Some("docs"));
         let index = Index::from_entries(vec![entry(&root.join("PLAN.md"), 1)]);
-        assert_eq!(recent_rows(&index)[0].qualifier.as_deref(), Some("proj"), "nome unico: il repo, seconda riga");
+        assert_eq!(recent_rows(&index)[0].qualifier.as_deref(), Some("proj"), "unique name: the repo, second line");
     }
 
     #[test]
@@ -1100,8 +1100,8 @@ mod tests {
         assert_eq!(rows[0].name, "f29.md");
     }
 
-    /// L'albero viene dall'indice, aperto fino al file aperto e con il file selezionato; un
-    /// cambio di solo mtime non lo ricostruisce, un file nuovo sì, e le cartelle aperte restano.
+    /// The tree comes from the index, expanded down to the open file and with the file selected; an
+    /// mtime-only change does not rebuild it, a new file does, and expanded folders stay expanded.
     #[test]
     fn tree_opens_to_the_file_and_rebuilds_only_for_new_files() {
         let (_d, root) = repo_with(&["CLAUDE.md", "docs/spike/a.md", "docs/spike/b.md", "design/x.md"]);
@@ -1122,43 +1122,43 @@ mod tests {
         let mut more: Vec<Entry> = files.iter().map(|f| entry(&root.join(f), 2)).collect();
         more.push(entry(&root.join("docs/new.md"), 3));
         assert!(sb.refresh_trees(&Index::from_entries(more)));
-        assert!(sb.tree().is_expanded("design") && sb.tree().is_expanded("docs/spike"), "cartelle aperte tenute");
+        assert!(sb.tree().is_expanded("design") && sb.tree().is_expanded("docs/spike"), "expanded folders kept");
         assert!(sb.tree().contains("docs/new.md") && sb.tree().is_selected("docs/spike/a.md"));
     }
 
-    /// Una radice con le sue righe aperte, tutte le cartelle aperte: gli id che si vedono.
+    /// A root with its rows expanded, all folders expanded: the visible ids.
     fn all_open(f: &mut Folder) -> Vec<String> {
         f.expanded = true;
         f.tree.expand_all();
         (0..f.tree.visible_len()).map(|i| f.tree.visible_id(i).unwrap().to_owned()).collect()
     }
 
-    /// Vincolo 3 (`2026-11-15-cartelle-al-posto-albero`): solo le cartelle con un Markdown, anche
-    /// più giù; fuori le vuote, quelle con altri file e le nascoste. Un file aperto in una
-    /// nascosta resta raggiungibile.
+    /// Constraint 3 (`2026-11-15-folders-instead-of-tree`): only folders with a Markdown file, also
+    /// deeper down; left out are empty ones, ones with other files and hidden ones. A file open in a
+    /// hidden folder stays reachable.
     #[test]
     fn only_folders_with_markdown_show() {
         let d = tempfile::tempdir().unwrap();
         let root = d.path().canonicalize().unwrap().join("Note");
-        for f in ["a/b/c/deep.md", "top.md", "solo-testo/x.txt", ".nascosta/h.md", "a/.bozze/z.md", "vuota/dentro/niente.txt"] {
+        for f in ["a/b/c/deep.md", "top.md", "text-only/x.txt", ".hidden/h.md", "a/.drafts/z.md", "empty/inside/nothing.txt"] {
             let p = root.join(f);
             fs::create_dir_all(p.parent().unwrap()).unwrap();
             fs::write(p, "x").unwrap();
         }
-        fs::create_dir_all(root.join("vuota-del-tutto")).unwrap();
+        fs::create_dir_all(root.join("fully-empty")).unwrap();
         let index = Index::from_entries(crate::index::scan::scan(std::slice::from_ref(&root)));
         let mut sb = Sidebar::default();
         sb.set_saved(vec![root.clone()], &index);
         assert_eq!(all_open(&mut sb.folders[0]), ["a", "a/b", "a/b/c", "a/b/c/deep.md", "top.md"]);
-        sb.set_open(&root.join(".nascosta/h.md"), &index);
-        assert_eq!(sb.home(), Some(0), "la salvata contiene il file");
-        assert!(sb.tree().contains(".nascosta/h.md") && sb.tree().is_selected(".nascosta/h.md"));
-        assert!(!sb.tree().contains("a/.bozze/z.md"));
+        sb.set_open(&root.join(".hidden/h.md"), &index);
+        assert_eq!(sb.home(), Some(0), "the saved folder contains the file");
+        assert!(sb.tree().contains(".hidden/h.md") && sb.tree().is_selected(".hidden/h.md"));
+        assert!(!sb.tree().contains("a/.drafts/z.md"));
     }
 
-    /// Vincolo 2: la radice del file aperto si apre da sola fino al file. Fuori dalle salvate è
-    /// il suo repo, in fondo e non salvato ("Salva"); dentro una salvata è quella (la più
-    /// profonda), senza riga in più. Le altre salvate restano chiuse.
+    /// Constraint 2: the open file's root expands by itself down to the file. Outside the saved ones it is
+    /// its repo, at the end and unsaved ("Save"); inside a saved one it is that one (the
+    /// deepest), with no extra row. The other saved ones stay collapsed.
     #[test]
     fn the_open_files_folder_opens_by_itself() {
         let (_d, repo) = repo_with(&["docs/a.md", "README.md"]);
@@ -1176,21 +1176,21 @@ mod tests {
         assert_eq!(sb.take_reveal().as_deref(), Some("1:docs/a.md"));
         let keys: Vec<String> = (0..sb.flat_len()).map(|i| sb.flat_key(i)).collect();
         assert_eq!(keys, ["0:", "1:", "1:docs", "1:docs/a.md", "1:README.md"]);
-        // Un file dentro una salvata: si apre quella, la non salvata sparisce.
+        // A file inside a saved folder: that one expands, the unsaved one goes away.
         sb.set_saved(vec![notes.clone(), repo.clone(), repo.join("docs")], &index);
         sb.set_open(&repo.join("docs/a.md"), &index);
         assert_eq!(sb.folders.len(), 3);
-        assert_eq!(sb.home(), Some(2), "la salvata più profonda");
+        assert_eq!(sb.home(), Some(2), "the deepest saved folder");
         assert!(sb.folders[2].expanded && sb.tree().is_selected("a.md"));
-        assert!(!sb.folders[1].tree.is_selected("docs/a.md"), "una riga scelta sola");
+        assert!(!sb.folders[1].tree.is_selected("docs/a.md"), "only one selected row");
         sb.toggle_folder(2);
         assert!(!sb.folders[2].expanded);
         assert_eq!(sb.flat_len(), 1 + 1 + sb.folders[1].rows());
     }
 
-    /// Vincoli 2, 4 e 5 nell'app: "Salva" mette la radice fra le salvate (e in prefs, e fra le
-    /// osservate se nessuna la copre); "Togli" la toglie e la radice del file torna con "Salva".
-    /// In vista: "Salva" sulla non salvata, "Togli" in hover sulla salvata al posto del branch.
+    /// Constraints 2, 4 and 5 in the app: "Save" puts the root among the saved ones (and in prefs, and among the
+    /// watched ones if none covers it); "Remove" removes it and the file's root comes back with "Save".
+    /// In the view: "Save" on the unsaved one, "Remove" on hover on the saved one in place of the branch.
     #[test]
     fn save_and_remove_from_the_row() {
         let (_d, repo) = repo_with(&["docs/a.md"]);
@@ -1204,17 +1204,17 @@ mod tests {
             if !rt.frame(1.0 / 120.0) { break; }
         }
         let find = |rt: &rune::Runtime<crate::App>, key: &str| rt.elements().into_iter().find(|e| e.key.as_deref() == Some(key) && !e.exiting);
-        let salva = find(&rt, "folder-save-0").expect("\"Salva\" sulla radice non salvata").rect;
-        let branch = find(&rt, "folder-branch-0").expect("il branch resta").rect;
-        assert!(salva[0] >= branch[0] + branch[2] - 0.5, "\"Salva\" dopo il branch");
-        // La radice su una riga (mockup "al posto"): icona, nome, a destra branch e "Salva".
+        let save = find(&rt, "folder-save-0").expect("\"Save\" on the unsaved root").rect;
+        let branch = find(&rt, "folder-branch-0").expect("the branch stays").rect;
+        assert!(save[0] >= branch[0] + branch[2] - 0.5, "\"Save\" after the branch");
+        // The root on one line (mockup "al posto"): icon, name, on the right branch and "Save".
         let (name, icon) = (find(&rt, "folder-name-0").unwrap().rect, find(&rt, "folder-icon-0").unwrap().rect);
         let mid = |r: [f32; 4]| r[1] + r[3] / 2.0;
-        assert!(branch[0] >= name[0] + name[2] - 0.5, "branch a destra del nome: {name:?} {branch:?}");
-        for r in [icon, branch, salva] {
-            assert!((mid(r) - mid(name)).abs() < 1.5, "una riga: {r:?} contro {name:?}");
+        assert!(branch[0] >= name[0] + name[2] - 0.5, "branch right of the name: {name:?} {branch:?}");
+        for r in [icon, branch, save] {
+            assert!((mid(r) - mid(name)).abs() < 1.5, "one line: {r:?} against {name:?}");
         }
-        let (x, y) = (salva[0] + salva[2] / 2.0, salva[1] + salva[3] / 2.0);
+        let (x, y) = (save[0] + save[2] / 2.0, save[1] + save[3] / 2.0);
         rt.pointer_move(x, y);
         rt.pointer_down(x, y);
         rt.pointer_up(x, y);
@@ -1222,11 +1222,11 @@ mod tests {
             if !rt.frame(1.0 / 120.0) { break; }
         }
         assert_eq!(rt.state.settings.saved, std::slice::from_ref(&repo));
-        assert!(rt.state.library.roots().contains(&repo), "osservata: il suo albero ha i suoi Markdown");
+        assert!(rt.state.library.roots().contains(&repo), "watched: its tree has its Markdown files");
         let f = &rt.state.sidebar.folders[0];
-        assert!(f.saved && f.expanded, "la radice resta aperta");
-        assert_eq!(rt.state.sidebar.folders.len(), 1, "niente riga non salvata");
-        // Il puntatore è sopra la riga: "Togli" al posto del branch.
+        assert!(f.saved && f.expanded, "the root stays expanded");
+        assert_eq!(rt.state.sidebar.folders.len(), 1, "no unsaved row");
+        // The pointer is over the row: "Remove" in place of the branch.
         assert!(find(&rt, "folder-save-0").is_none());
         let togli = find(&rt, "folder-remove-0").expect("\"Togli\" in hover").rect;
         let (x, y) = (togli[0] + togli[2] / 2.0, togli[1] + togli[3] / 2.0);
@@ -1238,14 +1238,14 @@ mod tests {
         }
         assert!(rt.state.settings.saved.is_empty());
         let f = &rt.state.sidebar.folders[0];
-        assert!(!f.saved && f.expanded, "torna non salvata, aperta");
-        // Fuori dalla riga torna il branch... sulla salvata; qui la riga non salvata ha "Salva".
+        assert!(!f.saved && f.expanded, "back to unsaved, expanded");
+        // Off the row the branch comes back... on the saved one; here the unsaved row has "Save".
         rt.pointer_move(1000.0, 400.0);
         rt.frame(1.0 / 120.0);
         assert!(find(&rt, "folder-save-0").is_some());
     }
 
-    /// "Togli" compare solo col puntatore sopra; fuori torna il branch.
+    /// "Remove" shows only with the pointer over it; off it the branch comes back.
     #[test]
     fn hover_swaps_the_branch_for_remove() {
         let (_d, repo) = repo_with(&["a.md"]);
@@ -1253,13 +1253,13 @@ mod tests {
         sb.set_saved(vec![repo.clone()], &Index::default());
         assert!(sb.hover_folder(&repo, true));
         assert!(!sb.hover_folder(&repo, true), "invariato");
-        assert!(!sb.hover_folder(Path::new("/altro"), false), "un'altra riga non spegne questa");
+        assert!(!sb.hover_folder(Path::new("/other"), false), "another row does not turn this one off");
         assert!(sb.hover_folder(&repo, false));
         assert_eq!(sb.hover_folder, None);
     }
 
-    /// Chiusa l'ultima scheda non c'è un file aperto: niente repo, niente albero, niente riga
-    /// scelta, e un cambio di HEAD non tocca più niente.
+    /// After the last tab closes there is no open file: no repo, no tree, no selected
+    /// row, and a HEAD change no longer touches anything.
     #[test]
     fn clear_open_drops_the_repo_and_the_selection() {
         let (_d, root) = repo_with(&["a.md"]);
@@ -1268,29 +1268,29 @@ mod tests {
         assert!(sb.repo.is_some());
         sb.clear_open();
         assert!(sb.repo.is_none() && sb.open.is_none());
-        assert!(sb.folders.is_empty(), "la radice non salvata sparisce");
+        assert!(sb.folders.is_empty(), "the unsaved root goes away");
         assert!(!sb.git_head(&root));
     }
 
-    /// Un checkout nel repo del file aperto cambia il branch; in un altro repo no.
+    /// A checkout in the open file's repo changes the branch; in another repo it does not.
     #[test]
     fn git_head_rereads_the_branch() {
         let (_d, root) = repo_with(&["a.md"]);
         let mut sb = Sidebar::default();
         sb.set_open(&root.join("a.md"), &Index::default());
         fs::write(root.join(".git/HEAD"), "ref: refs/heads/feat/x\n").unwrap();
-        assert!(!sb.git_head(Path::new("/altro")));
+        assert!(!sb.git_head(Path::new("/other")));
         assert!(sb.git_head(&root));
         assert_eq!(sb.repo.as_ref().unwrap().branch.as_deref(), Some("feat/x"));
         assert!(!sb.git_head(&root), "invariato");
     }
 
-    /// Una cartella che diventa illeggibile a metà sessione: niente panic, le sue righe spariscono
-    /// da Recenti, l'albero resta quello dell'indice.
+    /// A folder that becomes unreadable mid-session: no panic, its rows go away
+    /// from Recent, the tree stays the index one.
     #[test]
     fn an_unreadable_folder_does_not_panic() {
         use std::os::unix::fs::PermissionsExt;
-        /// Rimette i permessi anche se un'asserzione fallisce, così la tempdir si cancella.
+        /// Restores the permissions even if an assertion fails, so the tempdir gets deleted.
         struct Restore(PathBuf);
         impl Drop for Restore {
             fn drop(&mut self) {
@@ -1311,26 +1311,26 @@ mod tests {
         assert!(sb.tree().contains("secret/b.md"));
     }
 
-    /// Un risveglio per cambio di etichetta, non uno per poll; se scatta prima del cambio sul
-    /// muro se ne arma un altro.
+    /// One wake-up per label change, not one per poll; if it fires before the wall-clock
+    /// change, another one is armed.
     #[test]
     fn one_label_wake_per_change() {
         let mut sb = Sidebar { recent: vec![RecentRow { path: PathBuf::from("/a.md"), name: "a.md".into(), qualifier: None, mtime: at(0) }], ..Sidebar::default() };
         assert!(sb.tick(at(30)));
         assert_eq!(sb.labels, ["now"]);
-        let wake = sb.label_wake(at(30), 100.0).expect("al minuto");
+        let wake = sb.label_wake(at(30), 100.0).expect("at the minute");
         assert_eq!(wake, Duration::from_secs(30) + Duration::from_millis(1));
-        assert_eq!(sb.label_wake(at(31), 101.0), None, "un poll in mezzo");
-        // Scatta in anticipo: il muro dice ancora 59 s.
+        assert_eq!(sb.label_wake(at(31), 101.0), None, "a poll in between");
+        // It fires early: the wall clock still says 59 s.
         let early = 100.0 + wake.as_secs_f64();
         assert!(!sb.tick(at(59)));
-        assert!(sb.label_wake(at(59), early).is_some(), "ne arma un altro");
+        assert!(sb.label_wake(at(59), early).is_some(), "arms another one");
         assert!(sb.tick(at(60)));
         assert_eq!(sb.labels, ["1 min"]);
     }
 
-    /// Tre righe con lo stesso nome, due nello stesso repo: il repo non basta a distinguerle,
-    /// quelle due prendono la cartella.
+    /// Three rows with the same name, two in the same repo: the repo is not enough to tell them apart,
+    /// those two get the folder.
     #[test]
     fn doubles_in_the_same_repo_fall_back_to_the_folder() {
         let (_d, root) = repo_with(&["a/PLAN.md", "b/PLAN.md", ".worktrees/feat/PLAN.md"]);
@@ -1341,28 +1341,28 @@ mod tests {
         assert_eq!((q("a/PLAN.md").as_str(), q("b/PLAN.md").as_str(), q(".worktrees/feat/PLAN.md").as_str()), ("a", "b", "feat"));
     }
 
-    /// Un cambio di solo mtime (un agente che riscrive un file già in Recenti) non guarda il
-    /// disco: né `is_file` né il repo dei doppi. Un file nuovo fra le candidate sì.
+    /// An mtime-only change (an agent rewriting a file already in Recent) does not look at the
+    /// disk: neither `is_file` nor the repo of the duplicates. A new file among the candidates does.
     #[test]
     fn an_mtime_only_change_does_not_touch_the_disk() {
         let (_d, root) = repo_with(&["README.md", "x/README.md", "b.md"]);
         let entries = |m: u64| vec![entry(&root.join("README.md"), m), entry(&root.join("x/README.md"), 2), entry(&root.join("b.md"), 3)];
         let mut sb = Sidebar::default();
         sb.refresh_recent(&Index::from_entries(entries(1)));
-        // Da qui il disco dice altro: se si rileggesse, le righe cambierebbero.
+        // From here the disk says something else: if it were read again, the rows would change.
         fs::remove_file(root.join("b.md")).unwrap();
         fs::remove_dir_all(root.join(".git")).unwrap();
-        assert!(sb.refresh_recent(&Index::from_entries(entries(9))), "l'ordine cambia");
+        assert!(sb.refresh_recent(&Index::from_entries(entries(9))), "the order changes");
         assert_eq!(sb.recent.iter().map(|r| r.name.as_str()).collect::<Vec<_>>(), ["README.md", "b.md", "README.md"]);
-        assert_eq!(sb.recent[0].qualifier.as_deref(), Some("proj"), "cartella dalla cache: niente rilettura");
-        // Una candidata nuova si guarda sul disco.
+        assert_eq!(sb.recent[0].qualifier.as_deref(), Some("proj"), "folder from the cache: no re-read");
+        // A new candidate is checked on disk.
         let mut more = entries(9);
         more.push(entry(&root.join("gone.md"), 10));
         sb.refresh_recent(&Index::from_entries(more));
         assert!(sb.recent.iter().all(|r| r.name != "gone.md"));
     }
 
-    /// Un cambio fuori dalla radice del repo non ricontrolla l'albero; uno dentro sì.
+    /// A change outside the repo root does not check the tree again; one inside does.
     #[test]
     fn changes_outside_the_repo_skip_the_tree() {
         let (_d, root) = repo_with(&["a.md"]);
@@ -1375,13 +1375,13 @@ mod tests {
         assert!(!sb.tree().contains("new.md"));
         sb.refresh(&index, &[root.join("new.md")], at(5));
         assert!(sb.tree().contains("new.md"));
-        // Una scansione di una cartella sopra la radice la riguarda.
+        // A scan of a folder above the root is about it.
         let index = Index::from_entries(vec![entry(&root.join("a.md"), 1), entry(&root.join("new.md"), 2), entry(&root.join("z.md"), 2)]);
         sb.refresh(&index, &[root.parent().unwrap().to_owned()], at(5));
         assert!(sb.tree().contains("z.md"));
     }
 
-    /// Fuori da un repo l'albero mostra solo i file della cartella del file, non le sottocartelle.
+    /// Outside a repo the tree shows only the files of the file's folder, not the subfolders.
     #[test]
     fn outside_a_repo_the_tree_shows_only_the_folder() {
         let d = tempfile::tempdir().unwrap();
@@ -1398,8 +1398,8 @@ mod tests {
         assert_eq!(shown, ["note.md", "other.md"]);
     }
 
-    /// I risultati di Cmd+P: un nome doppio prende il repo o la cartella, come in Recenti; un nome
-    /// unico prende il repo (la cartella fuori da un repo), come la seconda riga di Recenti.
+    /// The Cmd+P results: a repeated name gets the repo or the folder, as in Recent; a unique
+    /// name gets the repo (the folder outside a repo), like the Recent second line.
     #[test]
     fn quick_results_qualify_doubles() {
         let index = Index::from_entries(vec![entry(Path::new("/r1/docs/spec.md"), 1), entry(Path::new("/r2/docs/spec.md"), 2), entry(Path::new("/r1/docs/other.md"), 3)]);
@@ -1414,8 +1414,8 @@ mod tests {
         assert_eq!(sb.quick_rows[0].qualifier.as_deref(), Some("docs"));
     }
 
-    /// Le righe di ⌘P dicono "repo / cartella" (mockup "compatto"); un file nella radice del repo
-    /// dice solo il repo.
+    /// The ⌘P rows say "repo / folder" (mockup "compatto"); a file in the repo root
+    /// says only the repo.
     #[test]
     fn quick_rows_show_repo_and_folder() {
         let (_d, root) = repo_with(&["docs/decisions/a-dec.md", "DECISIONS.md"]);
@@ -1428,7 +1428,7 @@ mod tests {
         assert_eq!(q("DECISIONS.md"), "proj");
     }
 
-    /// Ricerca vuota: il pannello mostra Recenti, con l'ora di ognuno.
+    /// Empty query: the panel shows Recent, each with its time.
     #[test]
     fn an_empty_query_shows_recent_files() {
         let index = Index::from_entries(vec![entry(Path::new("/r/a.md"), 1), entry(Path::new("/r/b.md"), 2)]);
@@ -1442,7 +1442,7 @@ mod tests {
         assert!(sb.quick_labels.iter().all(|l| !l.is_empty()));
     }
 
-    /// Il pannello di Cmd+P è modale: perdere il fuoco non lo chiude (lo chiudono Esc e il clic fuori).
+    /// The Cmd+P panel is modal: losing focus does not close it (Esc and a click outside close it).
     #[test]
     fn blur_does_not_close_the_quick_panel() {
         let index = Index::from_entries(vec![entry(Path::new("/r/a.md"), 1)]);
@@ -1455,7 +1455,7 @@ mod tests {
         assert!(sb.quick.active() && sb.quick_rows.len() == 1);
     }
 
-    /// Una scrittura altrove (l'indice cambia) non sposta la riga scelta con le frecce.
+    /// A write elsewhere (the index changes) does not move the row selected with the arrows.
     #[test]
     fn index_refresh_keeps_the_chosen_row() {
         let a = Index::from_entries(vec![entry(Path::new("/r/a.md"), 1), entry(Path::new("/r/b.md"), 1), entry(Path::new("/r/c.md"), 1)]);
@@ -1470,7 +1470,7 @@ mod tests {
         assert_eq!(sb.quick_rows[sb.quick.selected].path, chosen);
     }
 
-    /// Il gesto: giù preme la riga, su la rilascia; il su di un'altra riga non la tocca.
+    /// The gesture: down presses the row, up releases it; the up of another row does not touch it.
     #[test]
     fn press_follows_the_gesture() {
         let mut sb = Sidebar::default();
@@ -1483,10 +1483,10 @@ mod tests {
         assert!(!sb.is_pressed("recent-a"));
     }
 
-    /// Misura: il costo sul thread della UI di `Sidebar::refresh` per un
-    /// cambio dell'indice, con l'indice vero delle cartelle osservate e `big.md` aperto.
-    /// `cargo test --profile perf sidebar_refresh_cost -- --ignored --nocapture`. Ogni giro
-    /// prepara (fuori misura) un indice con una scrittura e misura solo `refresh`.
+    /// Measure: the UI thread cost of `Sidebar::refresh` for an
+    /// index change, with the real index of the watched folders and `big.md` open.
+    /// `cargo test --profile perf sidebar_refresh_cost -- --ignored --nocapture`. Each round
+    /// prepares (outside the measure) an index with one write and measures only `refresh`.
     #[test]
     #[ignore]
     fn sidebar_refresh_cost() {
@@ -1520,21 +1520,21 @@ mod tests {
             eprintln!("sidebar_refresh_cost {name}: n={} p50={:.3} ms p95={:.3} ms max={:.3} ms", ms.len(), pct(0.5), pct(0.95), pct(1.0));
         };
         eprintln!("sidebar_refresh_cost indice {} voci, repo {} ({} voci)", base.len(), repo.display(), in_repo.len());
-        case("scrittura a un file già in Recenti", &in_recent, false);
-        case("scrittura a un file del repo aperto", &in_repo, false);
-        case("scrittura fuori dal repo aperto", &elsewhere, false);
-        case("file nuovo nel repo aperto (albero ricostruito)", &in_repo, true);
+        case("write to a file already in Recent", &in_recent, false);
+        case("write to a file of the open repo", &in_repo, false);
+        case("write outside the open repo", &elsewhere, false);
+        case("new file in the open repo (tree rebuilt)", &in_repo, true);
     }
 
-    /// Misura: il costo sul thread della UI di un tasto di Cmd+P, con
-    /// l'indice vero (`RUNEMD_ROOTS` non impostata, scansione delle cartelle osservate). Ogni ricerca
-    /// si digita lettera per lettera; ogni tasto chiama `requery` (rank + qualificatori).
+    /// Measure: the UI thread cost of one Cmd+P key press, with
+    /// the real index (`RUNEMD_ROOTS` not set, scan of the watched folders). Each query
+    /// is typed letter by letter; each key calls `requery` (rank + qualifiers).
     /// `cargo test --profile perf quick_open_cost -- --ignored --nocapture`.
     #[test]
     #[ignore]
     fn quick_open_cost() {
         use std::time::Instant;
-        // Nessuna cache su questa macchina: si scandiscono le cartelle osservate, come fa l'app.
+        // No cache on this machine: the watched folders are scanned, as the app does.
         let index = &Index::from_entries(crate::index::scan::scan(&crate::index::roots_from(
             &crate::settings::default_roots(),
         )));

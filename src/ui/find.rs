@@ -1,18 +1,18 @@
-//! Cerca nel file (Cmd+F): un campo nella barra delle schede cerca nel testo disegnato dei
-//! blocchi della scheda davanti (`rune_kit::markdown::find`, senza maiuscole). Invio va al
-//! risultato dopo, Maiusc+Invio a quello prima, in giro; Esc chiude e toglie i segni.
+//! Find in file (Cmd+F): a field in the tab bar searches the drawn text of the
+//! blocks of the front tab (`rune_kit::markdown::find`, case-insensitive). Return goes to the
+//! next result, Shift+Return to the previous one, wrapping around; Esc closes and clears the marks.
 //!
-//! La ricerca gira su un thread a parte: `markdown::find` costa ~5 ms per MB anche senza
-//! risultati (su `big.md`, 1 MB, p95 8,7 ms sul thread della UI: oltre la soglia). Il tasto manda
-//! il lavoro al thread e torna subito; i risultati arrivano con il `Waker` e `poll` li applica
-//! (`App::poll_find`). Un lavoro superato da uno più nuovo si ferma a metà.
+//! The search runs on its own thread: `markdown::find` costs ~5 ms per MB even with no
+//! results (on `big.md`, 1 MB, p95 8.7 ms on the UI thread: over the threshold). The key sends
+//! the work to the thread and returns at once; the results arrive with the `Waker` and `poll` applies them
+//! (`App::poll_find`). A job overtaken by a newer one stops halfway.
 //!
-//! Il risultato attivo ha la chiave `<riga>/find-current`: `Tx::scroll_center_in_instant` monta la
-//! riga di `virtual_rows` anche se è fuori dalla finestra montata e poi centra il segno nella riga.
+//! The current result has the key `<row>/find-current`: `Tx::scroll_center_in_instant` mounts the
+//! `virtual_rows` row even if it is outside the mounted window, then centres the mark in the row.
 //!
-//! Una sola barra per finestra: cambiata la scheda, la ricerca rigira sul file nuovo e riparte dal
-//! primo risultato. Dopo una ricarica i risultati si ricalcolano e quello attivo resta il più
-//! vicino possibile al blocco dov'era, senza spostare la vista.
+//! One bar per window: when the tab changes, the search runs again on the new file and starts from the
+//! first result. After a reload the results are recomputed and the current one stays as
+//! close as possible to the block it was in, without moving the view.
 
 use std::collections::HashMap;
 use std::ops::Range;
@@ -29,18 +29,18 @@ use super::theme::{FIELD_H, FIND_W, HAIRLINE, ICON, R_FIELD, ROW_GAP, ROW_PAD, T
 use crate::app::App;
 use crate::doc::document::Document;
 
-/// Testi della barra (approvati).
+/// Bar texts (approved).
 pub const PLACEHOLDER: &str = "Find in file";
 pub const NO_RESULTS: &str = "No results";
 
-/// I segni di Cerca di un blocco, come li prende `Markdown::highlights`.
+/// The Find marks of a block, as `Markdown::highlights` takes them.
 pub type Marks = Vec<(Vec<Range<usize>>, Highlight)>;
 
-/// La chiave del segno attivo dentro la sua riga.
+/// The key of the current mark inside its row.
 const CURRENT: &str = "find-current";
 
-/// Un risultato: il blocco (id, hash del sorgente, posizione nel documento) e i byte del suo
-/// sorgente che copre.
+/// A result: the block (id, source hash, position in the document) and the bytes of its
+/// source that it covers.
 #[derive(Clone, Debug, PartialEq)]
 struct Hit {
     block: u64,
@@ -49,39 +49,39 @@ struct Hit {
     ranges: Vec<Range<usize>>,
 }
 
-/// Da dove vengono i risultati: documento (id, revisione, hash del file) e ricerca.
+/// Where the results come from: document (id, revision, file hash) and query.
 type Source = (u64, u64, u64, String);
 
 fn source_of(doc: &Document, query: &str) -> Source {
     (doc.id, doc.revision, doc.file_hash, query.to_owned())
 }
 
-/// Quale risultato diventa attivo quando arrivano i risultati.
+/// Which result becomes current when the results arrive.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Goal {
-    /// Il primo dal blocco in posizione `n` in giù, in giro (una ricerca nuova; 0 per un'altra
-    /// scheda). La vista lo porta al centro.
+    /// The first one from the block at position `n` down, wrapping around (a new search; 0 for another
+    /// tab). The view brings it to the centre.
     From(usize),
-    /// Il più vicino a quello di prima (una ricarica). La vista non si sposta.
+    /// The closest to the previous one (a reload). The view does not move.
     Keep,
 }
 
-/// Un lavoro per il thread della ricerca.
+/// A job for the search thread.
 struct Job {
     generation: u64,
     query: String,
-    /// Posizione nel documento, id, hash e sorgente di ogni blocco da cercare.
+    /// Position in the document, id, hash and source of each block to search.
     blocks: Vec<(usize, u64, u64, Arc<str>)>,
 }
 
-/// I risultati di un lavoro.
+/// The results of a job.
 struct Done {
     generation: u64,
     hits: Vec<Hit>,
 }
 
-/// Il thread della ricerca. Il parse dei blocchi resta nella cache di rune-kit di quel thread
-/// (`doc_cached`, per sorgente), quindi i tasti dopo il primo non riparsano.
+/// The search thread. The block parse stays in that thread's rune-kit cache
+/// (`doc_cached`, per source), so the keys after the first one do not parse again.
 struct Worker {
     jobs: Sender<Job>,
     done: Receiver<Done>,
@@ -119,13 +119,13 @@ impl Worker {
                     }
                 }
             })
-            .expect("thread della ricerca");
+            .expect("search thread");
         Worker { jobs, done, latest }
     }
 }
 
-/// Cerca `job.query` in ogni blocco, in ordine. `None` se nel frattempo è arrivato un lavoro più
-/// nuovo (si guarda ogni 64 blocchi).
+/// Searches `job.query` in each block, in order. `None` if a newer job arrived in the
+/// meantime (checked every 64 blocks).
 fn search(job: &Job, latest: &AtomicU64) -> Option<Vec<Hit>> {
     let mut hits = Vec::new();
     for (n, &(at, id, hash, ref src)) in job.blocks.iter().enumerate() {
@@ -146,52 +146,52 @@ fn search(job: &Job, latest: &AtomicU64) -> Option<Vec<Hit>> {
     Some(hits)
 }
 
-/// Lo stato della barra.
+/// The bar state.
 #[derive(Default)]
 pub struct Find {
     pub edit: TextEdit,
     pub open: bool,
     hits: Vec<Hit>,
-    /// Per ogni blocco con risultati: l'hash del sorgente cercato e i suoi in `hits`.
+    /// For each block with results: the hash of the searched source and its entries in `hits`.
     by_block: HashMap<u64, (u64, Range<usize>)>,
-    /// L'indice del risultato attivo in `hits`.
+    /// The index of the current result in `hits`.
     current: usize,
-    /// Da dove vengono i risultati di adesso.
+    /// Where the current results come from.
     shown: Option<Source>,
-    /// Il lavoro in corso: generazione, da dove, e quale risultato diventerà attivo.
+    /// The running job: generation, where from, and which result will become current.
     asked: Option<(u64, Source, Goal)>,
     generation: u64,
-    /// Invio e Maiusc+Invio arrivati mentre un lavoro era in corso: si applicano ai risultati
-    /// che arrivano.
+    /// Return and Shift+Return that arrived while a job was running: they apply to the results
+    /// that arrive.
     queued: isize,
     worker: Option<Worker>,
     waker: Arc<Mutex<Option<Waker>>>,
 }
 
-/// Come la vista segue il risultato attivo dopo `Find::poll`.
+/// How the view follows the current result after `Find::poll`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Reveal {
-    /// Una ricarica: la vista non si sposta.
+    /// A reload: the view does not move.
     No,
-    /// Una ricerca nuova o un'altra scheda: la vista si sposta solo quanto basta.
+    /// A new search or another tab: the view moves only as much as needed.
     Show,
-    /// Un Invio arrivato prima dei risultati: l'attivo al centro, come per ogni Invio.
+    /// A Return that arrived before the results: the current one in the centre, as for every Return.
     Center,
 }
 
 impl Find {
-    /// Il `Waker` di `AppSpec::setup`: sveglia `poll` quando arrivano i risultati.
+    /// The `Waker` from `AppSpec::setup`: wakes `poll` when the results arrive.
     pub fn set_waker(&mut self, waker: Waker) {
         *self.waker.lock().unwrap() = Some(waker);
     }
 
-    /// Cmd+F: la barra si apre col fuoco; se era già aperta tiene la ricerca.
+    /// Cmd+F: the bar opens with focus; if it was already open it keeps the query.
     pub fn show(&mut self) {
         self.open = true;
         self.edit.focused = true;
     }
 
-    /// Esc: la barra si chiude, la ricerca si svuota e i segni spariscono. Il thread resta.
+    /// Esc: the bar closes, the query empties and the marks go away. The thread stays.
     pub fn close(&mut self) {
         self.edit = TextEdit::default();
         self.open = false;
@@ -201,18 +201,18 @@ impl Find {
         self.shown = None;
         self.asked = None;
         self.queued = 0;
-        // Il lavoro in corso, se c'è, si ferma.
+        // The running job, if any, stops.
         self.generation += 1;
         if let Some(w) = &self.worker {
             w.latest.store(self.generation, Ordering::Relaxed);
         }
     }
 
-    /// Chiede i risultati della ricerca di adesso in `doc`. Una ricerca vuota si applica subito.
+    /// Asks for the results of the current query in `doc`. An empty query applies at once.
     pub fn ask(&mut self, doc: &Document, goal: Goal) {
         let source = source_of(doc, &self.edit.text);
-        // I risultati di un altro documento non valgono qui (gli id dei blocchi ripartono da 1 in
-        // ogni documento): niente contatore, segni né Invio finché non arrivano quelli nuovi.
+        // The results of another document are not valid here (block ids start again from 1 in
+        // each document): no counter, marks or Return until the new ones arrive.
         if self.shown.as_ref().is_some_and(|s| s.0 != doc.id) {
             self.hits.clear();
             self.by_block.clear();
@@ -229,8 +229,8 @@ impl Find {
         let waker = self.waker.clone();
         let worker = self.worker.get_or_insert_with(|| Worker::spawn(waker));
         worker.latest.store(self.generation, Ordering::Relaxed);
-        // I blocchi delle definizioni delle note non si disegnano: le note si cercano dove si
-        // vedono, nel blocco delle note in fondo (`Notes::block`), dopo tutti gli altri.
+        // Footnote definition blocks are not drawn: notes are searched where they
+        // show, in the notes block at the end (`Notes::block`), after all the others.
         let blocks = doc
             .blocks
             .iter()
@@ -254,18 +254,18 @@ impl Find {
         self.asked = Some((self.generation, source, goal));
     }
 
-    /// Un lavoro è in corso.
+    /// A job is running.
     #[cfg(test)]
     pub fn pending(&self) -> bool {
         self.asked.is_some()
     }
 
-    /// Cosa chiedere perché i risultati seguano `doc`: niente se quelli mostrati o chiesti
-    /// vengono già da lì; il primo risultato per un altro documento; il più vicino per lo stesso
+    /// What to ask so the results follow `doc`: nothing if the ones shown or asked for
+    /// already come from there; the first result for another document; the closest for the same
     /// documento cambiato.
     pub fn stale(&self, doc: &Document) -> Option<Goal> {
         let target = source_of(doc, &self.edit.text);
-        // Una ricarica mentre una ricerca nuova è sul thread: si richiede con lo stesso scopo.
+        // A reload while a new search is on the thread: ask again with the same target.
         if let Some((_, s, goal)) = &self.asked
             && *s != target
             && s.0 == doc.id
@@ -285,9 +285,9 @@ impl Find {
         }
     }
 
-    /// Prende i risultati arrivati per l'ultimo lavoro e li applica su `doc` (il documento di
-    /// adesso). `Some(reveal)` se sono cambiati: `reveal` se la vista va portata all'attivo
-    /// (una ricerca nuova o un'altra scheda, non una ricarica).
+    /// Takes the results that arrived for the last job and applies them to `doc` (the current
+    /// document). `Some(reveal)` if they changed: `reveal` if the view must be brought to the current one
+    /// (a new search or another tab, not a reload).
     pub fn poll(&mut self, doc: &Document) -> Option<Reveal> {
         let done = self
             .worker
@@ -337,10 +337,10 @@ impl Find {
         };
     }
 
-    /// Dopo una ricarica: il risultato attivo resta nel suo blocco se ci ha ancora risultati
-    /// (stesso numero d'ordine nel blocco, o l'ultimo), altrimenti va al primo dal posto del
-    /// blocco in giù se il blocco c'è ancora, o dal primo blocco dopo che c'è ancora (fra quelli
-    /// che avevano risultati).
+    /// After a reload: the current result stays in its block if it still has results there
+    /// (same ordinal in the block, or the last one), otherwise it goes to the first one from the place of the
+    /// block down if the block is still there, or from the first later block that is still there (among the ones
+    /// that had results).
     fn nearest(&self, old: &[Hit], was: usize, doc: &Document) -> usize {
         if old.is_empty() || self.hits.is_empty() {
             return 0;
@@ -375,8 +375,8 @@ impl Find {
         target.min(self.hits.len() - 1)
     }
 
-    /// Invio o Maiusc+Invio: il risultato dopo (`1`) o prima (`-1`), in giro. Vero se è
-    /// cambiato adesso; con un lavoro in corso il passo aspetta i risultati.
+    /// Return or Shift+Return: the next result (`1`) or the previous one (`-1`), wrapping around. True if it
+    /// changed now; with a running job the step waits for the results.
     pub fn enter(&mut self, delta: isize) -> bool {
         if self.asked.is_some() {
             self.queued += delta;
@@ -386,7 +386,7 @@ impl Find {
         !self.hits.is_empty()
     }
 
-    /// Il risultato dopo (`1`) o prima (`-1`), in giro.
+    /// The next result (`1`) or the previous one (`-1`), wrapping around.
     pub fn step(&mut self, delta: isize) {
         if !self.hits.is_empty() {
             self.current =
@@ -398,13 +398,13 @@ impl Find {
         self.hits.len()
     }
 
-    /// L'indice del risultato attivo, se ce n'è uno.
+    /// The index of the current result, if there is one.
     pub fn current(&self) -> Option<usize> {
         (self.current < self.hits.len()).then_some(self.current)
     }
 
-    /// Il contatore: "3 di 12", "Nessun risultato", niente con la ricerca vuota o prima dei
-    /// primi risultati di questa ricerca.
+    /// The counter: "3 of 12", "No results", nothing with an empty query or before the
+    /// first results of this query.
     pub fn label(&self) -> Option<String> {
         if self.edit.text.is_empty() || self.shown.is_none() {
             return None;
@@ -415,9 +415,9 @@ impl Find {
         })
     }
 
-    /// I segni del blocco `id` (sorgente con hash `hash`) per `Markdown::highlights`: il
-    /// risultato attivo con la chiave `<row_key>/find-current`, gli altri senza chiave. Un blocco
-    /// cambiato dopo la ricerca non ne ha finché non arrivano i risultati nuovi.
+    /// The marks of block `id` (source with hash `hash`) for `Markdown::highlights`: the
+    /// current result with the key `<row_key>/find-current`, the others with no key. A block
+    /// changed after the search has none until the new results arrive.
     pub fn highlights(&self, id: u64, hash: u64, row_key: &str) -> Marks {
         let Some((_, r)) = self
             .by_block
@@ -438,7 +438,7 @@ impl Find {
             .collect()
     }
 
-    /// La chiave da passare a `Tx::scroll_center_in_instant("doc", …)` per il risultato attivo.
+    /// The key to pass to `Tx::scroll_center_in_instant("doc", …)` for the current result.
     pub fn reveal_key(&self, doc: &Document) -> Option<String> {
         let h = self.hits.get(self.current)?;
         if h.block == crate::doc::footnotes::BLOCK_ID {
@@ -456,7 +456,7 @@ fn current_key(row_key: &str) -> String {
     format!("{row_key}/{CURRENT}")
 }
 
-/// Il campo nella barra delle schede: icona, ricerca e contatore in `fg3`.
+/// The field in the tab bar: icon, query and counter in `fg3`.
 pub fn field(s: &App, theme: &Theme) -> El {
     let input = text_input(&s.find.edit, ui_font())
         .single_line()
@@ -494,7 +494,7 @@ pub fn field(s: &App, theme: &Theme) -> El {
     e
 }
 
-/// I tasti del campo prima dell'editor: Invio, Maiusc+Invio, Esc. Vero se li prende.
+/// The field keys before the editor: Return, Shift+Return, Esc. True if it takes them.
 fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
     if s.find.edit.preedit().is_some() {
         return false;
@@ -529,11 +529,11 @@ mod tests {
         .unwrap()
     }
 
-    /// Aspetta i risultati del thread della ricerca e li applica su `doc`.
+    /// Waits for the results of the search thread and applies them to `doc`.
     fn wait(f: &mut Find, doc: &Document) {
         let t = std::time::Instant::now();
         while f.pending() {
-            assert!(t.elapsed().as_secs() < 10, "risultati mai arrivati");
+            assert!(t.elapsed().as_secs() < 10, "results never arrived");
             f.poll(doc);
             std::thread::sleep(std::time::Duration::from_millis(1));
         }
@@ -552,15 +552,15 @@ mod tests {
         f
     }
 
-    /// Le occorrenze di `q` nel sorgente, senza maiuscole, come `grep -io q | wc -l`.
+    /// The occurrences of `q` in the source, case-insensitive, like `grep -io q | wc -l`.
     fn grep_count(src: &str, q: &str) -> usize {
         src.to_lowercase().matches(&q.to_lowercase()).count()
     }
 
-    /// "rune" su `normal.md` dà quanti risultati dà `grep -io rune fixtures/normal.md | wc -l`
-    /// (0: il generatore non usa la parola). Lo stesso confronto con una parola che c'è,
-    /// "albero": `grep` conta anche le destinazioni dei link (`](https://example.com/albero)`),
-    /// che non sono testo disegnato e `markdown::find` salta; si tolgono dal conto.
+    /// "rune" on `normal.md` gives as many results as `grep -io rune fixtures/normal.md | wc -l`
+    /// (0: the generator does not use the word). The same comparison with a word that is there,
+    /// "albero": `grep` also counts link destinations (`](https://example.com/albero)`),
+    /// which are not drawn text and `markdown::find` skips; they are taken out of the count.
     #[test]
     fn matches_across_blocks() {
         let src = std::fs::read_to_string(
@@ -579,7 +579,7 @@ mod tests {
             })
             .count();
         let found = searched(&doc, "albero");
-        assert!(in_links > 0, "il fixture ha link verso /albero");
+        assert!(in_links > 0, "the fixture has links to /albero");
         assert_eq!(found.count(), grep_count(&src, "albero") - in_links);
         let blocks: std::collections::HashSet<u64> = found.hits.iter().map(|h| h.block).collect();
         assert!(
@@ -590,14 +590,14 @@ mod tests {
         assert_eq!(
             searched(&doc, "ALBERO").count(),
             found.count(),
-            "senza maiuscole"
+            "case-insensitive"
         );
     }
 
     /// Next e prev in giro, sul modello.
     #[test]
     fn step_wraps_both_ways() {
-        let doc = Document::from_source(Path::new("t.md"), "uno zebra\n\ndue\n\nZebra e zebra\n");
+        let doc = Document::from_source(Path::new("t.md"), "one zebra\n\ntwo\n\nZebra and zebra\n");
         let mut f = searched(&doc, "zebra");
         assert_eq!((f.current(), f.count()), (Some(0), 3));
         assert_eq!(f.label().as_deref(), Some("1 of 3"));
@@ -605,20 +605,20 @@ mod tests {
         assert_eq!(
             f.label().as_deref(),
             Some("3 of 3"),
-            "prima del primo: l'ultimo"
+            "before the first: the last"
         );
         f.step(1);
-        assert_eq!(f.current(), Some(0), "dopo l'ultimo: il primo");
+        assert_eq!(f.current(), Some(0), "after the last: the first");
         search(&mut f, &doc, "giraffa");
         assert_eq!(f.label().as_deref(), Some(NO_RESULTS));
         f.step(1);
         assert_eq!(f.current(), None);
         search(&mut f, &doc, "");
-        assert_eq!(f.label(), None, "ricerca vuota: nessun contatore");
+        assert_eq!(f.label(), None, "empty query: no counter");
     }
 
-    /// Ricarica: il risultato attivo resta nel suo blocco (per id) anche se sopra arrivano
-    /// blocchi con altri risultati; se il blocco sparisce va al primo dopo.
+    /// Reload: the current result stays in its block (by id) even if blocks with other results
+    /// arrive above it; if the block goes away it moves to the first one after.
     #[test]
     fn refresh_keeps_the_current_block() {
         let mut doc = Document::from_source(
@@ -632,11 +632,11 @@ mod tests {
         doc.update("nuovo zebra\n\naltro zebra\n\na zebra\n\nb\n\nc zebra zebra\n\nd zebra\n");
         f.ask(&doc, Goal::Keep);
         wait(&mut f, &doc);
-        assert_eq!(f.hits[f.current].block, block, "stesso blocco");
+        assert_eq!(f.hits[f.current].block, block, "same block");
         assert_eq!(
             f.label().as_deref(),
             Some("5 of 6"),
-            "stesso numero d'ordine nel blocco"
+            "same ordinal in the block"
         );
         doc.update("nuovo zebra\n\naltro zebra\n\na zebra\n\nb\n\nd zebra\n");
         f.ask(&doc, Goal::Keep);
@@ -644,11 +644,11 @@ mod tests {
         assert_eq!(
             f.label().as_deref(),
             Some("4 of 4"),
-            "blocco sparito: il primo dopo"
+            "block gone: the first one after"
         );
     }
 
-    // --- sul runtime, con la vista dell'app ---
+    // --- on the runtime, with the app view ---
 
     use rune::{Env, KeyEvent, Mods, Runtime};
 
@@ -660,17 +660,17 @@ mod tests {
                 return;
             }
         }
-        panic!("la vista non si ferma");
+        panic!("the view does not settle");
     }
 
-    /// 200 blocchi; "zebra" nei blocchi 3, 120 e 190 (due volte nel 190).
+    /// 200 blocks; "zebra" in blocks 3, 120 and 190 (twice in 190).
     fn long() -> String {
         (0..200)
             .map(|n| match n {
-                3 | 120 => format!("Paragrafo {n} con una zebra in mezzo al testo che continua."),
-                190 => format!("Paragrafo {n}: zebra e ancora Zebra."),
+                3 | 120 => format!("Paragraph {n} with a zebra in the middle of the text that goes on."),
+                190 => format!("Paragraph {n}: zebra and Zebra again."),
                 _ if n % 10 == 0 => format!("## Sezione {n}"),
-                _ => format!("Paragrafo {n} di prova, abbastanza lungo da andare a capo nella colonna del lettore, con altre parole."),
+                _ => format!("Test paragraph {n}, long enough to wrap in the reader column, with more words."),
             })
             .collect::<Vec<_>>()
             .join("\n\n")
@@ -707,7 +707,7 @@ mod tests {
         );
     }
 
-    /// Come `poll` dell'app: aspetta e applica i risultati del thread della ricerca.
+    /// Like the app `poll`: waits for and applies the results of the search thread.
     fn wait_find(rt: &mut Runtime<App>) {
         let t = std::time::Instant::now();
         loop {
@@ -717,7 +717,7 @@ mod tests {
             if !rt.state.find.pending() {
                 break;
             }
-            assert!(t.elapsed().as_secs() < 10, "risultati mai arrivati");
+            assert!(t.elapsed().as_secs() < 10, "results never arrived");
             std::thread::sleep(std::time::Duration::from_millis(1));
         }
         settle(rt);
@@ -730,7 +730,7 @@ mod tests {
         }
     }
 
-    /// Invio (o Maiusc+Invio): il segno attivo è in vista al primo frame dopo il tasto.
+    /// Return (or Shift+Return): the current mark is in view on the first frame after the key.
     fn enter(rt: &mut Runtime<App>, shift: bool) {
         rt.key(KeyEvent {
             key: Key::Enter,
@@ -740,7 +740,7 @@ mod tests {
             },
         });
         rt.frame(1.0 / 120.0);
-        assert!(current_in_view(rt), "segno attivo in vista al primo frame");
+        assert!(current_in_view(rt), "current mark in view on the first frame");
         settle(rt);
     }
 
@@ -751,7 +751,7 @@ mod tests {
             .and_then(|e| e.text)
     }
 
-    /// I segni di Cerca disegnati: (chiave, rect visibile).
+    /// The drawn Find marks: (key, visible rect).
     fn marks(rt: &Runtime<App>) -> Vec<(Option<String>, [f32; 4])> {
         rt.elements()
             .into_iter()
@@ -760,7 +760,7 @@ mod tests {
             .collect()
     }
 
-    /// Il segno attivo è disegnato dentro la vista del documento.
+    /// The current mark is drawn inside the document view.
     fn current_in_view(rt: &Runtime<App>) -> bool {
         let els = rt.elements();
         let doc = els
@@ -783,19 +783,19 @@ mod tests {
 
     fn current_block(rt: &Runtime<App>) -> usize {
         let f = &rt.state.find;
-        f.hits[f.current().expect("un risultato attivo")].at
+        f.hits[f.current().expect("a current result")].at
     }
 
-    /// Cmd+F, si scrive: il contatore dice "1 di 4" e il primo risultato è in vista; Invio
-    /// porta al blocco 120, che non era montato, e lo centra; Maiusc+Invio torna indietro; in
-    /// giro ai due capi.
+    /// Cmd+F, typing: the counter says "1 of 4" and the first result is in view; Return
+    /// goes to block 120, which was not mounted, and centres it; Shift+Return goes back; it wraps
+    /// around at both ends.
     #[test]
     fn enter_and_shift_enter_walk_the_matches_and_reveal_unmounted_blocks() {
         let mut rt = open(&[("a.md", &long())]);
         cmd(&mut rt, 'f');
         assert!(
             rt.state.find.open && rt.state.find.edit.focused,
-            "barra aperta col fuoco"
+            "bar open with focus"
         );
         assert!(
             rt.elements()
@@ -812,7 +812,7 @@ mod tests {
             !rt.elements()
                 .iter()
                 .any(|e| e.key.as_deref() == Some(far.as_str())),
-            "il blocco 120 non è montato"
+            "block 120 is not mounted"
         );
         enter(&mut rt, false);
         assert_eq!(
@@ -821,7 +821,7 @@ mod tests {
         );
         assert!(
             current_in_view(&rt),
-            "il blocco 120 è montato e il segno è in vista"
+            "block 120 is mounted and the mark is in view"
         );
         enter(&mut rt, false);
         enter(&mut rt, false);
@@ -841,16 +841,16 @@ mod tests {
         assert_eq!(
             (count_text(&rt).as_deref(), current_block(&rt)),
             (Some("4 of 4"), 190),
-            "Maiusc+Invio in giro alla fine"
+            "Shift+Return wraps to the end"
         );
         assert!(current_in_view(&rt));
         enter(&mut rt, true);
         assert_eq!(count_text(&rt).as_deref(), Some("3 of 4"));
-        // Uno solo dei segni disegnati è quello attivo.
+        // Only one of the drawn marks is the current one.
         let drawn = marks(&rt);
         assert!(
             drawn.len() >= 2,
-            "i due risultati del blocco 190: {drawn:?}"
+            "the two results of block 190: {drawn:?}"
         );
         assert_eq!(
             drawn
@@ -864,8 +864,8 @@ mod tests {
         assert!(marks(&rt).is_empty());
     }
 
-    /// Esc chiude la barra e toglie i segni; i tasti tornano al documento (Cmd+A arriva a
-    /// `on_key` e segna "tutto il file").
+    /// Esc closes the bar and clears the marks; keys go back to the document (Cmd+A reaches
+    /// `on_key` and selects "the whole file").
     #[test]
     fn escape_closes_clears_and_gives_keys_back_to_the_document() {
         let mut rt = open(&[("a.md", &long())]);
@@ -885,17 +885,17 @@ mod tests {
         assert_ne!(
             rt.state.active_document().select_all.get(),
             crate::doc::select_all::SelectAll::No,
-            "Cmd+A arriva al documento"
+            "Cmd+A reaches the document"
         );
         cmd(&mut rt, 'f');
         assert!(
             rt.state.find.open && rt.state.find.edit.text.is_empty(),
-            "si riapre vuota"
+            "it reopens empty"
         );
     }
 
-    /// Una ricarica mentre si cerca: i risultati si ricalcolano, l'attivo resta nel suo blocco
-    /// e la vista non torna in cima.
+    /// A reload while searching: the results are recomputed, the current one stays in its block
+    /// and the view does not go back to the top.
     #[test]
     fn a_reload_keeps_the_current_match_and_the_view() {
         let mut rt = open(&[("a.md", &long())]);
@@ -907,7 +907,7 @@ mod tests {
         let top = |rt: &Runtime<App>| rt.state.tab().unwrap().visible_first;
         let before = top(&rt);
         let src = format!(
-            "In testa una zebra nuova.\n\nE un'altra zebra.\n\n{}",
+            "A new zebra at the top.\n\nAnd another zebra.\n\n{}",
             long()
         );
         rt.update(|s, _| {
@@ -916,22 +916,22 @@ mod tests {
         wait_find(&mut rt);
         let f = &rt.state.find;
         assert_eq!(f.count(), 6);
-        assert_eq!(f.hits[f.current().unwrap()].block, id, "stesso blocco");
+        assert_eq!(f.hits[f.current().unwrap()].block, id, "same block");
         assert_eq!(count_text(&rt).as_deref(), Some("4 of 6"));
-        assert_eq!(top(&rt), before, "la vista resta dov'era");
+        assert_eq!(top(&rt), before, "the view stays where it was");
         assert!(current_in_view(&rt));
     }
 
-    /// Una barra per finestra: cambiata la scheda la ricerca rigira sul file nuovo, dal primo
-    /// risultato, e lo porta in vista.
+    /// One bar per window: when the tab changes the search runs again on the new file, from the first
+    /// result, and brings it into view.
     #[test]
     fn switching_tab_reruns_the_query_from_the_first_match() {
         let other = (0..150)
             .map(|n| {
                 if n == 100 || n == 140 {
-                    format!("Altra {n} zebra.")
+                    format!("Other {n} zebra.")
                 } else {
-                    format!("Altra riga {n} del secondo file, abbastanza lunga da occupare spazio.")
+                    format!("Other line {n} of the second file, long enough to take up space.")
                 }
             })
             .collect::<Vec<_>>()
@@ -951,19 +951,19 @@ mod tests {
         assert_eq!(current_block(&rt), 100);
         assert!(
             current_in_view(&rt),
-            "il primo risultato del file nuovo è in vista"
+            "the first result of the new file is in view"
         );
         cmd(&mut rt, '1');
         wait_find(&mut rt);
         assert_eq!(
             (count_text(&rt).as_deref(), current_block(&rt)),
             (Some("1 of 4"), 3),
-            "torna al primo"
+            "back to the first"
         );
         assert!(current_in_view(&rt));
     }
 
-    /// Cmd+P, Cmd+N e Cmd+F si chiudono a vicenda; nel sorgente Cmd+F non fa niente.
+    /// Cmd+P, Cmd+N and Cmd+F close each other; in the source Cmd+F does nothing.
     #[test]
     fn one_field_at_a_time_and_nothing_in_source() {
         let mut rt = open(&[("a.md", &long())]);
@@ -975,32 +975,32 @@ mod tests {
         cmd(&mut rt, 'f');
         assert!(
             rt.state.find.open && !rt.state.sidebar.quick.active(),
-            "Cmd+F chiude Cmd+P"
+            "Cmd+F closes Cmd+P"
         );
         cmd(&mut rt, 'n');
         assert!(!rt.state.find.open && rt.state.sidebar.new_file.open);
         cmd(&mut rt, 'f');
         assert!(
             rt.state.find.open && !rt.state.sidebar.new_file.open,
-            "Cmd+F chiude Cmd+N"
+            "Cmd+F closes Cmd+N"
         );
         rt.update(|s, tx| {
             s.toggle_source(tx);
         });
         settle(&mut rt);
         assert!(matches!(rt.state.tab().unwrap().mode, Mode::Source(_)));
-        assert!(!rt.state.find.open, "entrare nel sorgente chiude Cerca");
-        assert!(!rt.state.open_find(), "nel sorgente Cmd+F non apre niente");
+        assert!(!rt.state.find.open, "entering the source closes Find");
+        assert!(!rt.state.open_find(), "in the source Cmd+F opens nothing");
         rt.state.sync_find();
         assert!(!rt.state.find.open);
     }
 
-    /// Il testo di una nota si trova dove si vede, in fondo al file sotto la linea, non nel blocco
-    /// della definizione (che non si disegna): il segno attivo è nelle note ed è in vista.
+    /// The text of a note is found where it shows, at the end of the file below the rule, not in the
+    /// definition block (which is not drawn): the current mark is in the notes and in view.
     #[test]
     fn a_footnote_is_found_where_it_is_shown() {
-        let body: Vec<String> = (0..60).map(|n| format!("Paragrafo {n} di prova, abbastanza lungo da andare a capo nella colonna, con altre parole.")).collect();
-        let src = format!("Una nota[^1] qui.\n\n[^1]: Il testo della zebra.\n\n{}\n", body.join("\n\n"));
+        let body: Vec<String> = (0..60).map(|n| format!("Test paragraph {n}, long enough to wrap in the column, with more words.")).collect();
+        let src = format!("A note[^1] here.\n\n[^1]: The zebra text.\n\n{}\n", body.join("\n\n"));
         let mut rt = open(&[("a.md", &src)]);
         cmd(&mut rt, 'f');
         type_text(&mut rt, "zebra");
@@ -1015,16 +1015,16 @@ mod tests {
         assert!(r[1] >= notes[1] && r[1] + r[3] <= notes[1] + notes[3] + 0.5, "segno {r:?} fuori dalle note {notes:?}");
     }
 
-    /// Scrive senza aspettare i risultati (il thread della ricerca risponde dopo).
+    /// Types without waiting for the results (the search thread answers later).
     fn type_now(rt: &mut Runtime<App>, t: &str) {
         for c in t.chars() {
             key(rt, Key::Text(c.to_string()), Mods::default());
         }
     }
 
-    /// Una ricarica mentre la ricerca appena scritta è ancora sul thread: i risultati partono
-    /// comunque dal primo blocco visibile e l'attivo è in vista (non "vicino" ai risultati di
-    /// prima).
+    /// A reload while the query just typed is still on the thread: the results still start
+    /// from the first visible block and the current one is in view (not "close" to the results of
+    /// before).
     #[test]
     fn a_reload_during_a_new_query_still_starts_from_the_view() {
         let mut rt = open(&[("a.md", &long())]);
@@ -1044,12 +1044,12 @@ mod tests {
             .unwrap();
         assert!(
             (100..=120).contains(&at),
-            "vista vicino al blocco 110: {at}"
+            "view near block 110: {at}"
         );
         cmd(&mut rt, 'f');
         type_now(&mut rt, "zebra");
         assert!(rt.state.find.pending());
-        let src = format!("{}\n\nIn fondo, senza la parola.\n", long());
+        let src = format!("{}\n\nAt the end, without the word.\n", long());
         rt.update(|s, _| {
             s.tab_mut().unwrap().doc.update(&src);
         });
@@ -1059,16 +1059,16 @@ mod tests {
         assert!(current_in_view(&rt));
     }
 
-    /// Cambiata la scheda, finché non arrivano i risultati del file nuovo non resta niente di
-    /// quelli dell'altro: né contatore, né segni, né un Invio che porta a un blocco a caso.
+    /// After a tab change, until the results of the new file arrive nothing is left of
+    /// the other one's: no counter, no marks, no Return that goes to a random block.
     #[test]
     fn after_a_tab_switch_the_old_results_are_gone_until_the_new_arrive() {
         let other = (0..40)
             .map(|n| {
                 if n == 30 {
-                    format!("Riga {n} zebra.")
+                    format!("Line {n} zebra.")
                 } else {
-                    format!("Riga {n}.")
+                    format!("Line {n}.")
                 }
             })
             .collect::<Vec<_>>()
@@ -1080,14 +1080,14 @@ mod tests {
         assert_eq!(count_text(&rt).as_deref(), Some("1 of 4"));
         cmd(&mut rt, '2');
         assert!(rt.state.find.pending());
-        assert_eq!(count_text(&rt), None, "nessun contatore dell'altro file");
+        assert_eq!(count_text(&rt), None, "no counter from the other file");
         assert_eq!(rt.state.find.count(), 0);
         assert!(marks(&rt).is_empty());
         wait_find(&mut rt);
         assert_eq!(count_text(&rt).as_deref(), Some("1 of 1"));
     }
 
-    /// Invio mentre i risultati sono sul thread: il passo si applica quando arrivano.
+    /// Return while the results are on the thread: the step applies when they arrive.
     #[test]
     fn enter_while_pending_steps_once_the_results_arrive() {
         let mut rt = open(&[("a.md", &long())]);
@@ -1101,7 +1101,7 @@ mod tests {
         rt.frame(1.0 / 120.0);
         assert!(
             rt.state.find.pending(),
-            "Invio arrivato prima dei risultati"
+            "Return arrived before the results"
         );
         wait_find(&mut rt);
         assert_eq!(
@@ -1111,7 +1111,7 @@ mod tests {
         assert!(current_in_view(&rt));
     }
 
-    /// Esc ferma il lavoro in corso sul thread.
+    /// Esc stops the running job on the thread.
     #[test]
     fn close_stops_the_job_in_flight() {
         let doc = Document::from_source(Path::new("t.md"), "zebra\n");
@@ -1124,16 +1124,16 @@ mod tests {
         assert_ne!(
             f.worker.as_ref().unwrap().latest.load(Ordering::Relaxed),
             asked,
-            "il lavoro chiesto non è più l'ultimo"
+            "the requested job is no longer the last one"
         );
         assert!(!f.pending());
     }
 
-    /// Misura: il costo sul thread della UI di un tasto di Cerca su
-    /// `fixtures/big.md`, con la vista dell'app su un runtime headless. Ogni ricerca si digita
-    /// lettera per lettera. Per ogni tasto: il tasto e il suo frame (campo e richiesta al thread),
-    /// e, quando arrivano i risultati, `poll_find` e il frame che li disegna (segni, rivelazione);
-    /// a parte, quanto il thread della ricerca impiega a rispondere.
+    /// Measure: the UI thread cost of one Find key press on
+    /// `fixtures/big.md`, with the app view on a headless runtime. Each query is typed
+    /// letter by letter. For each key: the key and its frame (field and request to the thread),
+    /// and, when the results arrive, `poll_find` and the frame that draws them (marks, reveal);
+    /// separately, how long the search thread takes to answer.
     /// `cargo test --profile perf find_cost -- --ignored --nocapture`.
     #[test]
     #[ignore]
@@ -1185,7 +1185,7 @@ mod tests {
                         std::thread::sleep(std::time::Duration::from_micros(100));
                     };
                     let w = asked.elapsed().as_secs_f64() * 1000.0;
-                    // Quello che fa `poll_find` quando i risultati arrivano, e il frame dopo.
+                    // What `poll_find` does when the results arrive, and the frame after.
                     let t = Instant::now();
                     let (generation, source, goal) = rt.state.find.asked.clone().unwrap();
                     assert_eq!(d.generation, generation);
@@ -1218,8 +1218,8 @@ mod tests {
                 }
             }
         }
-        // Il riferimento: un salto della vista su big.md senza Cerca (lo stesso `scroll_center_in_instant`
-        // su una riga lontana, non montata), come i salti che fanno i risultati lontani.
+        // The reference: a view jump on big.md without Find (the same `scroll_center_in_instant`
+        // on a far, unmounted row), like the jumps that far results make.
         let mut jump = Vec::new();
         for k in 0..60usize {
             let key = crate::ui::doc_view::row_key(
@@ -1233,16 +1233,16 @@ mod tests {
             settle(&mut rt);
         }
         eprintln!(
-            "find_cost big.md {} blocchi; primo tasto, risposta del thread (parse dei blocchi) {:.2} ms",
+            "find_cost big.md {} blocks; first key, thread answer (block parse) {:.2} ms",
             rt.state.active_document().blocks.len(),
             first.unwrap()
         );
         for (name, ms) in [
             ("tasto + frame", &mut keyed),
             ("risultati + frame", &mut applied),
-            ("thread UI, il peggiore dei due", &mut ui),
-            ("risposta del thread della ricerca", &mut worker),
-            ("riferimento: salto della vista senza Cerca", &mut jump),
+            ("UI thread, the worse of the two", &mut ui),
+            ("search thread answer", &mut worker),
+            ("reference: view jump without Find", &mut jump),
         ] {
             eprintln!(
                 "find_cost {name}: n={} p50={:.3} ms p95={:.3} ms max={:.3} ms",

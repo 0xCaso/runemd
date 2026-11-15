@@ -779,9 +779,9 @@ mod tests {
         blocks[i] = format!("{} {}", blocks[i], paragraph(40).repeat(3));
         let h0 = height(&rt, before.0);
         edit(&mut rt, &blocks);
-        assert!(height(&rt, before.0) > h0 + 40.0, "il blocco si allunga: {h0} → {}", height(&rt, before.0));
-        assert_eq!(rt.state.active_document().blocks[i].id, before.0, "modifica sul posto: stesso id");
-        assert_still("allunga il blocco in cima", before, anchor(&rt));
+        assert!(height(&rt, before.0) > h0 + 40.0, "the block grows: {h0} → {}", height(&rt, before.0));
+        assert_eq!(rt.state.active_document().blocks[i].id, before.0, "in-place edit: same id");
+        assert_still("grow the top block", before, anchor(&rt));
     }
 
     #[test]
@@ -794,7 +794,7 @@ mod tests {
         assert_still("allunga l'ultimo blocco", before, anchor(&rt));
     }
 
-    /// Il blocco in cima diventa due blocchi: id nuovi, l'ancora passa al blocco seguente.
+    /// The top block becomes two blocks: new ids, the anchor moves to the next block.
     #[test]
     fn a_vanished_top_block_hands_the_anchor_to_the_next() {
         let (mut rt, before) = reading();
@@ -808,47 +808,47 @@ mod tests {
         blocks.splice(i..=i, [format!("Diviso A {}", paragraph(5)), format!("Diviso B {}", paragraph(6))]);
         edit(&mut rt, &blocks);
         let doc = rt.state.active_document();
-        assert!(doc.blocks.iter().all(|b| b.id != before.0), "il blocco in cima non c'è più");
+        assert!(doc.blocks.iter().all(|b| b.id != before.0), "the top block is gone");
         let j = index_of(&rt, next);
         let key = row_key(j, doc);
         let els = rt.elements();
         let top = els.iter().find(|e| e.key.as_deref() == Some("doc")).unwrap().rect[1];
         let y = els.iter().find(|e| e.key.as_deref() == Some(key.as_str())).unwrap().rect[1] - top;
-        eprintln!("blocco sparito: seguente prima {next_y:.2}, dopo {y:.2}");
-        assert!((y - next_y).abs() <= 1.0, "il blocco seguente si sposta: {next_y} → {y}");
+        eprintln!("block gone: next one before {next_y:.2}, after {y:.2}");
+        assert!((y - next_y).abs() <= 1.0, "the next block moves: {next_y} → {y}");
     }
 
     #[test]
     fn an_empty_file_opens() {
         let mut rt = open("");
         assert!(rt.state.active_document().blocks.is_empty());
-        edit(&mut rt, &["# Ora c'è".to_owned()]);
-        assert_eq!(anchor(&rt).1.round(), 24.0, "il primo blocco sotto il margine alto");
+        edit(&mut rt, &["# Now it is here".to_owned()]);
+        assert_eq!(anchor(&rt).1.round(), 24.0, "the first block below the top margin");
     }
 
-    /// 500 KB senza righe vuote sono un blocco solo: il caso "inserisci in testa" tiene la riga
+    /// 500 KB with no empty lines is a single block: the "insert at the top" case keeps the line
     /// dentro quel blocco.
     #[test]
     fn a_500_kb_file_without_blank_lines_keeps_reading_position() {
-        let line = "Una riga lunga di testo senza righe vuote tra una e l'altra, lettore blocco scroll ancora.\n";
+        let line = "A long line of text with no empty lines between one and the next, reader block scroll again.\n";
         let big = line.repeat(500 * 1024 / line.len());
         assert!(big.len() >= 500 * 1000 && !big.contains("\n\n"));
         let mut rt = open(&big);
         assert_eq!(rt.state.active_document().blocks.len(), 1);
         scroll_to(&mut rt, 20000.0);
         let before = anchor(&rt);
-        assert!(before.1 < -1000.0, "dentro il blocco: {before:?}");
+        assert!(before.1 < -1000.0, "inside the block: {before:?}");
         let blocks: Vec<String> = (0..5).map(|n| format!("Nuovo {n}: {}", paragraph(n))).chain([big.trim_end().to_owned()]).collect();
         edit(&mut rt, &blocks);
         assert_still("500 KB, inserisci in testa", before, anchor(&rt));
     }
 
-    /// Il fuoco sul runtime: 3 blocchi aggiunti in fondo mentre si legge in cima lo accendono
-    /// (l'ultimo visibile viene da `on_visible_rows`), lo scroll in fondo lo spegne.
+    /// The fire on the runtime: 3 blocks added at the end while reading at the top turn it on
+    /// (the last visible one comes from `on_visible_rows`), scrolling to the end turns it off.
     #[test]
     fn appended_blocks_light_the_fire_until_scrolled_into_view() {
         let mut rt = open(&join(&sample()));
-        assert!(rt.state.tab().unwrap().visible_last != 0, "la vista ha riportato l'ultima riga visibile");
+        assert!(rt.state.tab().unwrap().visible_last != 0, "the view reported the last visible row");
         let mut blocks = sample();
         blocks.extend((0..3).map(|n| format!("Nuovo in fondo {n}: {}", paragraph(n))));
         let src = join(&blocks);
@@ -859,42 +859,42 @@ mod tests {
         settle(&mut rt);
         assert_eq!(rt.state.tab().unwrap().below.count(), 3);
         assert_eq!(rt.state.tab().unwrap().fire_since, Some(1.0));
-        assert!(rt.elements().iter().any(|e| e.key.as_deref() == Some("fire")), "slot del fuoco");
+        assert!(rt.elements().iter().any(|e| e.key.as_deref() == Some("fire")), "fire slot");
         scroll_to(&mut rt, 1.0e9);
         assert_eq!(rt.state.tab().unwrap().below.count(), 0);
         assert_eq!(rt.state.tab().unwrap().fire_since, None);
         assert!(!fire_drawn(&rt), "etichetta spenta");
-        assert!(rt.elements().iter().any(|e| e.key.as_deref() == Some("fire") && !e.exiting), "il fuoco resta, a riposo");
+        assert!(rt.elements().iter().any(|e| e.key.as_deref() == Some("fire") && !e.exiting), "the fire stays, at rest");
     }
 
-    /// Il fuoco acceso dal testo nuovo: l'etichetta "N paragrafi nuovi più in basso". Lo slot
-    /// delle fiamme c'è sempre (a riposo, basso).
+    /// The fire lit by new text: the label "N new paragraphs below". The flame
+    /// slot is always there (at rest, low).
     fn fire_drawn(rt: &Runtime<Doc>) -> bool {
         rt.elements().iter().any(|e| e.key.as_deref() == Some("fire-text") && !e.exiting)
     }
 
-    /// Sempre acceso: in lettura lo slot del fuoco c'è anche senza testo nuovo, senza etichetta;
-    /// nel sorgente (Cmd+E) e con il fuoco spento dalle impostazioni no.
+    /// Always on: while reading the fire slot is there even with no new text, with no label;
+    /// in the source (Cmd+E) and with the fire turned off in the settings it is not.
     #[test]
     fn the_fire_rests_at_the_panel_bottom_without_new_text() {
         let mut rt = open(&join(&sample()));
         let slot = |rt: &Runtime<Doc>| rt.elements().iter().any(|e| e.key.as_deref() == Some("fire") && !e.exiting);
-        assert!(slot(&rt), "slot del fuoco a riposo");
-        assert!(!fire_drawn(&rt), "nessuna etichetta a riposo");
-        assert!(rt.state.effects_lit(), "il compositor scorre le istanze");
+        assert!(slot(&rt), "fire slot at rest");
+        assert!(!fire_drawn(&rt), "no label at rest");
+        assert!(rt.state.effects_lit(), "the compositor runs the instances");
         rt.update(|s, _| s.settings.fire = false);
         settle(&mut rt);
-        assert!(!slot(&rt) && !fire_drawn(&rt), "fuoco spento: niente slot né etichetta");
+        assert!(!slot(&rt) && !fire_drawn(&rt), "fire off: no slot and no label");
     }
 
-    /// A riposo, con la finestra attiva e senza "riduci movimento", le fiamme chiedono un
-    /// risveglio ogni `fire::REST_FRAME`; ferme no.
+    /// At rest, with the window active and without "reduce motion", the flames ask for a
+    /// wake-up every `fire::REST_FRAME`; still flames do not.
     #[test]
     fn the_resting_fire_is_paced_by_wakes_only_while_it_moves() {
         let mut rt = open(&join(&sample()));
         assert!(rt.state.fire_rests());
         rt.update(|s, _| s.window_active = false);
-        assert!(!rt.state.fire_rests(), "finestra non attiva: ferme");
+        assert!(!rt.state.fire_rests(), "window not active: still");
         rt.update(|s, _| {
             s.window_active = true;
             s.motion_env = Some(true);
@@ -906,33 +906,33 @@ mod tests {
             s.tabs[0].fire_since = Some(0.0);
         });
         settle(&mut rt);
-        assert!(!rt.state.fire_rests(), "acceso: lo muove il display link");
+        assert!(!rt.state.fire_rests(), "lit: the display link drives it");
     }
 
-    /// Un documento corto, tutto in vista: un blocco aggiunto in fondo entra subito nella vista.
-    /// Nessun frame deve disegnare il fuoco né l'etichetta, nemmeno quello subito dopo la
-    /// ricarica (Rune riporta le righe visibili nuove solo dopo il layout).
+    /// A short document, all in view: a block added at the end enters the view at once.
+    /// No frame must draw the fire or the label, not even the one right after the
+    /// reload (Rune reports the new visible rows only after layout).
     #[test]
     fn a_block_appended_in_view_never_draws_the_fire() {
         let blocks: Vec<String> = (0..3).map(|n| format!("Breve {n}")).collect();
         let mut rt = open(&join(&blocks));
         assert!(rt.state.tab().unwrap().visible_last != 0);
         let mut more = blocks.clone();
-        more.push("Nuovo in fondo, già in vista".to_owned());
+        more.push("New at the end, already in view".to_owned());
         let src = join(&more);
         rt.update(|s, _| {
             let change = s.tab_mut().unwrap().doc.update(&src);
             s.tab_mut().unwrap().note_reload(&change, 1.0);
         });
         for f in 0..30 {
-            assert!(!fire_drawn(&rt), "fuoco disegnato al frame {f}");
-            assert_eq!(rt.state.tab().unwrap().fire_since, None, "fuoco acceso al frame {f}");
+            assert!(!fire_drawn(&rt), "fire drawn at frame {f}");
+            assert_eq!(rt.state.tab().unwrap().fire_since, None, "fire lit at frame {f}");
             rt.frame(1.0 / 60.0);
         }
         assert_eq!(rt.state.tab().unwrap().below.count(), 0);
     }
 
-    /// Un blocco cambiato sotto la vista (stessa chiave, niente righe nuove) accende il fuoco.
+    /// A block changed below the view (same key, no new rows) lights the fire.
     #[test]
     fn a_block_changed_below_the_view_lights_the_fire() {
         let mut rt = open(&join(&sample()));
@@ -951,7 +951,7 @@ mod tests {
         assert!(fire_drawn(&rt));
     }
 
-    /// I rect delle righe del documento (chiave → rect), in ordine.
+    /// The rects of the document rows (key → rect), in order.
     fn row_rects(rt: &Runtime<Doc>) -> Vec<(String, [f32; 4])> {
         let doc = rt.state.active_document();
         let keys: Vec<String> = (0..doc.blocks.len()).map(|i| row_key(i, doc)).collect();
@@ -962,48 +962,48 @@ mod tests {
         rt.elements().iter().filter(|e| !e.exiting && e.key.as_deref() == Some(key)).map(|e| e.rect).collect()
     }
 
-    /// Caret e segno accesi su una modifica a metà file (record 2026-11-15-caret-al-punto-modificato,
-    /// vincoli 1–3): le righe restano dove erano, niente barra in fondo, il caret di 2 pt sta nella
-    /// riga cambiata subito dopo la parola cambiata, e il segno sta nel margine sinistro.
+    /// Caret and mark lit on an edit in the middle of the file (record 2026-11-15-caret-at-the-edit-point,
+    /// constraints 1–3): the rows stay where they were, no bar at the bottom, the 2 pt caret sits in the
+    /// changed row right after the changed word, and the mark sits in the left margin.
     #[test]
     fn caret_and_changed_mark_do_not_move_the_text() {
-        let mut rt = open("# Titolo\n\nIl gatto dorme sul divano tutto il giorno.\n\nFine.\n");
+        let mut rt = open("# Title\n\nThe cat sleeps on the sofa all day long.\n\nEnd.\n");
         let before = row_rects(&rt);
         assert_eq!(before.len(), 3);
         assert!(keyed(&rt, "caret").is_empty() && keyed(&rt, "changed").is_empty());
         rt.update(|s, _| {
             let tab = s.tab_mut().unwrap();
             let old = tab.doc.blocks.clone();
-            let change = tab.doc.update("# Titolo\n\nIl cane dorme sul divano tutto il giorno.\n\nFine.\n");
+            let change = tab.doc.update("# Title\n\nThe dog sleeps on the sofa all day long.\n\nEnd.\n");
             let at = crate::live::caret::locate(&old, &tab.doc.blocks, &change);
             tab.changed.mark(&change.changed, std::time::Instant::now());
             tab.caret_step(at.as_ref(), true, 0.0);
         });
         settle(&mut rt);
-        assert_eq!(row_rects(&rt).iter().map(|r| r.1).collect::<Vec<_>>(), before.iter().map(|r| r.1).collect::<Vec<_>>(), "niente si sposta");
-        assert!(keyed(&rt, "arriving").is_empty(), "niente barra in fondo");
+        assert_eq!(row_rects(&rt).iter().map(|r| r.1).collect::<Vec<_>>(), before.iter().map(|r| r.1).collect::<Vec<_>>(), "nothing moves");
+        assert!(keyed(&rt, "arriving").is_empty(), "no bar at the bottom");
         let caret = keyed(&rt, "caret");
-        assert_eq!(caret.len(), 1, "un caret");
+        assert_eq!(caret.len(), 1, "one caret");
         let (c, row) = (caret[0], before[1].1);
         assert_eq!(c[2], crate::fx::caret::WIDTH);
-        assert!(c[1] > row[1] && c[1] + c[3] < row[1] + row[3], "nella riga cambiata: {c:?} {row:?}");
-        // Dopo "Il cane": a destra del carattere evidenziato, a sinistra di metà riga.
+        assert!(c[1] > row[1] && c[1] + c[3] < row[1] + row[3], "in the changed row: {c:?} {row:?}");
+        // After "The dog": right of the highlighted character, left of the middle of the row.
         let mark = keyed(&rt, &super::caret_key(rt.state.active_document().id));
-        assert!(!mark.is_empty(), "il carattere del caret ha un rect");
-        assert!((c[0] - (mark[0][0] + mark[0][2] + super::CARET_GAP)).abs() < 0.5, "subito dopo la parola: {c:?} {mark:?}");
-        assert!(c[0] < row[0] + row[2] * 0.4, "dopo «Il cane», non in fondo: {c:?}");
+        assert!(!mark.is_empty(), "the caret character has a rect");
+        assert!((c[0] - (mark[0][0] + mark[0][2] + super::CARET_GAP)).abs() < 0.5, "right after the word: {c:?} {mark:?}");
+        assert!(c[0] < row[0] + row[2] * 0.4, "after «The dog», not at the end: {c:?}");
         let mark = keyed(&rt, "changed");
-        assert_eq!(mark.len(), 1, "un solo blocco segnato");
+        assert_eq!(mark.len(), 1, "only one marked block");
         assert_eq!(mark[0][2], crate::ui::theme::CHANGED_MARK_W);
-        assert!(mark[0][0] > row[0] && mark[0][0] + mark[0][2] < row[0] + crate::ui::theme::ROW_PAD_X, "nel margine sinistro");
+        assert!(mark[0][0] > row[0] && mark[0][0] + mark[0][2] < row[0] + crate::ui::theme::ROW_PAD_X, "in the left margin");
     }
 
-    /// Il carattere del caret senza rect (record 2026-11-15-caret-al-punto-modificato, vincolo 2):
-    /// qui la modifica cade nell'URL di un link, che non si vede. Il caret va alla fine del blocco
-    /// cambiato, dopo l'ultima parola, invece di sparire.
+    /// The caret character without a rect (record 2026-11-15-caret-at-the-edit-point, constraint 2):
+    /// here the edit falls in a link URL, which is not visible. The caret goes to the end of the changed
+    /// block, after the last word, instead of disappearing.
     #[test]
     fn without_the_character_rect_the_caret_goes_to_the_end_of_the_block() {
-        let text = |u: &str| format!("# Titolo\n\nVedi [la pagina lunga con molte parole che va a capo di sicuro su due righe nella colonna del documento](http://example.com/{u}) e poi testo che continua per un po' fino alla fine.\n\nFine.\n");
+        let text = |u: &str| format!("# Title\n\nSee [the long page with many words that surely wraps onto two lines in the document column](http://example.com/{u}) and then text that goes on for a while until the end.\n\nEnd.\n");
         let mut rt = open(&text("a"));
         rt.update(|s, _| {
             let tab = s.tab_mut().unwrap();
@@ -1014,30 +1014,30 @@ mod tests {
         });
         settle(&mut rt);
         let id = rt.state.active_document().id;
-        assert!(keyed(&rt, &super::caret_key(id)).is_empty(), "il carattere nell'URL non ha rect");
+        assert!(keyed(&rt, &super::caret_key(id)).is_empty(), "the character in the URL has no rect");
         let caret = keyed(&rt, "caret");
-        assert_eq!(caret.len(), 1, "il caret si vede lo stesso");
+        assert_eq!(caret.len(), 1, "the caret shows anyway");
         let end = keyed(&rt, &super::caret_end_key(id));
-        assert_eq!(end.len(), 1, "l'ultima parola del blocco ha un rect");
+        assert_eq!(end.len(), 1, "the last word of the block has a rect");
         let (c, e) = (caret[0], end[0]);
-        assert!((c[0] - (e[0] + e[2] + super::CARET_GAP)).abs() < 0.5, "subito dopo «fine.»: {c:?} {e:?}");
+        assert!((c[0] - (e[0] + e[2] + super::CARET_GAP)).abs() < 0.5, "right after «end.»: {c:?} {e:?}");
         let row = row_rects(&rt)[1].1;
-        assert!(c[1] > row[1] + row[3] * 0.5, "sull'ultima riga del blocco: {c:?} {row:?}");
+        assert!(c[1] > row[1] + row[3] * 0.5, "on the last line of the block: {c:?} {row:?}");
     }
 
-    /// Il frontmatter YAML in lettura: un blocco di metadati (chiave `frontmatter`) col testo così
-    /// com'è, in `fg2`; senza chiusura resta Markdown.
+    /// YAML frontmatter while reading: a metadata block (key `frontmatter`) with the text as
+    /// it is, in `fg2`; without a closing line it stays Markdown.
     #[test]
     fn frontmatter_reads_as_one_muted_metadata_block() {
-        let rt = open("---\nname: RuneMD\ndescription: Lettore\n---\n\n# Titolo\n\nTesto.\n");
+        let rt = open("---\nname: RuneMD\ndescription: Reader\n---\n\n# Title\n\nText.\n");
         let els = rt.elements();
         let meta: Vec<_> = els.iter().filter(|e| e.key.as_deref() == Some("frontmatter") && !e.exiting).collect();
-        assert_eq!(meta.len(), 1, "un blocco di metadati");
+        assert_eq!(meta.len(), 1, "one metadata block");
         let theme = crate::ui::theme::Theme::for_mode(true);
-        let text = els.iter().find(|e| e.text.as_deref() == Some("name: RuneMD\ndescription: Lettore")).expect("il YAML così com'è, senza i ---");
+        let text = els.iter().find(|e| e.text.as_deref() == Some("name: RuneMD\ndescription: Reader")).expect("the YAML as it is, without the ---");
         assert_eq!(text.text_color, Some(theme.fg2));
         let rt = open("---\nname: RuneMD\n\nTesto.\n");
-        assert!(!rt.elements().iter().any(|e| e.key.as_deref() == Some("frontmatter")), "senza chiusura: Markdown");
+        assert!(!rt.elements().iter().any(|e| e.key.as_deref() == Some("frontmatter")), "no closing line: Markdown");
     }
 
     #[test]
@@ -1055,11 +1055,11 @@ mod tests {
         rt.frame(1.0 / 60.0);
     }
 
-    // --- schede ---
+    // --- tabs ---
 
-    /// Due schede sullo stesso campione: B scorre a metà, si passa ad A (Cmd+1) e si torna a B
-    /// (Ctrl+Tab). A parte dall'inizio, B torna dove era: il blocco che stava in cima torna in
-    /// cima (`App::restore_view`), senza la parte tagliata dal bordo.
+    /// Two tabs on the same sample: B scrolls halfway, switch to A (Cmd+1) and back to B
+    /// (Ctrl+Tab). A starts from the top, B comes back where it was: the block that was at the top is back at the
+    /// top (`App::restore_view`), without the part cut by the edge.
     #[test]
     fn each_tab_keeps_its_place() {
         let mut rt = open(&join(&sample()));
@@ -1069,24 +1069,24 @@ mod tests {
         let b = anchor(&rt);
         cmd(&mut rt, '1');
         assert_eq!(rt.state.active, 0);
-        assert_eq!(anchor(&rt).1.round(), 24.0, "A dall'inizio, dal primo frame");
+        assert_eq!(anchor(&rt).1.round(), 24.0, "A from the top, from the first frame");
         settle(&mut rt);
         rt.key(KeyEvent { key: Key::Tab, mods: Mods { ctrl: true, ..Mods::default() } });
-        // Il primo frame dopo il cambio è già giusto, e così i seguenti: nessun salto.
+        // The first frame after the switch is already right, and so are the next ones: no jump.
         for f in 0..10 {
             rt.frame(1.0 / 60.0);
             assert_eq!(rt.state.active, 1, "Ctrl+Tab");
             let back = anchor(&rt);
             if f == 0 {
-                eprintln!("scheda B: prima {b:?}, primo frame dopo {back:?}");
+                eprintln!("tab B: before {b:?}, first frame after {back:?}");
             }
-            assert_eq!(back.0, b.0, "frame {f}: B riparte dal suo primo blocco visibile");
-            assert!(back.1.abs() <= 1.0, "frame {f}: in cima alla vista: {back:?}");
+            assert_eq!(back.0, b.0, "frame {f}: B restarts from its first visible block");
+            assert!(back.1.abs() <= 1.0, "frame {f}: at the top of the view: {back:?}");
         }
     }
 
-    /// Il fuoco di una scheda in secondo piano risale (420 ms) quando la scheda torna davanti:
-    /// il suo orologio riparte dal cambio, non dalla ricarica di allora.
+    /// The fire of a background tab rises again (420 ms) when the tab comes to the front:
+    /// its clock starts again from the switch, not from the reload back then.
     #[test]
     fn a_background_fire_rises_again_when_its_tab_comes_back() {
         let mut rt = open(&join(&sample()));
@@ -1098,15 +1098,15 @@ mod tests {
         }
         cmd(&mut rt, '1');
         let since = rt.state.tab().unwrap().fire_since.expect("fuoco acceso");
-        assert!(since > 1.5, "orologio del cambio, non della ricarica: {since}");
+        assert!(since > 1.5, "clock of the switch, not of the reload: {since}");
     }
 
-    /// Le schede sono larghe quanto il loro nome, con `ROW_PAD` ai lati (mockup `scheda`): un
-    /// nome lungo non si taglia mentre la barra ha spazio.
+    /// Tabs are as wide as their name, with `ROW_PAD` at the sides (mockup `scheda`): a
+    /// long name is not cut while the bar has room.
     #[test]
     fn tabs_are_as_wide_as_their_names() {
         let mut rt = open("# a\n");
-        rt.update(|s, _| s.push_tab(Document::from_source(Path::new("un-nome-di-file-molto-lungo.md"), "# b\n")));
+        rt.update(|s, _| s.push_tab(Document::from_source(Path::new("a-very-long-file-name-for-one-tab.md"), "# b\n")));
         settle(&mut rt);
         let els = rt.elements();
         let rect = |key: &str| els.iter().find(|e| e.key.as_deref() == Some(key)).unwrap_or_else(|| panic!("{key}")).rect;
@@ -1115,17 +1115,17 @@ mod tests {
         let (la, lb) = (rect(&format!("t-{:x}-label", ids[0])), rect(&format!("t-{:x}-label", ids[1])));
         let pad = crate::ui::theme::ROW_PAD;
         for (tab, label) in [(a, la), (b, lb)] {
-            assert!((label[0] - tab[0] - pad).abs() <= 0.5, "testo a {pad} dal bordo: {tab:?} {label:?}");
-            // Dopo il nome, la × (sempre il suo posto): 4 + 16 + 6.
+            assert!((label[0] - tab[0] - pad).abs() <= 0.5, "text at {pad} from the edge: {tab:?} {label:?}");
+            // After the name, the × (always in its place): 4 + 16 + 6.
             let tail = 4.0 + crate::ui::tabs::CLOSE + 6.0;
-            assert!((tab[0] + tab[2] - label[0] - label[2] - tail).abs() <= 0.5, "e la × in fondo: {tab:?} {label:?}");
+            assert!((tab[0] + tab[2] - label[0] - label[2] - tail).abs() <= 0.5, "and the × at the end: {tab:?} {label:?}");
         }
-        assert!(b[2] > a[2] + 100.0, "larghe quanto il nome: {a:?} {b:?}");
+        assert!(b[2] > a[2] + 100.0, "as wide as the name: {a:?} {b:?}");
         assert_eq!(a[3], crate::ui::theme::ROW);
     }
 
-    /// La × per chiudere: sulla scheda davanti sempre, sulle altre solo in hover; il posto è
-    /// riservato, così il nome non si sposta. Etichetta "Chiudi <nome>"; un clic chiude come Cmd+W.
+    /// The × to close: always on the front tab, on the others only on hover; the place is
+    /// reserved, so the name does not move. Label "Close <name>"; a click closes like Cmd+W.
     #[test]
     fn the_close_button_shows_on_the_front_and_hovered_tab_and_closes() {
         let mut rt = open("# a\n");
@@ -1134,11 +1134,11 @@ mod tests {
         let ids: Vec<u64> = rt.state.tabs.iter().map(|t| t.doc.id).collect();
         let key = |i: usize, part: &str| format!("t-{:x}{part}", ids[i]);
         let el = |rt: &Runtime<Doc>, k: &str| rt.elements().into_iter().find(|e| e.key.as_deref() == Some(k) && !e.exiting).unwrap_or_else(|| panic!("{k}"));
-        // b.md è davanti (l'ultima aperta), t.md dietro.
+        // b.md is in front (the last opened), t.md behind.
         assert_eq!(rt.state.active, 1);
         let close = el(&rt, &key(1, "-close"));
         assert_eq!((close.role, close.label.as_deref()), ("button", Some("Close b.md")));
-        assert!(close.rect[2] >= 16.0 && close.rect[3] >= 16.0, "area di 16 pt: {:?}", close.rect);
+        assert!(close.rect[2] >= 16.0 && close.rect[3] >= 16.0, "16 pt area: {:?}", close.rect);
         assert!(el(&rt, &key(1, "-close")).opacity > 0.99, "davanti: visibile");
         assert!(el(&rt, &key(0, "-close")).opacity < 0.01, "dietro: nascosta");
         let label = el(&rt, &key(0, "-label")).rect;
@@ -1146,20 +1146,20 @@ mod tests {
         rt.pointer_move(tab[0] + 8.0, tab[1] + tab[3] / 2.0);
         settle(&mut rt);
         assert!(el(&rt, &key(0, "-close")).opacity > 0.99, "in hover: visibile");
-        assert_eq!(el(&rt, &key(0, "-label")).rect, label, "il nome non si sposta");
+        assert_eq!(el(&rt, &key(0, "-label")).rect, label, "the name does not move");
         let c = el(&rt, &key(0, "-close")).rect;
-        assert!(c[0] + c[2] <= tab[0] + tab[2] + 0.5 && c[0] > label[0] + label[2] - 0.5, "in fondo alla scheda");
+        assert!(c[0] + c[2] <= tab[0] + tab[2] + 0.5 && c[0] > label[0] + label[2] - 0.5, "at the end of the tab");
         let (x, y) = (c[0] + c[2] / 2.0, c[1] + c[3] / 2.0);
         rt.pointer_move(x, y);
         rt.pointer_down(x, y);
         rt.pointer_up(x, y);
         settle(&mut rt);
         assert_eq!(rt.state.tabs.len(), 1, "chiusa");
-        assert_eq!(rt.state.tab().unwrap().doc.id, ids[1], "resta b.md");
+        assert_eq!(rt.state.tab().unwrap().doc.id, ids[1], "b.md stays");
     }
 
-    /// La barra mostra una scheda per file, quella davanti con riempimento `sel`, e "⌘E
-    /// sorgente"; Cmd+W chiude la scheda davanti, e senza schede lascia il tasto a Rune.
+    /// The bar shows one tab per file, the front one with `sel` fill, and "⌘E
+    /// source"; Cmd+W closes the front tab, and with no tabs leaves the key to Rune.
     #[test]
     fn the_tab_bar_shows_the_files_and_cmd_w_closes() {
         let mut rt = open("# a\n");
@@ -1168,7 +1168,7 @@ mod tests {
         let ids: Vec<String> = rt.state.tabs.iter().map(|t| format!("t-{:x}", t.doc.id)).collect();
         let els = rt.elements();
         for id in &ids {
-            assert!(els.iter().any(|e| e.key.as_deref() == Some(id.as_str())), "scheda {id}");
+            assert!(els.iter().any(|e| e.key.as_deref() == Some(id.as_str())), "tab {id}");
         }
         assert!(els.iter().any(|e| e.key.as_deref() == Some("source-key")), "⌘E sorgente");
         assert!(els.iter().any(|e| e.text.as_deref() == Some(crate::ui::tabs::SOURCE_KEY)));
@@ -1177,17 +1177,17 @@ mod tests {
         assert_eq!(rt.state.tabs.len(), 1);
         cmd(&mut rt, 'w');
         settle(&mut rt);
-        assert!(rt.state.tabs.is_empty(), "nessuna scheda, nessun panic");
+        assert!(rt.state.tabs.is_empty(), "no tabs, no panic");
         let mut tx = rune::Tx::default();
         let key = KeyEvent { key: Key::Command('w'), mods: Mods { cmd: true, logo: true, ..Mods::default() } };
-        assert!(!crate::on_key(&mut rt.state, &key, &mut tx), "Cmd+W senza schede resta a Rune");
+        assert!(!crate::on_key(&mut rt.state, &key, &mut tx), "Cmd+W with no tabs stays with Rune");
     }
 
-    /// Cmd+A poi Cmd+C su un runtime con clipboard di prova; ritorna il testo copiato.
+    /// Cmd+A then Cmd+C on a runtime with a test clipboard; returns the copied text.
     fn copy_all(rt: &mut Runtime<Doc>) -> String {
         let clipboard = rune::clipboard::memory();
         rt.use_clipboard(&clipboard);
-        // un clic dentro il documento dà il focus alla selezione, come nell'app
+        // a click inside the document gives focus to the selection, as in the app
         let doc = rt.elements().into_iter().find(|e| e.key.as_deref() == Some("doc")).unwrap();
         let (x, y) = (doc.rect[0] + doc.rect[2] / 2.0, doc.rect[1] + 12.0);
         rt.pointer_move(x, y);
@@ -1203,7 +1203,7 @@ mod tests {
     fn copy_all_gives_the_markdown_source() {
         let src = join(&sample());
         let mut rt = open(&src);
-        // il campione è lungo molte schermate: la maggior parte delle righe non è in layout
+        // the sample is many screens long: most rows are not in layout
         assert!(rt.elements().iter().filter(|e| e.path.contains("rows/")).count() < 120 * 4);
         let copied = copy_all(&mut rt);
         assert_eq!(copied.trim_end(), src.trim_end());
@@ -1245,7 +1245,7 @@ mod tests {
         assert_eq!(copied.trim_end(), src.trim_end());
     }
 
-    /// Trascina dal centro della riga `from` al centro della riga `to` e copia con Cmd+C.
+    /// Drags from the centre of row `from` to the centre of row `to` and copies with Cmd+C.
     fn drag_copy(rt: &mut Runtime<Doc>, from: usize, to: usize) -> String {
         let clipboard = rune::clipboard::memory();
         rt.use_clipboard(&clipboard);
@@ -1307,7 +1307,7 @@ mod tests {
         assert_eq!(copied.trim_end(), src.trim_end());
     }
 
-    /// Cmd+A, poi un agente riscrive il file (ricarica), poi Cmd+C: si copia il file nuovo.
+    /// Cmd+A, then an agent rewrites the file (reload), then Cmd+C: the new file is copied.
     #[test]
     fn copy_after_cmd_a_and_a_reload_gives_the_new_file() {
         let dir = tempfile::tempdir().unwrap();
@@ -1335,11 +1335,11 @@ mod tests {
         settle(&mut rt);
         cmd(&mut rt, 'c');
         let copied = clipboard.text().map(|t| t.to_string()).unwrap_or_default();
-        assert_eq!(copied.trim_end(), after.trim_end(), "il file nuovo, non il vecchio né la selezione");
+        assert_eq!(copied.trim_end(), after.trim_end(), "the new file, not the old one nor the selection");
     }
 
-    /// Cmd+A, scroll in fondo, Shift+clic nel penultimo blocco (pressione e rilascio nello
-    /// stesso frame, come un clic veloce: la selezione non arriva mai `dragging`), Cmd+C.
+    /// Cmd+A, scroll to the end, Shift+click in the second-to-last block (press and release in the
+    /// same frame, like a fast click: the selection never gets to `dragging`), Cmd+C.
     fn cmd_a_then_shift_click_second_to_last(rt: &mut Runtime<Doc>) -> String {
         let n = rt.state.active_document().blocks.len();
         let clipboard = rune::clipboard::memory();
@@ -1365,8 +1365,8 @@ mod tests {
         clipboard.text().map(|t| t.to_string()).unwrap_or_default()
     }
 
-    /// Il taglio toglie meno dello 0,1 % del file, ma non è più "tutto": Cmd+C copia i blocchi
-    /// fino al penultimo.
+    /// The cut removes less than 0.1 % of the file, but it is no longer "all": Cmd+C copies the blocks
+    /// up to the second-to-last.
     #[test]
     fn a_shift_trim_after_cmd_a_copies_the_trimmed_blocks_not_the_file() {
         let path = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/big.md"));
@@ -1375,14 +1375,14 @@ mod tests {
         let blocks = source(&rt);
         let n = blocks.len();
         let trimmed = blocks[n - 2].len() + blocks[n - 1].len();
-        assert!(trimmed * 1000 < src.len(), "il taglio sta nella vecchia tolleranza: {trimmed} su {}", src.len());
+        assert!(trimmed * 1000 < src.len(), "the cut is within the old tolerance: {trimmed} of {}", src.len());
         let copied = cmd_a_then_shift_click_second_to_last(&mut rt);
-        assert_ne!(copied.trim_end(), src.trim_end(), "copiato tutto il file dopo il taglio");
+        assert_ne!(copied.trim_end(), src.trim_end(), "copied the whole file after the cut");
         assert_eq!(copied, blocks[..=n - 2].join("\n\n"));
     }
 
-    /// Caso residuo, fissato com'è: oltre il tetto di copia di Rune l'ultimo capo non si
-    /// confronta, quindi un taglio in fondo dopo Cmd+A resta "tutto" e copia il file intero.
+    /// Leftover case, pinned as it is: past Rune's copy cap the last end is not
+    /// compared, so a cut at the end after Cmd+A stays "all" and copies the whole file.
     #[test]
     fn a_shift_trim_after_cmd_a_over_the_copy_cap_still_copies_the_file() {
         let dir = tempfile::tempdir().unwrap();
@@ -1391,7 +1391,7 @@ mod tests {
         std::fs::write(&path, &src).unwrap();
         let mut rt = open_doc(Document::load(&path).unwrap());
         let copied = cmd_a_then_shift_click_second_to_last(&mut rt);
-        assert_eq!(copied.trim_end(), src.trim_end(), "comportamento noto: tutto il file");
+        assert_eq!(copied.trim_end(), src.trim_end(), "known behaviour: the whole file");
     }
 
     #[test]
@@ -1406,18 +1406,18 @@ mod tests {
     fn a_drag_after_a_cmd_a_that_selected_nothing_copies_the_dragged_blocks() {
         let mut rt = open(&join(&sample()));
         let blocks = source(&rt);
-        // Cmd+Shift+A è un tasto dell'app: Rune non seleziona, la vista non deve restare in attesa.
+        // Cmd+Shift+A is an app key: Rune does not select, the view must not keep waiting.
         rt.key(KeyEvent { key: Key::Command('a'), mods: Mods { cmd: true, logo: true, shift: true, ..Mods::default() } });
         rt.frame(1.0 / 60.0);
         assert_eq!(drag_copy(&mut rt, 2, 3), blocks[2..=3].join("\n\n"));
     }
 
-    /// Il lettore con lo stile vero dell'app (`markdown_style::style`), nel tema `dark`.
+    /// The reader with the real app style (`markdown_style::style`), in the `dark` theme.
     fn open_themed(source: &str, dark: bool) -> Runtime<Doc> {
         open_sized(source, dark, VIEWPORT)
     }
 
-    /// [`open_themed`] in una finestra di `size`.
+    /// [`open_themed`] in a window of `size`.
     fn open_sized(source: &str, dark: bool, size: (f32, f32)) -> Runtime<Doc> {
         let mut state = Doc::bare(crate::index::Library::load(Vec::new(), None));
         state.set_style(crate::ui::markdown_style::style(&crate::ui::theme::Theme::for_mode(dark), crate::ui::theme::BODY_TEXT));
@@ -1436,20 +1436,20 @@ mod tests {
         rt.elements().iter().any(|e| e.key.as_deref() == Some("source"))
     }
 
-    /// I blocchi ```mermaid di `fixtures/mermaid.md` si disegnano (un flowchart e un
-    /// sequence, in tutti e due i temi); quello non valido resta un blocco di codice.
+    /// The ```mermaid blocks of `fixtures/mermaid.md` are drawn (a flowchart and a
+    /// sequence, in both themes); the invalid one stays a code block.
     #[test]
     fn mermaid_fences_draw_as_diagrams_and_an_unknown_one_stays_code() {
         let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/mermaid.md")).unwrap();
         for dark in [true, false] {
             let rt = open_themed(&src, dark);
             assert_eq!(figures(&rt), ["Flowchart", "Sequence diagram"], "dark={dark}");
-            assert!(has_source_block(&rt), "il blocco non valido resta codice, dark={dark}");
+            assert!(has_source_block(&rt), "the invalid block stays code, dark={dark}");
         }
     }
 
-    /// Sorgenti vuote, spezzate o enormi non vanno in panic e non bloccano la vista: o si
-    /// disegnano, o restano il blocco di codice com'erano.
+    /// Empty, broken or huge sources do not panic and do not block the view: they are either
+    /// drawn, or stay the code block they were.
     #[test]
     fn broken_and_huge_mermaid_never_panic() {
         let huge_graph = format!("flowchart TD\n{}", (0..3000).map(|i| format!("  N{i} --> N{}\n", i + 1)).collect::<String>());
@@ -1470,13 +1470,13 @@ mod tests {
             let t = std::time::Instant::now();
             let rt = open_themed(&doc, true);
             let drawn = !figures(&rt).is_empty();
-            assert!(drawn || has_source_block(&rt), "né disegno né codice per {:?}", body.chars().take(30).collect::<String>());
+            assert!(drawn || has_source_block(&rt), "neither drawing nor code for {:?}", body.chars().take(30).collect::<String>());
             println!("mermaid {:>6} byte: {} in {:?}", body.len(), if drawn { "disegnato" } else { "codice" }, t.elapsed());
         }
     }
 
-    /// Due schede con lo stesso diagramma non si pestano: ognuna ha il suo, e cambiando scheda
-    /// il diagramma resta quello della scheda.
+    /// Two tabs with the same diagram do not step on each other: each has its own, and when switching tabs
+    /// the diagram stays the one of the tab.
     #[test]
     fn the_same_diagram_in_two_tabs_draws_in_each() {
         let one = "```mermaid\nflowchart LR\n  A --> B\n```\n";
@@ -1489,38 +1489,38 @@ mod tests {
         assert_eq!(figures(&rt), ["Flowchart"]);
     }
 
-    /// I callout di GitHub (`> [!NOTE]` …) hanno l'etichetta in parole e non mostrano il segno.
+    /// GitHub callouts (`> [!NOTE]` …) have the label in words and do not show the marker.
     #[test]
     fn callouts_show_a_label_not_the_marker() {
-        let src = "> [!NOTE]\n> Una nota.\n\n> [!TIP]\n> Un suggerimento.\n\n> [!IMPORTANT]\n> Importante.\n\n> [!warning]\n> Un avviso.\n\n> [!CAUTION]\n> Un rischio.\n";
+        let src = "> [!NOTE]\n> A note.\n\n> [!TIP]\n> A tip.\n\n> [!IMPORTANT]\n> Important.\n\n> [!warning]\n> A warning.\n\n> [!CAUTION]\n> A risk.\n";
         for dark in [true, false] {
             let rt = open_themed(src, dark);
             let texts: Vec<String> = rt.elements().into_iter().filter_map(|e| e.text).collect();
-            assert!(!texts.iter().any(|t| t.contains("[!")), "il segno si vede: {texts:?}");
+            assert!(!texts.iter().any(|t| t.contains("[!")), "the marker shows: {texts:?}");
             for label in ["Note", "Tip", "Important", "Warning", "Caution"] {
                 assert!(texts.iter().any(|t| t == label), "manca {label}: {texts:?}");
             }
-            assert!(texts.iter().any(|t| t.contains("Un avviso.")), "{texts:?}");
+            assert!(texts.iter().any(|t| t.contains("A warning.")), "{texts:?}");
         }
     }
 
-    /// Le note a piè di pagina: il numero in alto nel testo, le note in fondo al file sotto una
-    /// linea, non dove sono scritte.
+    /// Footnotes: the number raised in the text, the notes at the end of the file below a
+    /// rule, not where they are written.
     #[test]
     fn footnotes_show_a_number_and_go_to_the_end() {
-        let src = "Una nota[^1] qui.\n\n[^1]: Il testo della nota.\n\nDopo la nota.\n";
+        let src = "A note[^1] here.\n\n[^1]: The note text.\n\nAfter the note.\n";
         let rt = open_themed(src, true);
         let els = rt.elements();
         let texts: Vec<String> = els.iter().filter_map(|e| e.text.as_deref()).map(|t| t.replace(['\u{2066}', '\u{2069}'], "")).collect();
         assert!(!texts.iter().any(|t| t.contains("[^")), "{texts:?}");
-        assert!(texts.iter().any(|t| t.contains("Una nota¹ qui.")), "{texts:?}");
+        assert!(texts.iter().any(|t| t.contains("A note¹ here.")), "{texts:?}");
         let y = |needle: &str| els.iter().find(|e| e.text.as_deref().is_some_and(|t| t.replace(['\u{2066}', '\u{2069}'], "").contains(needle))).map(|e| e.rect[1]).unwrap_or_else(|| panic!("manca {needle}: {texts:?}"));
-        assert!(y("Il testo della nota.") > y("Dopo la nota."), "la nota va in fondo");
+        assert!(y("The note text.") > y("After the note."), "the note goes to the end");
         assert!(els.iter().any(|e| e.key.as_deref() == Some("footnotes")));
     }
 
-    /// Titoli 3–6: 17 / 15,5 / 14 / 13, il colore scende (`body`, `body`, `fg2`, `fg3`); 4–6 non sono
-    /// uguali al 3.
+    /// Headings 3–6: 17 / 15.5 / 14 / 13, the colour steps down (`body`, `body`, `fg2`, `fg3`); 4–6 are not
+    /// the same as 3.
     #[test]
     fn headings_three_to_six_step_down() {
         let t = crate::ui::theme::Theme::for_mode(true);
@@ -1532,15 +1532,15 @@ mod tests {
         assert_eq!([h3.1, h4.1, h5.1, h6.1], [Some(t.body), Some(t.body), Some(t.fg2), Some(t.fg3)]);
     }
 
-    /// I percorsi (record 2026-11-16-percorsi-nome-e-link): senza backtick, in monospaziato; chi
-    /// esiste è un link che apre il file alla riga; chi non esiste no; nel codice niente.
+    /// Paths (record 2026-11-16-paths-name-and-link): without backticks, in monospace; one that
+    /// exists is a link that opens the file at the line; one that does not exist is not; in code, nothing.
     #[test]
     fn paths_show_as_links_that_open_the_file_at_the_line() {
         let t = std::env::temp_dir().join(format!("runemd-paths-view-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&t);
         std::fs::create_dir_all(t.join("src/live")).unwrap();
         std::fs::create_dir_all(t.join(".git")).unwrap();
-        let target: String = (1..=40).map(|n| format!("Paragrafo {n}.\n\n")).collect();
+        let target: String = (1..=40).map(|n| format!("Paragraph {n}.\n\n")).collect();
         std::fs::write(t.join("src/live/below.rs"), &target).unwrap();
         let src = "Vedi src/live/below.rs:31, `src/live/below.rs` e src/old/gone.rs.\n\n```\ncat src/live/below.rs\n```\n";
         let doc_path = t.join("doc.md");
@@ -1553,33 +1553,33 @@ mod tests {
         settle(&mut rt);
         let texts: Vec<String> = rt.elements().into_iter().filter_map(|e| e.text).map(|x| x.replace(['\u{200B}', '\u{2066}', '\u{2069}', '\u{202F}'], "")).collect();
         assert!(texts.iter().any(|x| x.contains("Vedi src/live/below.rs:31, src/live/below.rs e src/old/gone.rs.")), "{texts:?}");
-        assert!(texts.iter().any(|x| x.contains("cat src/live/below.rs")), "il codice resta: {texts:?}");
+        assert!(texts.iter().any(|x| x.contains("cat src/live/below.rs")), "the code stays: {texts:?}");
         let url = crate::doc::paths::open_target(&t.join("src/live/below.rs").canonicalize().unwrap(), Some(31));
         rt.update(|s, tx| s.open_link(&url, tx));
         settle(&mut rt);
         let tab = rt.state.tab().unwrap();
         assert!(tab.doc.path.ends_with("src/live/below.rs"), "{:?}", tab.doc.path);
         let texts: Vec<String> = rt.elements().into_iter().filter(|e| e.visible[3] > 0.0).filter_map(|e| e.text).collect();
-        assert!(texts.iter().any(|x| x == "Paragrafo 16."), "la riga 31 è in vista: {texts:?}");
+        assert!(texts.iter().any(|x| x == "Paragraph 16."), "line 31 is in view: {texts:?}");
         let _ = std::fs::remove_dir_all(&t);
     }
 
-    /// Un percorso che non esiste non è un link (vincolo 3 del record dei percorsi): niente mano,
-    /// niente clic; resta in monospaziato con il nome in evidenza.
+    /// A path that does not exist is not a link (constraint 3 of the paths record): no hand,
+    /// no click; it stays in monospace with the name highlighted.
     #[test]
     fn a_missing_path_is_not_a_link() {
-        for src in ["Vedi src/old/gone.rs:3 qui.\n", "Vedi src/old/gone.rs e `cargo test`.\n"] {
+        for src in ["See src/old/gone.rs:3 here.\n", "See src/old/gone.rs and `cargo test`.\n"] {
             let rt = open_themed(src, true);
             let els = rt.elements();
             let links: Vec<_> = els.iter().filter(|e| e.role == "link").map(|e| e.key.clone()).collect();
             assert!(links.is_empty(), "{src:?}: {links:?}");
             let texts: Vec<String> = els.iter().filter_map(|e| e.text.clone()).map(|x| x.replace(['\u{200B}', '\u{2066}', '\u{2069}', '\u{202F}'], "")).collect();
-            assert!(texts.iter().any(|x| x.contains("Vedi src/old/gone.rs")), "{texts:?}");
+            assert!(texts.iter().any(|x| x.contains("See src/old/gone.rs")), "{texts:?}");
         }
     }
 
-    /// Il registro (fixtures/registro.md, dall'inizio di .superpowers/sdd/plan/progress.md) si
-    /// legge a righe: ogni riga del file è una riga (vincolo 2 del record degli a capo).
+    /// The log (fixtures/registro.md, from the start of .superpowers/sdd/plan/progress.md) is
+    /// read by lines: each line of the file is a row (constraint 2 of the line-breaks record).
     #[test]
     fn a_register_reads_as_lines() {
         let source = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/registro.md")).unwrap();
@@ -1589,39 +1589,39 @@ mod tests {
         assert!(reg.contains("Implementer a382e1858b685d390.\nRuling: keychain"), "{reg:?}");
         assert!(reg.contains("review clean)\nTask 2: BASE 0095282."), "{reg:?}");
         let preamble = texts.iter().find(|x| x.starts_with("Spec: docs/spec.md")).unwrap();
-        assert!(preamble.contains("push).\nRuling: lavoro"), "due righe, tutte e due a etichetta: {preamble:?}");
+        assert!(preamble.contains("push).\nRuling: lavoro"), "two lines, both labelled: {preamble:?}");
     }
 
-    /// Una finestra in cui la colonna del testo è più stretta di [`super::TWO_COLUMNS`].
+    /// A window where the text column is narrower than [`super::TWO_COLUMNS`].
     const NARROW: (f32, f32) = (640.0, 1000.0);
 
-    /// Con la colonna larga il registro va su due colonne (vincolo 4 del record dei registri):
-    /// etichette senza `:` a sinistra, tutte allo stesso x e larghe al massimo 10 em, testo a
-    /// destra allineato; una riga senza etichetta sta nella colonna del testo. Stretta, una colonna.
+    /// With a wide column the log goes on two columns (constraint 4 of the logs record):
+    /// labels without `:` on the left, all at the same x and at most 10 em wide, text on the
+    /// right, aligned; a row without a label sits in the text column. Narrow, one column.
     #[test]
     fn a_wide_register_shows_two_columns() {
-        let source = "Task 2: BASE 0095282. Implementer abd1.\nRuling: commit del task 2.\nmisurato di nuovo dopo lo sblocco dello schermo: 118 fps.\nTask 2: minor (deferred): TreeRing.\nTask 2: complete (commits 0095282..f04c761)\n";
+        let source = "Task 2: BASE 0095282. Implementer abd1.\nRuling: task 2 commit.\nmeasured again after the screen was unlocked: 118 fps.\nTask 2: minor (deferred): TreeRing.\nTask 2: complete (commits 0095282..f04c761)\n";
         let rt = open_themed(source, false);
         let els = rt.elements();
         let rows = els.iter().find(|e| e.key.as_deref() == Some("rows")).unwrap().rect;
         assert!(rows[2] - 2.0 * crate::ui::theme::ROW_PAD_X >= super::TWO_COLUMNS, "colonna {rows:?}");
         let at = |s: &str| els.iter().find(|e| e.text.as_deref().map(|t| t.replace(['\u{2066}', '\u{2069}'], "")).as_deref() == Some(s)).unwrap_or_else(|| panic!("manca {s:?}: {:?}", els.iter().filter_map(|e| e.text.clone()).collect::<Vec<_>>())).rect;
         let labels = ["Task 2", "Ruling", "Task 2: minor (deferred)"].map(at);
-        let texts = ["BASE 0095282. Implementer abd1.", "commit del task 2.", "misurato di nuovo dopo lo sblocco dello schermo: 118 fps.", "TreeRing."].map(at);
-        assert!(labels.iter().all(|l| l[0] == labels[0][0]), "etichette allo stesso x: {labels:?}");
-        assert!(texts.iter().all(|t| t[0] == texts[0][0] && t[0] > labels[0][0] + 40.0), "testo allineato a destra: {texts:?}");
+        let texts = ["BASE 0095282. Implementer abd1.", "task 2 commit.", "measured again after the screen was unlocked: 118 fps.", "TreeRing."].map(at);
+        assert!(labels.iter().all(|l| l[0] == labels[0][0]), "labels at the same x: {labels:?}");
+        assert!(texts.iter().all(|t| t[0] == texts[0][0] && t[0] > labels[0][0] + 40.0), "text aligned on the right: {texts:?}");
         let em = crate::ui::markdown_style::fonts(crate::fonts::Typeface::of("Inter", crate::ui::theme::BODY_TEXT)).body.size;
-        assert!(texts[0][0] - labels[0][0] <= 10.0 * em + super::LABEL_GAP + 1.0, "al massimo 10 em");
-        assert!((labels[0][1] - texts[0][1]).abs() < 1.0 && (labels[1][1] - texts[1][1]).abs() < 1.0, "righe allineate");
+        assert!(texts[0][0] - labels[0][0] <= 10.0 * em + super::LABEL_GAP + 1.0, "at most 10 em");
+        assert!((labels[0][1] - texts[0][1]).abs() < 1.0 && (labels[1][1] - texts[1][1]).abs() < 1.0, "rows aligned");
         let narrow = open_sized(source, false, NARROW);
         let one: Vec<String> = narrow.elements().into_iter().filter_map(|e| e.text).filter(|t| t.starts_with("Task 2: BASE")).collect();
-        assert_eq!(one.len(), 1, "una colonna: {one:?}");
-        assert!(one[0].contains("abd1.\nRuling: commit"));
+        assert_eq!(one.len(), 1, "one column: {one:?}");
+        assert!(one[0].contains("abd1.\nRuling: task 2 commit"));
     }
 
-    /// DESIGN.md (paragraphs andati a capo a mano, nessun registro) esce identico a com'era senza
-    /// i blocchi a etichetta: nessun blocco lo è, e la vista ha gli stessi testi negli stessi posti
-    /// (vincolo 5 del record degli a capo).
+    /// DESIGN.md (paragraphs wrapped by hand, no log) comes out the same as it was without
+    /// label blocks: no block is one, and the view has the same texts in the same places
+    /// (constraint 5 of the line-breaks record).
     #[test]
     fn design_md_renders_as_before() {
         let source = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/DESIGN.md")).unwrap();
@@ -1645,42 +1645,42 @@ mod tests {
         assert_eq!(layout(false), before);
     }
 
-    /// Un titolo `Task N` (vincolo 3 del record dei registri): il numero in `fg3`, il titolo senza
-    /// `Task N:`, e a destra l'avanzamento dalle caselle del task.
+    /// A `Task N` heading (constraint 3 of the logs record): the number in `fg3`, the heading without
+    /// `Task N:`, and on the right the progress from the task checkboxes.
     #[test]
     fn task_headings_show_number_and_progress() {
         for dark in [true, false] {
             let t = crate::ui::theme::Theme::for_mode(dark);
-            let rt = open_themed("### Task 12: Fuoco\n\n- [x] uno\n- [x] due\n- [ ] tre\n- [ ] quattro\n\n### Task 13: Dither\n\nTesto.\n", dark);
+            let rt = open_themed("### Task 12: Fire\n\n- [x] one\n- [x] two\n- [ ] three\n- [ ] four\n\n### Task 13: Dither\n\nText.\n", dark);
             let els = rt.elements();
-            let find = |s: &str| els.iter().find(|e| e.text.as_deref() == Some(s)).unwrap_or_else(|| panic!("manca {s:?}")).clone();
-            let (number, title, done) = (find("12"), find("Fuoco"), find("2 of 4"));
+            let find = |s: &str| els.iter().find(|e| e.text.as_deref() == Some(s)).unwrap_or_else(|| panic!("missing {s:?}")).clone();
+            let (number, title, done) = (find("12"), find("Fire"), find("2 of 4"));
             assert_eq!(number.text_color, Some(t.fg3));
             assert_eq!(done.text_color, Some(t.fg3));
             assert!(number.rect[0] < title.rect[0] && title.rect[0] < done.rect[0], "{number:?} {title:?} {done:?}");
             assert!(find("Dither").rect[1] > done.rect[1]);
-            assert!(!els.iter().any(|e| e.text.as_deref().is_some_and(|x| x.contains("Task 1") || x.contains("di 0"))), "senza caselle niente avanzamento");
+            assert!(!els.iter().any(|e| e.text.as_deref().is_some_and(|x| x.contains("Task 1") || x.contains("of 0"))), "no checkboxes, no progress");
         }
     }
 
-    /// "2 di 4" sta sulla linea di base del titolo (mockup t-sezioni), non più in basso: con la
-    /// riga alta quanto quella del titolo, la base è a metà riga più `BASELINE_EM` per corpo.
+    /// "2 of 4" sits on the heading baseline (mockup t-sezioni), not lower: with the
+    /// row as tall as the heading row, the baseline is at mid-row plus `BASELINE_EM` per size.
     #[test]
     fn task_progress_sits_on_the_heading_baseline() {
-        let rt = open_themed("### Task 12: Fuoco\n\n- [x] uno\n- [ ] due\n", false);
+        let rt = open_themed("### Task 12: Fire\n\n- [x] one\n- [ ] two\n", false);
         let els = rt.elements();
-        let find = |s: &str| els.iter().find(|e| e.text.as_deref() == Some(s)).unwrap_or_else(|| panic!("manca {s:?}")).rect;
-        let (title, done) = (find("Fuoco"), find("1 of 2"));
+        let find = |s: &str| els.iter().find(|e| e.text.as_deref() == Some(s)).unwrap_or_else(|| panic!("missing {s:?}")).rect;
+        let (title, done) = (find("Fire"), find("1 of 2"));
         let h3 = crate::ui::markdown_style::fonts(crate::fonts::Typeface { family: rune::Family::Sans, size: crate::ui::theme::BODY_TEXT }).headings[2];
         let small = crate::ui::sidebar::small_font();
         let title_base = title[1] + h3.line_height / 2.0 + super::BASELINE_EM * h3.size;
         let done_base = done[1] + done[3] - h3.line_height / 2.0 + super::BASELINE_EM * small.size;
-        assert!((done_base - title_base).abs() < 0.5, "base del titolo {title_base}, di \"1 di 2\" {done_base} ({title:?} {done:?})");
+        assert!((done_base - title_base).abs() < 0.5, "heading baseline {title_base}, \"1 of 2\" baseline {done_base} ({title:?} {done:?})");
     }
 
-    /// Il link `key` della vista: un clic al suo centro.
+    /// The view link `key`: a click at its centre.
     fn click_link(rt: &mut Runtime<Doc>, key: &str) {
-        let r = rt.elements().into_iter().find(|e| e.role == "link" && e.key.as_deref() == Some(key)).unwrap_or_else(|| panic!("manca il link {key}")).rect;
+        let r = rt.elements().into_iter().find(|e| e.role == "link" && e.key.as_deref() == Some(key)).unwrap_or_else(|| panic!("missing link {key}")).rect;
         let (x, y) = (r[0] + r[2] / 2.0, r[1] + r[3] / 2.0);
         rt.pointer_move(x, y);
         rt.frame(1.0 / 120.0);
@@ -1689,46 +1689,46 @@ mod tests {
         settle(rt);
     }
 
-    /// In un paragrafo con un percorso, e fuori, gli altri link funzionano: un URL si apre nel
-    /// browser, `#titolo` porta al titolo.
+    /// In a paragraph with a path, and outside it, the other links work: a URL opens in the
+    /// browser, `#title` goes to the heading.
     #[test]
     fn links_beside_a_path_still_open() {
-        let filler: String = (1..=40).map(|n| format!("Paragrafo {n}.\n\n")).collect();
+        let filler: String = (1..=40).map(|n| format!("Paragraph {n}.\n\n")).collect();
         for with_path in [true, false] {
             let path = if with_path { " e src/old/gone.rs" } else { "" };
-            let src = format!("Vedi [il sito](https://example.com/a){path} o [la fine](#la-fine).\n\n{filler}## La fine\n\nUltimo.\n");
+            let src = format!("See [the site](https://example.com/a){path} or [the end](#the-end).\n\n{filler}## The end\n\nLast.\n");
             let mut rt = open_themed(&src, true);
             click_link(&mut rt, "https://example.com/a");
-            assert_eq!(rt.take_url_requests(), ["https://example.com/a"], "con percorso: {with_path}");
-            click_link(&mut rt, "#la-fine");
+            assert_eq!(rt.take_url_requests(), ["https://example.com/a"], "with path: {with_path}");
+            click_link(&mut rt, "#the-end");
             let shown: Vec<String> = rt.elements().into_iter().filter(|e| e.visible[3] > 0.0).filter_map(|e| e.text).collect();
-            assert!(shown.iter().any(|x| x == "La fine"), "con percorso: {with_path}: {shown:?}");
-            assert!(!shown.iter().any(|x| x == "Paragrafo 1."), "il titolo in cima, con percorso: {with_path}");
+            assert!(shown.iter().any(|x| x == "The end"), "with path: {with_path}: {shown:?}");
+            assert!(!shown.iter().any(|x| x == "Paragraph 1."), "the heading at the top, with path: {with_path}");
         }
     }
 
-    /// Le caselle delle liste di compiti sono quelle delle Impostazioni: spenta vuota (bordo `fg3`),
+    /// Task list checkboxes are the ones from Settings: off is empty (`fg3` border),
     /// accesa piena in `fg2`.
     #[test]
     fn task_checkboxes_look_like_the_settings_one() {
         for dark in [true, false] {
             let t = crate::ui::theme::Theme::for_mode(dark);
-            let rt = open_themed("- [ ] da fare\n- [x] fatto\n", dark);
+            let rt = open_themed("- [ ] to do\n- [x] done\n", dark);
             let els = rt.elements();
             let control = |label: &str| {
                 let row = els.iter().position(|e| e.role == "checkbox" && e.label.as_deref() == Some(label)).unwrap_or_else(|| panic!("manca {label}"));
                 els.iter().find(|e| e.parent == Some(row) && e.key.as_deref() == Some("control")).unwrap().clone()
             };
-            let (off, on) = (control("da fare"), control("fatto"));
+            let (off, on) = (control("to do"), control("done"));
             assert_eq!(on.fill, t.fg2, "accesa, dark={dark}");
-            assert_eq!(off.fill.a, 0.0, "spenta vuota, dark={dark}");
+            assert_eq!(off.fill.a, 0.0, "off is empty, dark={dark}");
             assert_eq!(on.rect[2], crate::ui::theme::ICON);
         }
     }
 
-    /// Le parole lunghe (fixtures/long-title.md: titolo-percorso, paragrafo, hash senza
-    /// separatori, lista, celle) vanno a capo: nessuna riga esce dalla colonna. Ogni testo è
-    /// dentro le righe e la sua parte più larga che non si spezza ci sta.
+    /// Long words (fixtures/long-title.md: path-like heading, paragraph, hash without
+    /// separators, list, cells) wrap: no line goes out of the column. Each text is
+    /// inside the rows and its widest unbreakable part fits.
     #[test]
     fn long_words_never_overflow_the_column() {
         let source = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/long-title.md")).unwrap();
@@ -1756,7 +1756,7 @@ mod tests {
                 _ => fonts.body,
             };
             let widest = rune::text::measure(t, &[], font, Some(0.0)).0;
-            assert!(e.rect[0] + widest <= right + 0.5, "{t:?}: la parte più larga ({widest} pt) esce da {right}");
+            assert!(e.rect[0] + widest <= right + 0.5, "{t:?}: the widest part ({widest} pt) goes past {right}");
         }
         assert!(seen >= 6, "testi controllati: {seen}");
         let _ = &mut rt;
