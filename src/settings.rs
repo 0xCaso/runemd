@@ -1,8 +1,8 @@
-//! Le impostazioni (spec, "Impostazioni"): cartelle osservate, font, dimensione, tema e fuoco in
-//! fondo al pannello, salvate con `rune::prefs` in `~/Library/Application Support/RuneMD/prefs.json`.
+//! The settings (spec, "Settings"): watched folders, font, size, theme and the fire at the
+//! bottom of the panel, saved with `rune::prefs` in `~/Library/Application Support/RuneMD/prefs.json`.
 //!
-//! Ogni campo ha la sua chiave: un valore che manca o che non si legge (un'altra versione
-//! dell'app) prende il default, gli altri restano.
+//! Every field has its own key: a value that is missing or cannot be read (another version
+//! of the app) takes the default, the others stay.
 
 use std::path::{Path, PathBuf};
 
@@ -12,37 +12,37 @@ use serde::{Deserialize, Serialize};
 use crate::fx::fire::{self, FireColor};
 use crate::panes::{self, Pane};
 
-/// L'id dell'app per `Prefs::open`: la stessa cartella dell'indice (`index::cache_path`).
+/// The app id for `Prefs::open`: the same folder as the index (`index::cache_path`).
 pub const APP_ID: &str = "RuneMD";
 
-/// Il font del documento di default (DESIGN.md, `typography.doc-body`).
+/// The default document font (DESIGN.md, `typography.doc-body`).
 pub const DEFAULT_FONT: &str = "Inter";
-/// La dimensione del corpo di default, pt (DESIGN.md, `typography.doc-body`).
+/// The default body size, pt (DESIGN.md, `typography.doc-body`).
 pub const DEFAULT_SIZE: f32 = 15.5;
-/// Le dimensioni del corpo fra cui scelgono "−" e "+", pt. Contiene `DEFAULT_SIZE`.
+/// The body sizes that "−" and "+" choose from, pt. Contains `DEFAULT_SIZE`.
 pub const SIZES: [f32; 7] = [13.0, 14.0, 15.5, 17.0, 18.5, 20.0, 22.0];
 
-/// "Full": la colonna del testo segue la larghezza del pannello, meno i margini delle righe.
+/// "Full": the text column follows the panel width, minus the row margins.
 pub const COLUMN_FULL: f32 = 0.0;
-/// Le larghezze della colonna del testo fra cui sceglie il cursore "Larghezza del testo", pt:
-/// da 680 (DESIGN.md, `spacing.column`) a passi di 80, l'ultima "Full".
+/// The text column widths the "Text width" slider chooses from, pt:
+/// from 680 (DESIGN.md, `spacing.column`) in steps of 80, the last one "Full".
 pub const COLUMNS: [f32; 9] = [680.0, 760.0, 840.0, 920.0, 1000.0, 1080.0, 1160.0, 1240.0, COLUMN_FULL];
-/// La larghezza della colonna di default, pt.
+/// The default column width, pt.
 pub const DEFAULT_COLUMN: f32 = 680.0;
 
-/// Il passo di `COLUMNS` più vicino al punto `t` (0..1) del cursore.
+/// The `COLUMNS` step nearest to the slider point `t` (0..1).
 pub fn column_at(t: f32) -> f32 {
     let last = COLUMNS.len() - 1;
     COLUMNS[(t.clamp(0.0, 1.0) * last as f32).round() as usize]
 }
 
-/// Il punto del cursore (0..1) della larghezza `column`.
+/// The slider point (0..1) of the width `column`.
 pub fn column_t(column: f32) -> f32 {
     let at = COLUMNS.iter().position(|c| *c == column).unwrap_or(0);
     at as f32 / (COLUMNS.len() - 1) as f32
 }
 
-/// Come il pannello scrive la larghezza: "680 pt", o "Full".
+/// How the panel writes the width: "680 pt", or "Full".
 pub fn column_label(column: f32) -> String {
     if column == COLUMN_FULL {
         "Full".to_owned()
@@ -51,15 +51,15 @@ pub fn column_label(column: f32) -> String {
     }
 }
 
-/// La larghezza massima della colonna: `None` con "Full".
+/// The maximum column width: `None` with "Full".
 pub fn max_width(column: f32) -> Option<f32> {
     (column != COLUMN_FULL).then_some(column)
 }
 
-/// Le cartelle osservate di default, relative alla home.
+/// The default watched folders, relative to home.
 pub const DEFAULT_ROOTS: [&str; 1] = ["Desktop/GitHub"];
 
-/// Il tema: quello del sistema, o chiaro o scuro sempre.
+/// The theme: the system's, or always light or always dark.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ThemePref {
     #[default]
@@ -69,7 +69,7 @@ pub enum ThemePref {
 }
 
 impl ThemePref {
-    /// Scuro o no, dato il tema del sistema.
+    /// Dark or not, given the system theme.
     pub fn dark(self, system_dark: bool) -> bool {
         match self {
             ThemePref::System => system_dark,
@@ -81,31 +81,31 @@ impl ThemePref {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Settings {
-    /// Le cartelle osservate, come le ha scelte l'utente (non canoniche).
+    /// The watched folders, as the user chose them (not canonical).
     pub roots: Vec<PathBuf>,
-    /// La famiglia del corpo e dei titoli; il codice resta monospaziato.
+    /// The family of the body and headings; code stays monospaced.
     pub font: String,
-    /// La dimensione del corpo, pt; titoli, tabelle e codice scalano con lei.
+    /// The body size, pt; headings, tables and code scale with it.
     pub size: f32,
     pub theme: ThemePref,
-    /// Il fuoco in fondo al pannello (decisione di Matteo, `docs/decisions/2026-11-14-light-theme-fire.md`;
-    /// sempre acceso dalla v1.1): spento, niente fiamme, né a riposo né col testo nuovo, e
-    /// l'etichetta "N paragrafi nuovi più in basso" resta.
+    /// The fire at the bottom of the panel (Matteo's decision, `docs/decisions/2026-11-14-light-theme-fire.md`;
+    /// always on since v1.1): off means no flames, neither at rest nor with new text, and
+    /// the "N new paragraphs below" label stays.
     pub fire: bool,
-    /// Intensità, altezza e velocità del fuoco: uno dei passi di `fire::STRENGTHS`, `HEIGHTS`,
-    /// `SPEEDS` (1 è il fuoco di oggi).
+    /// Strength, height and speed of the fire: one of the steps of `fire::STRENGTHS`, `HEIGHTS`,
+    /// `SPEEDS` (1 is today's fire).
     pub fire_strength: f32,
     pub fire_height: f32,
     pub fire_speed: f32,
-    /// Il colore delle fiamme.
+    /// The colour of the flames.
     pub fire_color: FireColor,
-    /// La larghezza della colonna del testo, pt, uno di `COLUMNS` (`COLUMN_FULL` è "Full").
+    /// The text column width, pt, one of `COLUMNS` (`COLUMN_FULL` is "Full").
     pub column: f32,
-    /// La sidebar e l'indice dei titoli: larghezza e larghezze imparate (`panes`).
+    /// The sidebar and the heading outline: width and learned widths (`panes`).
     pub sidebar: Pane,
     pub outline: Pane,
-    /// Le cartelle salvate nella sidebar, nell'ordine in cui si sono salvate (record
-    /// `2026-11-15-folders-instead-of-tree`, vincolo 4).
+    /// The folders saved in the sidebar, in the order they were saved (record
+    /// `2026-11-15-folders-instead-of-tree`, constraint 4).
     pub saved: Vec<PathBuf>,
 }
 
@@ -129,7 +129,7 @@ impl Default for Settings {
     }
 }
 
-/// `DEFAULT_ROOTS` sotto la home; nessuna senza `HOME`.
+/// `DEFAULT_ROOTS` under home; none without `HOME`.
 pub fn default_roots() -> Vec<PathBuf> {
     let Some(home) = std::env::var_os("HOME") else {
         return Vec::new();
@@ -155,7 +155,7 @@ const OUTLINE: &str = "outline";
 const SAVED: &str = "saved_folders";
 
 impl Settings {
-    /// Le impostazioni salvate in `prefs`; i valori che mancano o non valgono prendono il default.
+    /// The settings saved in `prefs`; missing or invalid values take the default.
     pub fn load(prefs: &Prefs) -> Settings {
         let d = Settings::default();
         Settings {
@@ -184,7 +184,7 @@ impl Settings {
         }
     }
 
-    /// Scrive tutti i campi in `prefs` (e su disco, se `prefs` ha un file).
+    /// Writes all the fields to `prefs` (and to disk, if `prefs` has a file).
     pub fn save(&self, prefs: &mut Prefs) -> Result<(), PrefsError> {
         prefs.set(ROOTS, &self.roots)?;
         prefs.set(FONT, &self.font)?;
@@ -201,14 +201,14 @@ impl Settings {
         prefs.set(SAVED, &self.saved)
     }
 
-    /// La larghezza dopo quella di adesso in `COLUMNS`, nella direzione `step` (−1 o +1); ferma
-    /// ai capi.
+    /// The width after the current one in `COLUMNS`, in the direction `step` (−1 or +1); clamped
+    /// at the ends.
     pub fn step_column(&self, step: i32) -> f32 {
         let at = COLUMNS.iter().position(|c| *c == self.column).unwrap_or(0) as i32;
         COLUMNS[(at + step).clamp(0, COLUMNS.len() as i32 - 1) as usize]
     }
 
-    /// Il valore di `knob` adesso.
+    /// The current value of `knob`.
     pub fn fire_knob(&self, knob: FireKnob) -> f32 {
         match knob {
             FireKnob::Strength => self.fire_strength,
@@ -217,7 +217,7 @@ impl Settings {
         }
     }
 
-    /// Mette `v` in `knob` se è uno dei suoi passi. Vero se è cambiato.
+    /// Puts `v` in `knob` if it is one of its steps. True if it changed.
     pub fn set_fire_knob(&mut self, knob: FireKnob, v: f32) -> bool {
         if !knob.steps().contains(&v) || self.fire_knob(knob) == v {
             return false;
@@ -230,12 +230,12 @@ impl Settings {
         true
     }
 
-    /// L'aspetto del fuoco per il compositor, con l'accento di sistema `accent` (0xRRGGBB).
+    /// The fire's look for the compositor, with the system accent `accent` (0xRRGGBB).
     pub fn fire_look(&self, accent: u32) -> fire::Look {
         fire::Look { strength: self.fire_strength, height: self.fire_height, speed: self.fire_speed, color: self.fire_color, accent }
     }
 
-    /// Aggiunge `root` se non c'è già. Vero se è cambiato.
+    /// Adds `root` if it is not already there. True if it changed.
     pub fn add_root(&mut self, root: &Path) -> bool {
         if self.roots.iter().any(|r| same(r, root)) {
             return false;
@@ -244,14 +244,14 @@ impl Settings {
         true
     }
 
-    /// Toglie `root`. Vero se c'era.
+    /// Removes `root`. True if it was there.
     pub fn remove_root(&mut self, root: &Path) -> bool {
         let before = self.roots.len();
         self.roots.retain(|r| !same(r, root));
         self.roots.len() != before
     }
 
-    /// Salva la cartella `root` nella sidebar, in fondo, se non c'è già. Vero se è cambiato.
+    /// Saves the folder `root` in the sidebar, at the end, if it is not already there. True if it changed.
     pub fn save_folder(&mut self, root: &Path) -> bool {
         if self.saved.iter().any(|r| same(r, root)) {
             return false;
@@ -260,14 +260,14 @@ impl Settings {
         true
     }
 
-    /// Toglie la cartella salvata `root`. Vero se c'era.
+    /// Removes the saved folder `root`. True if it was there.
     pub fn unsave_folder(&mut self, root: &Path) -> bool {
         let before = self.saved.len();
         self.saved.retain(|r| !same(r, root));
         self.saved.len() != before
     }
 
-    /// La dimensione dopo quella di adesso nella direzione `step` (−1 o +1); ferma ai capi.
+    /// The size after the current one in the direction `step` (−1 or +1); clamped at the ends.
     pub fn step_size(&self, step: i32) -> f32 {
         let at = SIZES
             .iter()
@@ -282,7 +282,7 @@ impl Settings {
     }
 }
 
-/// Un cursore a passi del fuoco (impostazioni, sezione del fuoco).
+/// A stepped slider of the fire (settings, fire section).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FireKnob {
     Strength,
@@ -299,28 +299,28 @@ impl FireKnob {
         }
     }
 
-    /// Il punto del cursore (0..1) del valore `v`; fuori passo, quello del default (1).
+    /// The slider point (0..1) of the value `v`; off-step, the default's (1).
     pub fn t(self, v: f32) -> f32 {
         let steps = self.steps();
         let at = steps.iter().position(|s| *s == v).or_else(|| steps.iter().position(|s| *s == 1.0)).unwrap_or(0);
         at as f32 / (steps.len() - 1) as f32
     }
 
-    /// Il passo più vicino al punto `t` (0..1) del cursore.
+    /// The step nearest to the slider point `t` (0..1).
     pub fn at(self, t: f32) -> f32 {
         let steps = self.steps();
         steps[(t.clamp(0.0, 1.0) * (steps.len() - 1) as f32).round() as usize]
     }
 
-    /// Il passo dopo `v` nella direzione `step` (−1 o +1), fermo ai capi.
+    /// The step after `v` in the direction `step` (−1 or +1), clamped at the ends.
     pub fn step(self, v: f32, step: i32) -> f32 {
         let steps = self.steps();
         let at = steps.iter().position(|s| *s == v).unwrap_or(0) as i32;
         steps[(at + step).clamp(0, steps.len() as i32 - 1) as usize]
     }
 
-    /// Come il pannello scrive il valore: intensità in percento, altezza in pt (del fuoco acceso),
-    /// velocità come "1,5×".
+    /// How the panel writes the value: strength in percent, height in pt (of the lit fire),
+    /// speed as "1.5×".
     pub fn label(self, v: f32) -> String {
         match self {
             FireKnob::Strength => format!("{:.0} %", v * 100.0),
@@ -330,12 +330,12 @@ impl FireKnob {
     }
 }
 
-/// Il valore di `key` in `prefs` se è uno di `steps`, altrimenti `default`.
+/// The value of `key` in `prefs` if it is one of `steps`, otherwise `default`.
 fn step_or(prefs: &Prefs, key: &str, steps: &[f32], default: f32) -> f32 {
     prefs.get::<f32>(key).filter(|v| steps.contains(v)).unwrap_or(default)
 }
 
-/// Due percorsi sono la stessa cartella (anche se uno è canonico e l'altro no).
+/// Two paths are the same folder (even if one is canonical and the other is not).
 fn same(a: &Path, b: &Path) -> bool {
     a == b
         || a.canonicalize()
@@ -356,7 +356,7 @@ mod tests {
         assert_eq!(s.font, "Inter");
         assert_eq!(s.size, 15.5);
         assert_eq!(s.theme, ThemePref::System);
-        assert!(s.fire, "fuoco acceso di default");
+        assert!(s.fire, "fire on by default");
         let home = PathBuf::from(std::env::var_os("HOME").unwrap());
         assert_eq!(s.roots, vec![home.join("Desktop/GitHub")]);
     }
@@ -396,7 +396,7 @@ mod tests {
         assert_eq!(
             Settings::load(&Prefs::at(&path)),
             s,
-            "persiste fra i riavvii"
+            "persists across restarts"
         );
     }
 
@@ -414,27 +414,27 @@ mod tests {
         );
     }
 
-    /// La larghezza del testo: 680 di default, passi da 80 fino a 1240 e poi "Full" (0).
+    /// The text width: 680 by default, steps of 80 up to 1240 and then "Full" (0).
     #[test]
     fn text_width_steps_from_680_to_full() {
         let mut s = Settings::default();
         assert_eq!(s.column, 680.0);
         assert_eq!(COLUMNS[0], 680.0);
         assert_eq!(*COLUMNS.last().unwrap(), COLUMN_FULL);
-        assert_eq!(s.step_column(-1), 680.0, "fermo al primo");
+        assert_eq!(s.step_column(-1), 680.0, "stops at the first");
         assert_eq!(s.step_column(1), 760.0);
         s.column = 1240.0;
         assert_eq!(s.step_column(1), COLUMN_FULL);
         s.column = COLUMN_FULL;
-        assert_eq!(s.step_column(1), COLUMN_FULL, "fermo all'ultimo");
+        assert_eq!(s.step_column(1), COLUMN_FULL, "stops at the last");
         assert_eq!(s.step_column(-1), 1240.0);
         assert_eq!(column_at(0.0), 680.0);
         assert_eq!(column_at(1.0), COLUMN_FULL);
-        assert_eq!(column_at(0.49), 1000.0, "il passo più vicino");
-        assert_eq!(column_at(-3.0), 680.0, "sotto 0: il primo");
-        assert_eq!(column_at(7.0), COLUMN_FULL, "sopra 1: Intera");
+        assert_eq!(column_at(0.49), 1000.0, "the nearest step");
+        assert_eq!(column_at(-3.0), 680.0, "below 0: the first");
+        assert_eq!(column_at(7.0), COLUMN_FULL, "above 1: Full");
         assert_eq!(column_t(COLUMN_FULL), 1.0);
-        assert_eq!(column_t(123.0), 0.0, "fuori passo: il primo");
+        assert_eq!(column_t(123.0), 0.0, "off-step: the first");
         assert_eq!(column_label(680.0), "680 pt");
         assert_eq!(column_label(COLUMN_FULL), "Full");
         assert_eq!(max_width(680.0), Some(680.0));
@@ -448,11 +448,11 @@ mod tests {
         s.save(&mut prefs).unwrap();
         assert_eq!(Settings::load(&prefs).column, COLUMN_FULL);
         prefs.set(COLUMN, &700.0f32).unwrap();
-        assert_eq!(Settings::load(&prefs).column, 680.0, "non è un passo");
+        assert_eq!(Settings::load(&prefs).column, 680.0, "not a step");
     }
 
-    /// Le larghezze dei pannelli tornano dopo il riavvio; un valore salvato fuori dai limiti torna
-    /// nei limiti, uno che non si legge prende il default.
+    /// Pane widths come back after a restart; a saved value out of the limits comes back
+    /// within the limits, one that cannot be read takes the default.
     #[test]
     fn pane_widths_persist_and_come_back_in_the_limits() {
         let mut prefs = Prefs::memory();
@@ -470,9 +470,9 @@ mod tests {
         assert_eq!(back.outline, Pane::new(panes::OUTLINE));
     }
 
-    /// Il fuoco di default è quello di oggi; intensità, altezza, velocità e colore tornano dopo il
-    /// riavvio; un valore che non è un passo (o un colore che non si legge) torna al default, gli
-    /// altri restano.
+    /// The default fire is today's; strength, height, speed and colour come back after a
+    /// restart; a value that is not a step (or a colour that cannot be read) goes back to the default, the
+    /// others stay.
     #[test]
     fn fire_look_persists_and_bad_values_fall_back() {
         let d = Settings::default();
@@ -488,7 +488,7 @@ mod tests {
         prefs.set(FIRE_COLOR, &"Arancio").unwrap();
         let back = Settings::load(&prefs);
         assert_eq!((back.fire_strength, back.fire_height, back.fire_speed, back.fire_color), (1.0, 1.0, 1.0, FireColor::Fire));
-        assert!(!back.fire, "il resto resta");
+        assert!(!back.fire, "the rest stays");
     }
 
     #[test]
@@ -496,15 +496,15 @@ mod tests {
         let mut s = Settings::default();
         for knob in [FireKnob::Strength, FireKnob::Height, FireKnob::Speed] {
             let steps = knob.steps();
-            assert_eq!(knob.at(-2.0), steps[0], "sotto 0: il primo");
-            assert_eq!(knob.at(5.0), *steps.last().unwrap(), "sopra 1: l'ultimo");
+            assert_eq!(knob.at(-2.0), steps[0], "below 0: the first");
+            assert_eq!(knob.at(5.0), *steps.last().unwrap(), "above 1: the last");
             assert_eq!(knob.at(knob.t(1.0)), 1.0);
-            assert_eq!(knob.step(steps[0], -1), steps[0], "fermo al primo");
-            assert_eq!(knob.step(*steps.last().unwrap(), 1), *steps.last().unwrap(), "fermo all'ultimo");
-            assert!(!s.set_fire_knob(knob, 0.123), "non è un passo");
+            assert_eq!(knob.step(steps[0], -1), steps[0], "stops at the first");
+            assert_eq!(knob.step(*steps.last().unwrap(), 1), *steps.last().unwrap(), "stops at the last");
+            assert!(!s.set_fire_knob(knob, 0.123), "not a step");
             assert!(s.set_fire_knob(knob, steps[0]));
             assert_eq!(s.fire_knob(knob), steps[0]);
-            assert!(!s.set_fire_knob(knob, steps[0]), "già così");
+            assert!(!s.set_fire_knob(knob, steps[0]), "already so");
         }
         assert_eq!(FireKnob::Strength.label(1.25), "125 %");
         assert_eq!(FireKnob::Height.label(1.0), "110 pt");
@@ -520,8 +520,8 @@ mod tests {
         assert!(ThemePref::Dark.dark(false));
     }
 
-    /// Le cartelle salvate restano fra un avvio e l'altro, nel loro ordine (record
-    /// `2026-11-15-folders-instead-of-tree`, vincolo 4); una cartella si salva una volta e si toglie.
+    /// Saved folders stay from one launch to the next, in their order (record
+    /// `2026-11-15-folders-instead-of-tree`, constraint 4); a folder is saved once and can be removed.
     #[test]
     fn saved_folders_round_trip_through_prefs_json() {
         let dir = tempfile::tempdir().unwrap();
@@ -529,7 +529,7 @@ mod tests {
         let mut s = Settings::default();
         assert!(s.save_folder(Path::new("/b/note")));
         assert!(s.save_folder(Path::new("/a/runemd")));
-        assert!(!s.save_folder(Path::new("/b/note")), "già salvata");
+        assert!(!s.save_folder(Path::new("/b/note")), "already saved");
         s.save(&mut Prefs::at(&path)).unwrap();
         let back = Settings::load(&Prefs::at(&path));
         assert_eq!(back.saved, [PathBuf::from("/b/note"), PathBuf::from("/a/runemd")]);
@@ -540,7 +540,7 @@ mod tests {
         assert!(!back.unsave_folder(Path::new("/b/note")));
         back.save(&mut Prefs::at(&path)).unwrap();
         assert_eq!(Settings::load(&Prefs::at(&path)).saved, [PathBuf::from("/a/runemd")]);
-        assert!(Settings::load(&Prefs::memory()).saved.is_empty(), "di default nessuna");
+        assert!(Settings::load(&Prefs::memory()).saved.is_empty(), "none by default");
     }
 
     #[test]
@@ -550,7 +550,7 @@ mod tests {
             ..Settings::default()
         };
         assert!(s.add_root(Path::new("/x")));
-        assert!(!s.add_root(Path::new("/x")), "già c'è");
+        assert!(!s.add_root(Path::new("/x")), "already there");
         assert!(s.remove_root(Path::new("/x")));
         assert!(!s.remove_root(Path::new("/x")));
         assert!(s.roots.is_empty());
@@ -569,13 +569,13 @@ mod tests {
         assert_eq!(
             s(16.0).step_size(1),
             17.0,
-            "un valore fuori scala va al passo dopo"
+            "an off-scale value goes to the next step"
         );
         assert_eq!(s(16.0).step_size(-1), 15.5);
     }
 
-    /// Aggiungere una cartella dalle impostazioni la passa al watcher (`Watcher::add_root`, con le
-    /// sottocartelle): una scrittura sotto arriva come evento.
+    /// Adding a folder from the settings passes it to the watcher (`Watcher::add_root`, with its
+    /// subfolders): a write below arrives as an event.
     #[test]
     fn adding_a_root_reaches_the_watcher() {
         let dir = tempfile::tempdir().unwrap();
@@ -611,7 +611,7 @@ mod tests {
         );
     }
 
-    /// Togliere una cartella la toglie dal watcher, dalla libreria e da Recenti, subito.
+    /// Removing a folder removes it from the watcher, from the library and from Recent, at once.
     #[test]
     fn removing_a_root_drops_its_recent_rows() {
         let dir = tempfile::tempdir().unwrap();

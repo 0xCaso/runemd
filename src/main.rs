@@ -1,26 +1,26 @@
-//! RuneMD: lettore Markdown per Mac in Rune.
+//! RuneMD: a Markdown reader for the Mac, in Rune.
 //!
-//! `runemd FILE.md` apre il file e lo rende con il componente `Markdown` di rune-kit, un blocco
-//! top-level per riga di `virtual_rows` dentro uno scroll.
+//! `runemd FILE.md` opens the file and renders it with rune-kit's `Markdown` component, one
+//! top-level block per `virtual_rows` row inside a scroll.
 //!
-//! Sonde per il benchmark (variabili d'ambiente, così non si scontrano con i flag di Rune):
-//! - `MDSPIKE_LOG=path`: scrive `first_content_epoch_ms` al primo frame presentato.
-//! - `MDSPIKE_EXIT=1`: esce 300 ms dopo il primo frame (misure d'avvio).
-//! - `MDSPIKE_SCROLL=secondi` (+ `MDSPIKE_SPEED` pt/s, default 3000): dopo 1 s scorre a
-//!   velocità costante e scrive gli intervalli tra frame presentati in `MDSPIKE_LOG`, poi esce.
-//! - `MDSPIKE_LATENCY=path`: a ogni ricaricamento scrive, al primo frame che lo mostra, i ms da
-//!   scrittura del file (mtime) a ricarica e a frame.
-//! - Con `MDSPIKE_LOG` si scrivono anche il costo della cache dell'indice (`index_cache_ms`) e
-//!   quando la scansione finisce (`index_scan_epoch_ms`).
+//! Benchmark probes (environment variables, so they do not clash with Rune's flags):
+//! - `MDSPIKE_LOG=path`: writes `first_content_epoch_ms` at the first presented frame.
+//! - `MDSPIKE_EXIT=1`: exits 300 ms after the first frame (startup measurements).
+//! - `MDSPIKE_SCROLL=seconds` (+ `MDSPIKE_SPEED` pt/s, default 3000): after 1 s scrolls at
+//!   constant speed and writes the intervals between presented frames to `MDSPIKE_LOG`, then exits.
+//! - `MDSPIKE_LATENCY=path`: on every reload writes, at the first frame that shows it, the ms from
+//!   the file write (mtime) to the reload and to the frame.
+//! - With `MDSPIKE_LOG` it also writes the cost of the index cache (`index_cache_ms`) and
+//!   when the scan ends (`index_scan_epoch_ms`).
 //!
-//! Le impostazioni (Cmd+,) stanno in `~/Library/Application Support/RuneMD/prefs.json`
-//! (`settings`). `RUNEMD_ROOTS=dir1:dir2` sostituisce le cartelle osservate e fa girare l'app con
-//! impostazioni in memoria, che non si leggono né si salvano (prove e misure);
-//! `RUNEMD_THEME=light|dark` vince sul tema scelto; `RUNEMD_REDUCE_MOTION=1|0` vince su "riduci
-//! movimento" di sistema (headless Rune non la legge); `RUNEMD_GLASS=40` dà alla tinta del vetro il
-//! 40 % di opacità invece del 60 % e apre la finestra a (200, 120) (foto); `RUNEMD_SIDEBAR=180` dà
-//! alla sidebar quella larghezza per la sessione, senza scatto né salvataggio (foto); `RUNE_DIRS_ROOT` sposta la cache dell'indice
-//! e le impostazioni.
+//! Settings (Cmd+,) live in `~/Library/Application Support/RuneMD/prefs.json`
+//! (`settings`). `RUNEMD_ROOTS=dir1:dir2` replaces the watched folders and runs the app with
+//! in-memory settings, which are neither read nor saved (tests and measurements);
+//! `RUNEMD_THEME=light|dark` wins over the chosen theme; `RUNEMD_REDUCE_MOTION=1|0` wins over the system
+//! "reduce motion" (headless Rune does not read it); `RUNEMD_GLASS=40` gives the glass tint
+//! 40 % opacity instead of 60 % and opens the window at (200, 120) (photos); `RUNEMD_SIDEBAR=180` gives
+//! the sidebar that width for the session, with no snap and no save (photos); `RUNE_DIRS_ROOT` moves the index cache
+//! and the settings.
 
 mod app;
 mod doc;
@@ -49,17 +49,17 @@ fn init() -> App {
     if paths.is_empty() {
         paths.extend(std::env::var("MDSPIKE_FILE").ok().map(PathBuf::from));
     }
-    // La cache dell'indice si legge prima del primo frame (costo in `docs/perf.md`); la
-    // scansione parte in `setup`, su un thread a parte.
-    // Le impostazioni danno le cartelle osservate; con `RUNEMD_ROOTS` restano in memoria.
+    // The index cache is read before the first frame (cost in `docs/perf.md`); the
+    // scan starts in `setup`, on its own thread.
+    // The settings give the watched folders; with `RUNEMD_ROOTS` they stay in memory.
     let prefs = if index::env_roots().is_some() { rune::prefs::Prefs::memory() } else { rune::prefs::Prefs::open(settings::APP_ID) };
     let mut settings = settings::Settings::load(&prefs);
-    // `RUNEMD_SIDEBAR` (foto): la larghezza della sidebar, nei suoi limiti. Il trascinamento
-    // scatta a 248 entro 8 pt, quindi 240 non si raggiunge trascinando.
+    // `RUNEMD_SIDEBAR` (photos): the sidebar width, within its limits. Dragging
+    // snaps to 248 within 8 pt, so 240 cannot be reached by dragging.
     if let Some(w) = std::env::var("RUNEMD_SIDEBAR").ok().and_then(|v| v.parse::<f32>().ok()) {
         settings.sidebar = panes::Pane { width: w, learned: Vec::new() }.sanitized(panes::SIDEBAR);
     }
-    // `RUNEMD_SAVED` (foto e prove, separate da `:`): le cartelle salvate della sessione.
+    // `RUNEMD_SAVED` (photos and tests, separated by `:`): the session's saved folders.
     if let Some(v) = std::env::var_os("RUNEMD_SAVED") {
         settings.saved = std::env::split_paths(&v).filter(|p| !p.as_os_str().is_empty()).collect();
     }
@@ -68,10 +68,10 @@ fn init() -> App {
     probe::index_cached(t.elapsed(), library.index.len());
     let mut app = App::new(library, settings, prefs);
     app.scroll = probe::ScrollRun::from_env();
-    // Recenti dalla cache: la sidebar è piena dal primo frame.
+    // Recent from the cache: the sidebar is full from the first frame.
     app.sidebar.refresh(&app.library.index, &[], SystemTime::now());
     app.open_paths(paths);
-    // Le copie di recupero dell'ultima uscita (un conflitto o un errore di scrittura).
+    // The recovery copies from the last exit (a conflict or a write error).
     app.open_recovered();
     app
 }
@@ -84,20 +84,20 @@ fn setup(s: &mut App, waker: Waker) {
 }
 
 fn view(s: &App, cx: &mut Cx<App>) -> El {
-    // Il tema delle impostazioni (Sistema, Chiaro, Scuro): cambia dal vivo, la vista rigira.
+    // The theme from the settings (System, Light, Dark): it changes live, the view runs again.
     let dark = s.dark(cx.system_dark());
     let mut theme = ui::theme::Theme::for_mode(dark);
-    // `RUNEMD_GLASS` (foto): l'opacità della tinta del vetro, al posto di quella del tema (60 %).
+    // `RUNEMD_GLASS` (photos): the opacity of the glass tint, in place of the theme's (60 %).
     if let Some(a) = s.glass_env {
         theme.glass = theme.glass.alpha(a);
     }
-    // "Riduci movimento": la preferenza di macOS, o `RUNEMD_REDUCE_MOTION`. L'override va anche a
-    // Rune, così le sue transizioni (hover, scala premuta, scroll) seguono gli effetti.
+    // "Reduce motion": the macOS preference, or `RUNEMD_REDUCE_MOTION`. The override also goes to
+    // Rune, so its transitions (hover, pressed scale, scroll) follow the effects.
     let reduced = s.reduced_motion(cx.system_reduced_motion());
     s.reduced_seen.set(reduced);
     cx.reduced_motion(reduced);
-    // Il fuoco della tastiera come quello di Rune (3 pt, attaccato al bordo), ma pieno
-    // (e un po' più scuro nel tema chiaro).
+    // Keyboard focus like Rune's (3 pt, attached to the edge), but solid
+    // (and a bit darker in the light theme).
     let focus = ui::theme::focus_ring(cx.focus_color(), dark);
     cx.focus_ring(3.0, 0.0, focus);
     let hooks = ui::sidebar::Hooks { get: |s: &App| &s.sidebar, get_mut: |s: &mut App| &mut s.sidebar, open: App::open_from_sidebar, pin: App::pin_from_sidebar, ring: App::ring_of, query: App::requery_sidebar, create: App::create_from_sidebar, save: App::save_from_sidebar, unsave: App::unsave_from_sidebar };
@@ -107,77 +107,77 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
             ui::source::view(s, hooks, tab, src, caret, &theme, reduced, !cx.hover_none())
         }
         Some(tab) => {
-            // Il caret "sta scrivendo" nel punto dell'ultima modifica: dove sta lo dicono i rect del
-            // carattere e della sua riga, che lo scroll non sposta (nessuna vista per frame).
+            // The "is writing" caret at the point of the last edit: where it is comes from the rects of the
+            // character and of its line, which scrolling does not move (no view per frame).
             let caret = tab.caret_at.clone().zip(tab.caret_since).map(|(at, since)| {
                 let id = tab.doc.id;
                 let place = ui::doc_view::caret_point(cx.layout(&ui::doc_view::caret_key(id)), cx.layout(&ui::doc_view::caret_end_key(id)), cx.layout(&ui::doc_view::caret_row_key(id, at.block)), at.side);
                 ui::doc_view::Caret { at, place, since, dark, reduced }
             });
-            // I blocchi a etichetta su due colonne se la colonna del testo è larga (dall'ultimo
-            // layout; Rune rigira la vista quando la soglia si attraversa).
+            // Labelled blocks in two columns if the text column is wide (from the last
+            // layout; Rune runs the view again when the threshold is crossed).
             let columns = cx.layout_with("rows", |r| r[2] - 2.0 * ui::theme::ROW_PAD_X >= ui::doc_view::TWO_COLUMNS).unwrap_or(false);
             let signals = ui::doc_view::Signals { marked: App::is_marked, mark: theme.mark, caret, hits: App::find_hits, edge: App::doc_edge, meta: theme.meta(), fonts: ui::markdown_style::fonts(fonts::Typeface::of(&s.settings.font, s.settings.size)), open: App::open_link, columns };
             let doc = ui::doc_view::view(s, App::active_document, s.style(dark), s.settings.column, App::visible_rows, signals);
-            // L'indice dei titoli a destra, solo se la finestra è larga almeno sidebar + colonna
-            // + 200 (prima del primo layout non si sa: niente indice). La vista la legge da Rune,
-            // che la rigira quando la soglia si attraversa; `App::wide` ne è la copia per i
-            // gestori, che non hanno `Cx`. Il contenitore è sempre lo stesso, con o senza indice:
-            // attraversando la soglia il documento non cambia posto nell'albero e tiene scroll e
-            // stato.
-            // Con le impostazioni aperte l'indice lascia il posto al pannello.
-            // La soglia segue le larghezze trascinate di sidebar e indice (`App::outline_min_window`).
+            // The heading outline on the right, only if the window is at least sidebar + column
+            // + 200 wide (before the first layout it is not known: no outline). The view reads it from Rune,
+            // which runs the view again when the threshold is crossed; `App::wide` is the copy for the
+            // handlers, which have no `Cx`. The container is always the same, with or without the outline:
+            // crossing the threshold the document does not change place in the tree and keeps scroll and
+            // state.
+            // With the settings open the outline gives its place to the panel.
+            // The threshold follows the dragged widths of sidebar and outline (`App::outline_min_window`).
             let min = s.outline_min_window();
             let wide = cx.layout_with("app", move |r| r[2] >= min).unwrap_or(false);
             let outline_w = s.settings.outline.width;
             let outline = if wide && !s.settings_panel.open { ui::outline::view(tab, hooks, outline_w, &theme, reduced, !cx.hover_none()) } else { None };
-            // Il bordo sinistro dell'indice si trascina (`App::drag_outline`): la fascia sta nel margine
-            // dell'indice, così non copre lo scroll del documento.
+            // The outline's left edge can be dragged (`App::drag_outline`): the strip sits in the outline's
+            // margin, so it does not cover the document's scroll.
             let outline_edge = outline.is_some().then(|| edge("outline-edge", false).pin(None, Some(0.0), Some(outline_w - ui::theme::EDGE_W), Some(0.0)));
-            // Cmd+E su un file che non è UTF-8: la riga sopra la lettura lo dice.
+            // Cmd+E on a file that is not UTF-8: the row above the reading view says so.
             let refused = tab.not_utf8.then(|| ui::source::not_utf8_row(&theme, s.settings.column));
             let doc = rune::col().w_full().h_full().children(refused).child(el().w_full().grow(1.0).min_h(0.0).child(doc));
             rune::row().key("doc-pane").transition(ui::theme::mode_transition(reduced)).w_full().grow(1.0).min_h(0.0).child(el().grow(1.0).min_w(0.0).h_full().child(doc)).children(outline).children(outline_edge)
         }
         None => el().grow(1.0),
     };
-    // Pannello pieno con la barra delle schede e il documento, a `FRAME` dai bordi alto, destro e
-    // basso; a sinistra la sidebar, tutto sul vetro di sistema.
+    // Full panel with the tab bar and the document, `FRAME` from the top, right and
+    // bottom edges; on the left the sidebar, all on the system glass.
     let bar = ui::tabs::view(s, hooks, &theme, reduced, !cx.hover_none());
-    // Il pannello delle impostazioni (Cmd+,) a destra del documento. Il contenitore c'è sempre,
-    // così aprirlo non sposta il documento nell'albero e non ne perde lo scroll.
+    // The settings panel (Cmd+,) right of the document. The container is always there,
+    // so opening it does not move the document in the tree and does not lose its scroll.
     let aside = s.settings_panel.open.then(|| ui::settings::view(s, hooks, &theme, reduced, !cx.hover_none()));
     let body = rune::row().key("body").w_full().grow(1.0).min_h(0.0).child(el().grow(1.0).min_w(0.0).h_full().child(body)).children(aside);
     let content = rune::col().w_full().h_full().child(bar).child(body);
     let mut panel = el().w_full().h_full().fill(theme.panel).radius(ui::theme::R_PANEL).clip_rounded(ui::theme::R_PANEL).child(content);
-    // Il fuoco della scheda davanti: sempre in lettura, una fascia sul fondo del pannello sopra
-    // il documento, bassa a riposo; con testo nuovo sotto la vista sale e porta l'etichetta.
-    // Fuori dal flusso, così il documento e il suo scroll non si muovono. L'etichetta è una fascia
-    // sorella dopo lo slot, così Rune la dipinge sopra le fiamme. Sta sulla base calda del fuoco,
-    // quasi bianca nei due temi: il testo prende un grigio scuro dei token (`panel` nello scuro,
-    // `fg` nel chiaro).
+    // The front tab's fire: always in reading mode, a strip at the bottom of the panel above
+    // the document, low at rest; with new text below the view it rises and carries the label.
+    // Out of the flow, so the document and its scroll do not move. The label is a sibling
+    // strip after the slot, so Rune paints it above the flames. It sits on the fire's warm base,
+    // almost white in both themes: the text takes a dark grey from the tokens (`panel` in dark,
+    // `fg` in light).
     if let Some(tab) = s.tab().filter(|t| matches!(t.mode, app::Mode::Read)) {
         let lit = tab.fire_since.map(|since| (since, tab.below.count()));
         let look = s.settings.fire_look(fx::fire::accent_hex(cx.accent()));
         panel = panel.children(fire_band(lit, s.settings.fire, look, dark, &theme, reduced, s.window_active));
     }
-    // L'anello "sta scrivendo" sta sulla scheda del file (`ui::tabs`) e sulle sue righe in
-    // Recenti e nell'albero.
+    // The "is writing" ring sits on the file's tab (`ui::tabs`) and on its rows in
+    // Recent and in the tree.
     let sidebar_w = s.settings.sidebar.width;
     let sidebar = ui::sidebar::view(s, hooks, sidebar_w, &theme, reduced, !cx.hover_none());
-    // Il bordo destro della sidebar si trascina (`App::drag_sidebar`); sopra a tutto, nel margine della sidebar.
+    // The sidebar's right edge can be dragged (`App::drag_sidebar`); above everything, in the sidebar's margin.
     let sidebar_edge = edge("sidebar-edge", true).pin(Some(sidebar_w - ui::theme::EDGE_W), Some(0.0), None, Some(0.0));
     let main = el().key("main").grow(1.0).min_w(0.0).h_full().pt(ui::theme::FRAME).pr(ui::theme::FRAME).pb(ui::theme::FRAME).child(panel);
-    // La larghezza della finestra per i gestori (`App::wide`: l'indice dei titoli si vede); la
-    // vista la legge da `cx`. Si aggiorna senza far rigirare la vista.
+    // The window width for the handlers (`App::wide`: the heading outline is visible); the
+    // view reads it from `cx`. It updates without running the view again.
     let width = |s: &mut App, r: [f32; 4], tx: &mut Tx| {
         s.set_window_width(r[2]);
         tx.live_only();
     };
-    // Il vetro: la finestra è trasparente e sotto c'è il vetro di sistema. Rune non dipinge il
-    // riempimento di un materiale quando il vetro nativo c'è, quindi la tinta `glass` (60 %) sta in
-    // uno strato sopra. Senza vetro nativo (headless, materiale spento) il riempimento della radice
-    // è la tinta piena (`glass_fallback`) e lo strato, dello stesso colore, non cambia nulla.
+    // The glass: the window is transparent and the system glass is below. Rune does not paint the
+    // fill of a material when native glass is there, so the `glass` tint (60 %) sits in
+    // a layer above. Without native glass (headless, material off) the root's fill
+    // is the solid tint (`glass_fallback`) and the layer, of the same colour, changes nothing.
     let tint = el().key("glass-tint").pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0)).fill(theme.glass);
     rune::row().key("app").on_layout_tx(width).w_full().h_full().system_material(rune::SystemMaterial::Glass).fill(theme.glass_fallback()).child(tint).child(sidebar).child(main).child(sidebar_edge)
         .children(ui::tabs::width_popover(s, &theme))
@@ -186,10 +186,10 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
         .on_window_focus(|s: &mut App, focused, _| s.window_active = focused)
 }
 
-/// La fascia che si trascina sul bordo della sidebar (`sidebar`) o dell'indice: larga `EDGE_W`, dentro il
-/// margine del pannello, cursore ↔, doppio clic per la larghezza di default. Invisibile: il bordo è già lì.
+/// The strip that drags the edge of the sidebar (`sidebar`) or of the outline: `EDGE_W` wide, inside the
+/// panel's margin, ↔ cursor, double click for the default width. Invisible: the edge is already there.
 fn edge(key: &str, sidebar: bool) -> El {
-    let label = if sidebar { "Larghezza della barra laterale" } else { "Larghezza dell'indice" };
+    let label = if sidebar { "Sidebar width" } else { "Outline width" };
     el().key(key)
         .w(ui::theme::EDGE_W)
         .cursor(rune::Cursor::ResizeColumn)
@@ -204,11 +204,11 @@ fn edge(key: &str, sidebar: bool) -> El {
         })
 }
 
-/// Il fuoco e la sua etichetta sul fondo del pannello. `lit`: da quando c'è testo nuovo sotto la
-/// vista, e quanti blocchi; `None` a riposo (fiamme basse, nessuna etichetta). Con il fuoco
-/// spento dalle impostazioni (`Settings::fire`) non c'è niente a riposo, e con testo nuovo solo
-/// l'etichetta, in `fg2` su una fascia `panel` con la linea `line` sopra: senza le fiamme sotto,
-/// il testo del documento non deve passarle dietro.
+/// The fire and its label at the bottom of the panel. `lit`: since when there is new text below the
+/// view, and how many blocks; `None` at rest (low flames, no label). With the fire
+/// turned off in the settings (`Settings::fire`) there is nothing at rest, and with new text only
+/// the label, in `fg2` on a `panel` strip with the `line` line above: without the flames below,
+/// the document text must not pass behind it.
 fn fire_band(lit: Option<(f64, usize)>, fire: bool, look: fx::fire::Look, dark: bool, theme: &ui::theme::Theme, reduced: bool, active: bool) -> Vec<El> {
     let label = |count, ink| rune::text(ui::doc_view::fire_label(count)).key("fire-text").font(rune::TextStyle::new(ui::theme::UI_TEXT, ui::theme::UI_WEIGHT)).color(ink);
     if !fire {
@@ -218,19 +218,19 @@ fn fire_band(lit: Option<(f64, usize)>, fire: bool, look: fx::fire::Look, dark: 
         return vec![rune::col().key("fire-label").pin(Some(0.0), None, Some(0.0), Some(0.0)).child(line).child(strip)];
     }
     let band = |key: &str, h: f32| rune::col().key(key).pin(Some(0.0), None, Some(0.0), Some(0.0)).h(h);
-    // Lo slot alto quanto il fuoco acceso con l'altezza scelta; l'etichetta resta dov'era.
+    // The slot as tall as the lit fire at the chosen height; the label stays where it was.
     let flames = fx::fire::slot(band("fire", fx::fire::FIRE_H * look.height), lit.map(|(since, _)| since), dark, reduced, active, look);
     let Some((_, count)) = lit else { return vec![flames] };
     let ink = if dark { theme.panel } else { theme.fg };
     let text = band("fire-label", fx::fire::FIRE_H).items_center().justify_end().pb(ui::theme::FIRE_LABEL_BOTTOM).child(label(count, ink));
-    // Due fasce sorelle: lo slot prima, l'etichetta dopo (Rune la dipinge sopra le fiamme).
+    // Two sibling strips: the slot first, the label after (Rune paints it above the flames).
     vec![flames, text]
 }
 
-/// I tasti delle schede: Cmd+W chiude quella davanti (con modifiche non salvate chiede,
-/// `App::close`), Cmd+1…8 vanno alla scheda, Cmd+9 all'ultima (come Safari e Finder), Ctrl+Tab
-/// e Ctrl+Shift+Tab alla dopo e alla prima. Vero se il tasto è delle schede; Cmd+W senza schede
-/// resta a Rune, che chiude la finestra.
+/// Tab keys: Cmd+W closes the front one (with unsaved changes it asks,
+/// `App::close`), Cmd+1…8 go to the tab, Cmd+9 to the last one (like Safari and Finder), Ctrl+Tab
+/// and Ctrl+Shift+Tab to the next and the previous. True if the key belongs to the tabs; Cmd+W with no tabs
+/// is left to Rune, which closes the window.
 fn tab_key(s: &mut App, key: &rune::KeyEvent, tx: &mut Tx) -> bool {
     let m = key.mods;
     let changed = match key.key {
@@ -259,14 +259,14 @@ fn tab_key(s: &mut App, key: &rune::KeyEvent, tx: &mut Tx) -> bool {
     true
 }
 
-/// Ogni tasto non preso da un controllo, prima della selezione di Rune: il Cmd+A va segnato.
+/// Every key not taken by a control, before Rune's selection: Cmd+A must be marked.
 fn on_key(s: &mut App, key: &rune::KeyEvent, tx: &mut Tx) -> bool {
-    // Cmd+,: apre e chiude le impostazioni; Esc le chiude.
+    // Cmd+,: opens and closes the settings; Esc closes them.
     if matches!(key.key, rune::Key::Command(',')) && key.mods.cmd && !key.mods.shift && !key.mods.alt && !key.mods.ctrl && !tx.key_repeat() {
         s.toggle_settings();
         return true;
     }
-    // Esc chiude prima il popover della larghezza o delle scorciatoie, poi le impostazioni.
+    // Esc first closes the width or shortcuts popover, then the settings.
     let esc = matches!(key.key, rune::Key::Escape) && !key.mods.cmd && !key.mods.shift && !key.mods.alt && !key.mods.ctrl;
     if esc && (s.width_popover || s.keys_popover) {
         s.width_popover = false;
@@ -276,12 +276,12 @@ fn on_key(s: &mut App, key: &rune::KeyEvent, tx: &mut Tx) -> bool {
     if esc && s.settings_panel.close() {
         return true;
     }
-    // Cmd+Opt+= / Cmd+Opt+-: un passo della larghezza del testo (pulsante ↔, impostazioni).
+    // Cmd+Opt+= / Cmd+Opt+-: one step of the text width (↔ button, settings).
     if let Some(step) = ui::tabs::width_key(key, tx.key_base()) {
         s.set_column(s.settings.step_column(step), tx);
         return true;
     }
-    // Cmd+P: apre e chiude il pannello di Apri file (`ui::quick_open::panel`). Un solo campo aperto alla volta.
+    // Cmd+P: opens and closes the Open file panel (`ui::quick_open::panel`). Only one field open at a time.
     if matches!(key.key, rune::Key::Command('p')) && key.mods.cmd && !key.mods.shift && !key.mods.alt && !tx.key_repeat() {
         s.sidebar.new_file.close();
         if s.sidebar.quick.active() {
@@ -292,7 +292,7 @@ fn on_key(s: &mut App, key: &rune::KeyEvent, tx: &mut Tx) -> bool {
         }
         return true;
     }
-    // Cmd+N: il campo "Nuovo file" prende il posto di "Apri file".
+    // Cmd+N: the "New file" field takes the place of "Open file".
     if matches!(key.key, rune::Key::Command('n')) && key.mods.cmd && !key.mods.shift && !key.mods.alt && !key.mods.ctrl && !tx.key_repeat() {
         s.find.close();
         s.sidebar.quick.close();
@@ -300,7 +300,7 @@ fn on_key(s: &mut App, key: &rune::KeyEvent, tx: &mut Tx) -> bool {
         s.sidebar.new_file.show();
         return true;
     }
-    // Cmd+F: Cerca nel file, solo in lettura (nel sorgente non fa niente).
+    // Cmd+F: Find in file, in reading mode only (in the source it does nothing).
     if matches!(key.key, rune::Key::Command('f')) && key.mods.cmd && !key.mods.shift && !key.mods.alt && !key.mods.ctrl && !tx.key_repeat() {
         s.open_find();
         return true;
@@ -308,14 +308,14 @@ fn on_key(s: &mut App, key: &rune::KeyEvent, tx: &mut Tx) -> bool {
     if tab_key(s, key, tx) {
         return true;
     }
-    // Esc con la riga "Salvare le modifiche…?" aperta e il fuoco fuori dal campo: "Annulla" (dal
-    // campo lo prende `ui::source::ask_key`).
+    // Esc with the "Save changes…?" row open and the focus outside the field: "Cancel" (from the
+    // field `ui::source::ask_key` takes it).
     if let Some(id) = s.tab().map(|t| t.doc.id)
         && ui::source::ask_key(s, id, key, tx)
     {
         return true;
     }
-    // Cmd+E: sorgente e ritorno alla lettura; Cmd+S: salva il sorgente. Il campo non li prende.
+    // Cmd+E: source and back to reading; Cmd+S: saves the source. The field does not take them.
     let plain = key.mods.cmd && !key.mods.shift && !key.mods.alt && !key.mods.ctrl;
     if plain && !tx.key_repeat() {
         match key.key {
@@ -340,19 +340,19 @@ fn poll(s: &mut App, clock: f64, tx: &mut Tx) -> bool {
             s.restore_view(tx);
         }
     }
-    // Il watcher va svuotato a ogni risveglio (`Watcher::drain`); poi ogni scheda raccoglie la
-    // sua rilettura e aggiorna fuoco, segni e caret. Il fuoco si accende dopo una ricarica che
-    // porta testo sotto la vista (`Tab::note_reload`, o il primo `visible_rows` del layout nuovo)
-    // e si spegne quando l'ultimo di quei blocchi entra nella vista: nessun risveglio serve.
+    // The watcher must be drained on every wake-up (`Watcher::drain`); then every tab collects its
+    // reread and updates fire, marks and caret. The fire lights up after a reload that
+    // brings text below the view (`Tab::note_reload`, or the first `visible_rows` of the new layout)
+    // and goes out when the last of those blocks enters the view: no wake-up is needed.
     let now = Instant::now();
     let (tabs, wakes) = s.poll_tabs(clock, now);
     for d in wakes {
         tx.wake_after(d);
     }
-    // Cerca: una ricarica della scheda davanti rigira la ricerca (senza spostare la vista), e i
-    // risultati arrivati dal thread della ricerca si applicano.
+    // Find: a reload of the front tab runs the search again (without moving the view), and the
+    // results that arrived from the search thread are applied.
     let found = s.poll_find(tx);
-    // L'indice legge gli stessi eventi; Recenti e l'albero si ricalcolano solo se cambia.
+    // The index reads the same events; Recent and the tree are recomputed only if it changes.
     let was_scanned = s.library.scanned;
     let indexed = s.library.poll(s.live.drained(), Instant::now());
     if s.library.scanned && !was_scanned {
@@ -364,7 +364,7 @@ fn poll(s: &mut App, clock: f64, tx: &mut Tx) -> bool {
     let wall = SystemTime::now();
     let t_side = Instant::now();
     let mut side = if indexed {
-        // L'albero si ricontrolla solo per i percorsi toccati sotto (o sopra) la radice del repo.
+        // The tree is checked again only for paths touched below (or above) the repo root.
         let mut touched: Vec<PathBuf> = s.live.drained().iter().map(|ev| match ev {
             watch::FsEvent::Changed(p) | watch::FsEvent::Removed(p) | watch::FsEvent::GitHead(p) | watch::FsEvent::Rescan(p) => p.clone(),
         }).collect();
@@ -373,7 +373,7 @@ fn poll(s: &mut App, clock: f64, tx: &mut Tx) -> bool {
     } else {
         s.sidebar.tick(wall)
     };
-    // Il branch: un cambio di HEAD del repo del file davanti (worktree compresi, `repo::head_path`).
+    // The branch: a HEAD change in the front file's repo (worktrees included, `repo::head_path`).
     for ev in s.live.drained() {
         if let watch::FsEvent::GitHead(root) = ev {
             side |= s.sidebar.git_head(root);
@@ -382,29 +382,29 @@ fn poll(s: &mut App, clock: f64, tx: &mut Tx) -> bool {
     if indexed {
         probe::sidebar_refreshed(t_side.elapsed());
     }
-    // I tempi di Recenti cambiano col tempo: un risveglio al prossimo cambio, non frame continui.
+    // Recent's times change with time: one wake-up at the next change, not continuous frames.
     if let Some(d) = s.sidebar.label_wake(wall, clock) {
         tx.wake_after(d);
     }
-    // Il fuoco a riposo si muove senza display link: un risveglio ogni `REST_FRAME` lo ridisegna.
+    // The fire at rest moves without a display link: a wake-up every `REST_FRAME` redraws it.
     let resting = s.fire_rests();
     if resting {
         tx.wake_after(fx::fire::REST_FRAME);
     }
-    // Gli anelli si spengono con un solo risveglio a fine finestra, non con frame continui.
+    // The rings go out with a single wake-up at the end of the window, not with continuous frames.
     let now = Instant::now();
     let (ring, wake) = s.update_ring(clock, now);
     if let Some(d) = wake {
         tx.wake_after(d);
     }
-    // Il file appena aperto: la sua riga dell'albero in vista.
+    // The file just opened: its tree row in view.
     if let Some(id) = s.sidebar.take_reveal() {
         tx.scroll_into_view_in("tree", id);
         side = true;
     }
     let blurred = s.sidebar.blur_close() | s.settings_panel.expire(Instant::now());
     let changed = opened || tabs || ring || side || blurred || found;
-    // Solo il fuoco a riposo da ridisegnare: un frame senza rigirare la vista.
+    // Only the fire at rest to redraw: a frame without running the view again.
     if resting && !changed {
         tx.live_only();
     }
@@ -413,7 +413,7 @@ fn poll(s: &mut App, clock: f64, tx: &mut Tx) -> bool {
     if let Some(y) = run.step(clock) {
         tx.scroll_to_instant("doc", 0.0, y);
         tx.wake_after(Duration::from_millis(1));
-        // Senza una barra glass che anima, nulla chiede un frame: lo scroll di misura lo chiede qui.
+        // Without an animating glass bar, nothing asks for a frame: the measurement scroll asks for it here.
         return true;
     } else if run.finished() {
         probe::finish_scroll();
@@ -427,12 +427,12 @@ fn main() {
     open::install();
     rune::prewarm_gpu();
     probe::mark_start();
-    // Lo slot mono di default è Inter: il codice va in SF Mono.
+    // The default mono slot is Inter: code goes in SF Mono.
     let spec = AppSpec { setup: Some(setup), poll: Some(poll), on_key: Some(on_key), families: ("Inter", "ui-monospace, Menlo"), ..AppSpec::new("runemd", (900.0, 1000.0), init, view) };
-    // Chiudere la finestra o uscire salva le modifiche aperte nel sorgente (o ne fa una copia di
-    // recupero). Cmd+Q fa `on_quit` e poi `on_close`: il secondo, a uscita già partita, salta.
-    // Finestra trasparente: Rune accende il vetro di sistema solo nelle finestre trasparenti. Con
-    // `RUNEMD_GLASS` (foto) si apre anche in alto a sinistra, a (200, 120), sopra lo sfondo della foto.
+    // Closing the window or quitting saves the open changes in the source (or makes a recovery
+    // copy). Cmd+Q runs `on_quit` and then `on_close`: the second, with the exit already started, is skipped.
+    // Transparent window: Rune turns on the system glass only in transparent windows. With
+    // `RUNEMD_GLASS` (photos) it also opens at the top left, at (200, 120), above the photo's background.
     let photo = std::env::var_os("RUNEMD_GLASS").is_some();
     let options = rune::WindowOptions { transparent: true, position: photo.then_some((200, 120)), ..rune::WindowOptions::default() };
     rune::App::new(spec).window_options(options).on_close(|s, _| if !rune::quitting() { s.save_all() }).on_quit(|s, _| s.save_all()).compositor(fx::FxCompositor::default()).on_frame_encoded(probe::on_frame).run();
