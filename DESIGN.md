@@ -100,6 +100,7 @@ spacing:
   tab-gap: "2px"
   tab-max: "240px"
   recent-gap: "3px"
+  recent-row: "44px"
   recent-share: "40%"
   find-field: "240px"
   find-ring: "1px"
@@ -263,10 +264,10 @@ linee solo decorative e i riempimenti. I test falliscono se un minimo non è ris
   con lo stesso script sulla scheda di `bench/worst_case.sh` dà minimo 4,43 sulla barra e 3,30 sul `sel`
   (mediane 10,66 e 7,93).
 - Il nome doppio (repo o cartella) è in `fg-2` sulla riga scelta di ⌘P: in `fg-3` sul `sel` scendeva a 3,2:1.
-- Ogni testo piccolo dentro una riga che prende `sel` in hover sul vetro (tempo di Recenti, nome doppio, link
-  "Apri Impostazioni di Sistema") è in `fg-2` (`sidebar::row_meta`): con i grigi del pannello `fg-3` su vetro + `sel`
+- Ogni testo piccolo dentro una riga che prende `sel` in hover sul vetro (seconda riga di Recenti, cioè cartella o
+  repo e tempo; nome doppio di ⌘P; link "Apri Impostazioni di Sistema") è in `fg-2` (`sidebar::row_meta`): con i grigi del pannello `fg-3` su vetro + `sel`
   dava 3,28:1 nello scuro e 4,30:1 nel chiaro (review finale I4); oggi anche `fg-3-glass` + `sel` passa (4,80 / 4,61). `fg-3` resta solo fuori dalle righe premibili:
-  etichette di sezione, branch della riga del repo (che non ha hover), "⌘E sorgente" sul pannello.
+  etichette di sezione, branch e icone del titolo dell'albero (che non ha hover), "⌘E sorgente" sul pannello.
 
 ## Typography
 
@@ -289,11 +290,14 @@ Il grassetto nel corpo è peso 620 in `fg`. I titoli non sono enormi: la gerarch
 
 - Finestra: sidebar di vetro larga 248 px a sinistra; il pannello del documento sta a 8 px dai bordi alto,
   destro e basso, e il vetro lo circonda su tutti e quattro i lati.
-- Sidebar, dall'alto: semafori; campo "Apri file ⌘P"; sezione "Recenti" (nome file e tempo relativo a
-  destra); sezione "Repo del file" (riga intestazione del repo con icona cartella e nome, branch sotto il nome,
-  poi i file indentati di 16 px con linea guida verticale).
+- Sidebar, dall'alto: semafori; campo "Apri file ⌘P"; sezione "Recenti" (righe su due righe: nome del file
+  sopra, cartella o repo e tempo relativo sotto); una linea; il titolo dell'albero (icona repo, nome del repo e
+  sotto il branch con la sua icona), poi i file indentati di 16 px con linea guida verticale. Nessuna etichetta
+  sopra l'albero: il nome del repo fa da titolo. (`docs/decisions/2026-11-15-recenti-due-righe.md`, mockup A
+  in `design/mockups/2026-11-14-recenti-leggibili/`.)
 - Recenti prende al massimo il 40 % dell'altezza della sidebar (`recent-share`) e poi scorre, con la barra del
-  sistema (sottile, a scomparsa); 3 px fra le righe (`recent-gap`), con o senza anelli. Aprendo un file l'albero
+  sistema (sottile, a scomparsa); 3 px fra le righe (`recent-gap`), con o senza anelli. Con righe da 44 ci
+  stanno circa 5 file (6 in una sidebar alta 800) invece di 7–8; l'ordine resta quello d'apertura. Aprendo un file l'albero
   scorre quanto basta per mostrarne la riga. (D1, D2: `docs/decisions/2026-11-14-sidebar-schede-nomi-lunghi.md`.)
 - Nomi lunghi di file (Recenti, albero, schede, ⌘P) e il branch si tagliano in mezzo: restano la fine e
   l'estensione (`2026-11-14-arc…definitiva.md`). Il nome del repo si taglia in fondo. (D4)
@@ -324,9 +328,23 @@ con 14 sopra e 6 sotto. Il riempimento `sel` dell'hover entra ed esce in 120 ms 
 riga premuta va e torna in 160 ms con la curva `motion.ease-out`. Con "riduci movimento" tutti e due sono
 immediati.
 
-**Riga del repo.** Icona cartella in `fg-3` e nome 13/600 in `fg`; sotto il nome, allineato al nome, il branch in
-UI piccola 12 a peso 400 (non grassetto) in `fg-3`. La riga non ha hover, quindi `fg-3` sta sul vetro (`fg-3-glass`,
-6,89:1 / 5,18:1 sul fondo peggiore misurato). Alta almeno 30, 4 sopra e sotto. (D3)
+**Riga di Recenti.** Alta 44 (`recent-row`), raggio 6, margine 10 ai lati, hover `sel` e scala premuta come le
+altre righe. Prima riga: il nome del file (UI 13/400, interlinea 16) in `fg`, largo quanto la riga; si taglia in
+mezzo solo se non ci sta. Seconda riga, 2 sotto (interlinea 15): a sinistra dove sta il file, 12/400, tagliato
+in fondo; a destra il tempo relativo, 12/500 cifre tabellari; 8 fra i due. Tutti e due in `fg-2` (`fg-2-glass`,
+`sidebar::row_meta`), anche in hover. Dove sta il file: il repo (la cartella del file fuori da un repo); per un
+nome che ritorna, il repo o la cartella che lo distingue (regola dei nomi doppi). (Record
+`2026-11-15-recenti-due-righe`, vincoli 1–2.)
+
+**Titolo dell'albero (repo).** Al posto dell'etichetta "Repo del file", sotto una linea 0,5 in `line` (12 sopra,
+8 sotto, 10 ai lati). Icona repo (un libro, 14) in `fg-3` a sinistra, centrata sulle due righe; 8 dopo, il nome
+13/600 in `fg` (interlinea 16, tagliato in fondo) e 1 sotto l'icona branch (12) e il branch, 12/400 in `fg-3`
+(interlinea 15, tagliato in mezzo, senza cifre tabellari: i trattini restano stretti), 4 fra icona e branch. Alta
+almeno 44, 4 sopra e sotto. La riga non ha hover, quindi `fg-3` sta sul vetro (`fg-3-glass`, 6,89:1 / 5,18:1 sul
+fondo peggiore misurato). Le due icone sono disegnate come quelle del kit (viewBox 16, tratto 1, giunti tondi;
+quella del branch, più piccola, con tratto 1,2 per lo stesso spessore). Fuori da un repo il titolo è la cartella
+del file: icona cartella e nome, niente branch, alta almeno 30. (D3; record `2026-11-15-recenti-due-righe`,
+vincoli 4–5.)
 
 **Campo "Apri file".** Alto 30 px, raggio 7, riempimento `field`, bordo interno 0,5 px in `line`. Icona,
 testo e "⌘P" in `fg-2` (deve leggersi: commento di Matteo). Il tasto "⌘P" è testo `kbd` (11 px, 400) con

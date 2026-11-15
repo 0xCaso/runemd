@@ -246,6 +246,7 @@ mod tests {
         assert_eq!((FIND_RING, FIND_RING_ACTIVE), (1.0, 2.0), "DESIGN.md, spacing.find-ring e find-ring-active");
         assert_eq!(TAB_MAX_W, 240.0, "DESIGN.md, spacing.tab-max");
         assert_eq!((crate::ui::sidebar::RECENT_GAP, crate::ui::sidebar::RECENT_SHARE), (3.0, 0.4), "DESIGN.md, spacing.recent-gap e recent-share");
+        assert_eq!(crate::ui::sidebar::RECENT_ROW, 44.0, "DESIGN.md, spacing.recent-row");
         let dark = Theme::for_mode(true);
         assert_eq!(dark.fg2, oklcha(0.82, 0.006, 270.0, 1.0));
         assert_eq!(dark.fg3, oklcha(0.72, 0.008, 270.0, 1.0));

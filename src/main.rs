@@ -18,7 +18,8 @@
 //! impostazioni in memoria, che non si leggono né si salvano (prove e misure);
 //! `RUNEMD_THEME=light|dark` vince sul tema scelto; `RUNEMD_REDUCE_MOTION=1|0` vince su "riduci
 //! movimento" di sistema (headless Rune non la legge); `RUNEMD_GLASS=40` dà alla tinta del vetro il
-//! 40 % di opacità invece del 60 % e apre la finestra a (200, 120) (foto); `RUNE_DIRS_ROOT` sposta la cache dell'indice
+//! 40 % di opacità invece del 60 % e apre la finestra a (200, 120) (foto); `RUNEMD_SIDEBAR=180` dà
+//! alla sidebar quella larghezza per la sessione, senza scatto né salvataggio (foto); `RUNE_DIRS_ROOT` sposta la cache dell'indice
 //! e le impostazioni.
 
 mod app;
@@ -52,7 +53,12 @@ fn init() -> App {
     // scansione parte in `setup`, su un thread a parte.
     // Le impostazioni danno le cartelle osservate; con `RUNEMD_ROOTS` restano in memoria.
     let prefs = if index::env_roots().is_some() { rune::prefs::Prefs::memory() } else { rune::prefs::Prefs::open(settings::APP_ID) };
-    let settings = settings::Settings::load(&prefs);
+    let mut settings = settings::Settings::load(&prefs);
+    // `RUNEMD_SIDEBAR` (foto): la larghezza della sidebar, nei suoi limiti. Il trascinamento
+    // scatta a 248 entro 8 pt, quindi 240 non si raggiunge trascinando.
+    if let Some(w) = std::env::var("RUNEMD_SIDEBAR").ok().and_then(|v| v.parse::<f32>().ok()) {
+        settings.sidebar = panes::Pane { width: w, learned: Vec::new() }.sanitized(panes::SIDEBAR);
+    }
     let t = Instant::now();
     let library = index::Library::load(index::roots_from(&settings.roots), index::cache_path());
     probe::index_cached(t.elapsed(), library.index.len());
