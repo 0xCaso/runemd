@@ -43,11 +43,11 @@ pub fn style(theme: &Theme, body_size: f32) -> MarkdownStyle {
     style_with(theme, Typeface { family: Family::Sans, size: body_size })
 }
 
-/// I font del testo del documento: corpo, titoli 1–3 (dal 4 come il corpo) e celle.
+/// I font del testo del documento: corpo, titoli 1–6 e celle.
 #[derive(Clone, Copy, Debug)]
 pub struct Fonts {
     pub body: TextStyle,
-    pub headings: [TextStyle; 3],
+    pub headings: [TextStyle; 6],
     pub table: TextStyle,
 }
 
@@ -62,18 +62,25 @@ pub fn fonts(face: Typeface) -> Fonts {
     };
     Fonts {
         body: TextStyle::new(face.size, 400.0).lh(face.size * BODY_LEADING).family(family),
-        headings: [heading(28.0, 680.0, 1.2, -0.015), heading(19.0, 640.0, 1.3, -0.005), heading(15.5, 640.0, 1.3, 0.0)],
+        headings: [
+            heading(28.0, 680.0, 1.2, -0.015),
+            heading(19.0, 640.0, 1.3, -0.005),
+            heading(17.0, 640.0, 1.3, 0.0),
+            heading(15.5, 600.0, 1.3, 0.0),
+            heading(14.0, 600.0, 1.3, 0.0),
+            heading(13.0, 500.0, 1.3, 0.0),
+        ],
         table: TextStyle::new(14.0 * k, 400.0).family(family),
     }
 }
 
 /// Lo stile con la famiglia e la dimensione delle impostazioni: corpo, titoli e tabelle nella
 /// famiglia scelta; il codice resta monospaziato. Titoli, tabelle e codice scalano con il corpo
-/// (DESIGN.md, "Typography": 28, 19, 15,5, 14 e 13,5 con il corpo a 15,5).
+/// (DESIGN.md, "Typography": titoli 28, 19, 17, 15,5, 14, 13; tabelle 14, codice 13,5 con il corpo a 15,5).
 /// `MarkdownStyle` ha un solo colore di testo: corpo, titoli e grassetto usano `theme.body`.
 pub fn style_with(theme: &Theme, face: Typeface) -> MarkdownStyle {
     let k = face.size / BODY_TEXT;
-    let Fonts { body, headings: [h1, h2, h3], table } = fonts(face);
+    let Fonts { body, headings: [h1, h2, h3, h4, ..], table } = fonts(face);
     // Il testo dei diagrammi non ha un setter su `MarkdownStyle`: viene dal kit. Si parte dal kit
     // neutro con testo e testo smorzato del tema, e si rimette ciò che ne dipende e che non deve
     // cambiare (riempimento del codice in linea, testo dei diff) ai valori del kit neutro.
@@ -99,7 +106,10 @@ pub fn style_with(theme: &Theme, face: Typeface) -> MarkdownStyle {
         .body_font(body)
         .heading_font(1, h1)
         .heading_font(2, h2)
+        // Il kit porta i titoli dal 4 in giù al livello 4, in `muted`: il 5 e il 6 (e il colore
+        // del 4) li mette la vista per il loro blocco (`doc_view::heading_style`).
         .heading_font(3, h3)
+        .heading_font(4, h4)
         .code_block_font(TextStyle::new(CODE_TEXT * k, 400.0).family(Family::Mono))
         .inline_code_font(CODE_TEXT / BODY_TEXT, 400.0)
         .strong_weight(620.0)

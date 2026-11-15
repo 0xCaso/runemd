@@ -78,7 +78,7 @@ pub enum Kind {
 }
 
 impl Kind {
-    fn of(line: &str) -> Kind {
+    pub fn of(line: &str) -> Kind {
         let t = line.trim_start();
         let hashes = t.bytes().take_while(|&b| b == b'#').count();
         if (1..=6).contains(&hashes) && t[hashes..].starts_with([' ', '\t', '\n']) {

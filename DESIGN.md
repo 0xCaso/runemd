@@ -293,6 +293,10 @@ il codice esce in Inter). Cifre tabellari ovunque (`tnum`).
 |---|---|---|---|
 | Titolo del file (H1) | 28 | 680 | 1,2, tracking −0,015em |
 | H2 | 19 | 640 | 1,3 |
+| H3 | 17 | 640 | 1,3 |
+| H4 | 15,5 | 600 | 1,3 |
+| H5 (`fg-2`) | 14 | 600 | 1,3 |
+| H6 (`fg-3`) | 13 | 500 | 1,3 |
 | Corpo | 15,5 | 400 | 1,62 |
 | Tabella | 14 (intestazioni 13, peso 560) | 400 | — |
 | Codice | 13,5 mono | 400 | — |
@@ -300,6 +304,8 @@ il codice esce in Inter). Cifre tabellari ovunque (`tnum`).
 | UI piccola (tempi, sezioni, meta) | 12 | 500 | — |
 
 Il grassetto nel corpo è peso 620 in `fg`. I titoli non sono enormi: la gerarchia viene dal peso e dal colore.
+I titoli da 1 a 4 hanno il colore del corpo; il 5 scende a `fg-2` e il 6 a `fg-3`: ogni livello si distingue dal
+precedente e il 3 non pesa come una riga in grassetto.
 
 Una parola più lunga della riga (un percorso, un nome di file) va a capo dopo `/`, `-`, `_` o `.`, così la riga
 finisce con il separatore e la seguente comincia con il pezzo dopo; si spezza in un punto qualsiasi solo un tratto

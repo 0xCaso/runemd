@@ -114,6 +114,8 @@ pub struct Meta {
     pub rule: Color,
     /// La linea sopra le note a piè di pagina (`line`).
     pub line: Color,
+    /// Il colore dei titoli 4, 5 e 6 (`body` come i titoli 1–3, `fg2`, `fg3`).
+    pub headings: [Color; 3],
 }
 
 /// Un rettangolo della vista del documento, in punti della finestra.
@@ -363,7 +365,12 @@ fn block_row(source: &str, style: &MarkdownStyle, notes: &crate::doc::footnotes:
     };
     // `selectable` fa di ogni blocco un selection_group a sé, che fermerebbe un trascinamento
     // al bordo del blocco: si toglie il flag e vale il gruppo unico sulle righe.
-    let body = rune_kit::Markdown::new(shown).highlights(hits).selectable(true).render(style).selection_group(false);
+    let level = heading_level(source);
+    let style = match level {
+        Some(n @ 4..=6) => Cow::Owned(style.clone().heading_font(4, fonts.headings[n as usize - 1]).muted(meta.headings[n as usize - 4])),
+        _ => Cow::Borrowed(style),
+    };
+    let body = rune_kit::Markdown::new(shown).highlights(hits).selectable(true).render(&style).selection_group(false);
     let body = match callout {
         Some(c) => col().w_full().child(callout_head(c.kind, &meta)).child(body),
         None => body,
@@ -373,6 +380,15 @@ fn block_row(source: &str, style: &MarkdownStyle, notes: &crate::doc::footnotes:
     match mark {
         Some(c) => row.child(el().key("changed").pin(Some(CHANGED_MARK_X), Some(ROW_PAD_Y), None, Some(ROW_PAD_Y)).w(CHANGED_MARK_W).fill(c)),
         None => row,
+    }
+}
+
+/// Il livello di un blocco che è un titolo ATX (`#` … `######`). Il kit porta i livelli dal 4 in giù
+/// a uno solo, in `muted`: per il loro blocco la vista gli dà il font e il colore del livello vero.
+fn heading_level(source: &str) -> Option<u8> {
+    match crate::doc::breaks::Kind::of(source) {
+        crate::doc::breaks::Kind::Heading(n) if !source.contains('\n') => Some(n),
+        _ => None,
     }
 }
 
@@ -479,7 +495,7 @@ fn line_limit(kind: crate::doc::breaks::Kind) -> f32 {
 fn font_of(fonts: &super::markdown_style::Fonts, kind: crate::doc::breaks::Kind) -> TextStyle {
     use crate::doc::breaks::Kind;
     match kind {
-        Kind::Heading(n @ 1..=3) => fonts.headings[n as usize - 1],
+        Kind::Heading(n @ 1..=6) => fonts.headings[n as usize - 1],
         Kind::Heading(_) | Kind::Body => fonts.body,
         Kind::Cell => fonts.table,
     }
@@ -1343,6 +1359,19 @@ mod tests {
         assert!(els.iter().any(|e| e.key.as_deref() == Some("footnotes")));
     }
 
+    /// Titoli 3–6: 17 / 15,5 / 14 / 13, il colore scende (`body`, `body`, `fg2`, `fg3`); 4–6 non sono
+    /// uguali al 3.
+    #[test]
+    fn headings_three_to_six_step_down() {
+        let t = crate::ui::theme::Theme::for_mode(true);
+        let rt = open_themed("### T3\n\n#### T4\n\n##### T5\n\n###### T6\n", true);
+        let els = rt.elements();
+        let h = |n: &str| els.iter().find(|e| e.text.as_deref() == Some(n)).map(|e| (e.rect[3], e.text_color)).unwrap_or_else(|| panic!("manca {n}"));
+        let [h3, h4, h5, h6] = ["T3", "T4", "T5", "T6"].map(h);
+        assert!(h3.0 > h4.0 && h4.0 > h5.0 && h5.0 > h6.0, "altezze {h3:?} {h4:?} {h5:?} {h6:?}");
+        assert_eq!([h3.1, h4.1, h5.1, h6.1], [Some(t.body), Some(t.body), Some(t.fg2), Some(t.fg3)]);
+    }
+
     /// Le parole lunghe (fixtures/long-title.md: titolo-percorso, paragrafo, hash senza
     /// separatori, lista, celle) vanno a capo: nessuna riga esce dalla colonna. Ogni testo è
     /// dentro le righe e la sua parte più larga che non si spezza ci sta.
@@ -1369,7 +1398,7 @@ mod tests {
             seen += 1;
             assert!(e.rect[0] + e.rect[2] <= right + 0.5, "{t:?} esce: {:?} oltre {right}", e.rect);
             let font = match (e.role, e.level) {
-                ("heading", Some(n @ 1..=3)) => fonts.headings[n as usize - 1],
+                ("heading", Some(n @ 1..=6)) => fonts.headings[n as usize - 1],
                 _ => fonts.body,
             };
             let widest = rune::text::measure(t, &[], font, Some(0.0)).0;
