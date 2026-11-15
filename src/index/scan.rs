@@ -1,8 +1,8 @@
-//! La scansione delle cartelle osservate: ogni Markdown con il suo mtime.
+//! The scan of the watched folders: every Markdown file with its mtime.
 //!
-//! Il percorso è quello del watcher (`watch::walk`): stesse cartelle saltate, nessun link
-//! simbolico a cartelle seguito (un ciclo non finirebbe mai). Un link a un file entra, con
-//! l'mtime del file a cui punta.
+//! The walk is the watcher's (`watch::walk`): same skipped folders, no symbolic
+//! link to folders followed (a cycle would never end). A link to a file is in, with
+//! the mtime of the file it points to.
 
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver};
@@ -11,31 +11,31 @@ use rune::Waker;
 
 use super::{Entry, mtime_of};
 
-/// Tutti i Markdown sotto `roots`, sottocartelle comprese, ordinati per percorso. Errori di
-/// lettura ignorati.
+/// All the Markdown files below `roots`, subfolders included, sorted by path. Read
+/// errors ignored.
 pub fn scan(roots: &[PathBuf]) -> Vec<Entry> {
     let mut paths = Vec::new();
     for root in roots {
         crate::watch::walk(root, true, &mut paths);
     }
-    // Ordinate e senza doppioni qui, sul thread della scansione: il thread della UI le fonde
-    // soltanto (`Index::finish_scan`). Doppioni solo con radici una dentro l'altra.
+    // Sorted and without duplicates here, on the scan thread: the UI thread only merges
+    // them (`Index::finish_scan`). Duplicates only with roots one inside the other.
     paths.sort();
     paths.dedup();
     paths.into_iter().filter_map(|path| Some(Entry { mtime: mtime_of(&path)?, path })).collect()
 }
 
-/// Se macOS (o i permessi) lasciano leggere le cartelle osservate.
+/// Whether macOS (or the permissions) lets the watched folders be read.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub enum Access {
     #[default]
     Ok,
-    /// La prima cartella che non si può leggere per permessi (su Desktop, il consenso di macOS).
+    /// The first folder that cannot be read because of permissions (on Desktop, macOS consent).
     Denied(PathBuf),
 }
 
-/// Le radici si possono leggere? Solo `PermissionDenied` conta: una radice che non esiste non è
-/// un problema di permessi. Va chiamata sul thread della scansione.
+/// Can the roots be read? Only `PermissionDenied` counts: a root that does not exist is not
+/// a permissions problem. Call it on the scan thread.
 pub fn access(roots: &[PathBuf]) -> Access {
     for root in roots {
         if let Err(e) = std::fs::read_dir(root)
@@ -47,11 +47,11 @@ pub fn access(roots: &[PathBuf]) -> Access {
     Access::Ok
 }
 
-/// Il risultato di una scansione in background: le voci e l'esito dei permessi.
+/// The result of a background scan: the entries and the permissions outcome.
 pub type Scanned = (Vec<Entry>, Access);
 
-/// `scan` su un thread a parte: il risultato (con l'esito dei permessi) arriva sul canale e il
-/// thread sveglia l'app. Il primo frame non lo aspetta.
+/// `scan` on its own thread: the result (with the permissions outcome) arrives on the channel and the
+/// thread wakes the app. The first frame does not wait for it.
 pub fn scan_in_background(roots: Vec<PathBuf>, waker: Waker) -> Receiver<Scanned> {
     let (tx, rx) = mpsc::channel();
     let spawned = std::thread::Builder::new().name("runemd-index".into()).spawn(move || {
@@ -60,7 +60,7 @@ pub fn scan_in_background(roots: Vec<PathBuf>, waker: Waker) -> Receiver<Scanned
         waker();
     });
     if let Err(e) = spawned {
-        eprintln!("runemd: scansione dell'indice non avviata: {e}");
+        eprintln!("runemd: index scan not started: {e}");
     }
     rx
 }
@@ -84,6 +84,6 @@ mod tests {
         let denied = access(std::slice::from_ref(&root));
         fs::set_permissions(&root, fs::Permissions::from_mode(0o755)).unwrap();
         assert_eq!(denied, Access::Denied(root));
-        assert_eq!(missing, Access::Ok, "una radice assente non è un problema di permessi");
+        assert_eq!(missing, Access::Ok, "a missing root is not a permissions problem");
     }
 }

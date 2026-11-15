@@ -1,6 +1,6 @@
-//! La cache dell'indice su disco: un JSON con percorso e mtime (secondi e nanosecondi dall'epoca)
-//! di ogni voce. Si scrive in un file temporaneo accanto e poi si rinomina: chi legge trova il
-//! file vecchio o quello nuovo, mai uno a metà.
+//! The index cache on disk: a JSON with path and mtime (seconds and nanoseconds since the epoch)
+//! of every entry. It is written to a temporary file next to it and then renamed: a reader finds the
+//! old file or the new one, never a half-written one.
 
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 
 use super::Entry;
 
-/// Cambia quando cambia il formato: una cache di un'altra versione si scarta.
+/// Changes when the format changes: a cache from another version is discarded.
 const VERSION: u32 = 1;
 
 #[derive(Serialize, Deserialize)]
@@ -27,7 +27,7 @@ struct Item {
     nanos: u32,
 }
 
-/// Le voci salvate in `path`; `None` se il file manca, non si legge o è di un'altra versione.
+/// The entries saved in `path`; `None` if the file is missing, cannot be read or is from another version.
 pub fn load(path: &Path) -> Option<Vec<Entry>> {
     let bytes = std::fs::read(path).ok()?;
     let file: File = serde_json::from_slice(&bytes).ok()?;
@@ -37,8 +37,8 @@ pub fn load(path: &Path) -> Option<Vec<Entry>> {
     Some(file.entries.into_iter().map(|i| Entry { path: i.path, mtime: UNIX_EPOCH + Duration::new(i.secs, i.nanos) }).collect())
 }
 
-/// Scrive `entries` in `path` (cartella creata se manca) in modo atomico. Le voci con mtime
-/// prima del 1970 o percorsi non UTF-8 (JSON non li rappresenta) si saltano.
+/// Writes `entries` to `path` (folder created if missing) atomically. Entries with an mtime
+/// before 1970 or non-UTF-8 paths (JSON cannot represent them) are skipped.
 pub fn save(path: &Path, entries: &[Entry]) -> io::Result<()> {
     let items = entries
         .iter()
@@ -51,7 +51,7 @@ pub fn save(path: &Path, entries: &[Entry]) -> io::Result<()> {
     let json = serde_json::to_vec(&File { version: VERSION, entries: items }).map_err(io::Error::other)?;
     let dir = path.parent().filter(|d| !d.as_os_str().is_empty()).unwrap_or(Path::new("."));
     std::fs::create_dir_all(dir)?;
-    // Un nome per scrittura: due salvataggi non si pestano il file temporaneo.
+    // One name per write: two saves do not step on each other's temporary file.
     static SEQ: AtomicU64 = AtomicU64::new(0);
     let name = path.file_name().unwrap_or_default().to_string_lossy();
     let tmp = dir.join(format!(".{name}.{}.{}.tmp", std::process::id(), SEQ.fetch_add(1, Ordering::Relaxed)));
