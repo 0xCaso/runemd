@@ -246,6 +246,7 @@ linee solo decorative e i riempimenti. I test falliscono se un minimo non è ris
 | Popover della larghezza: scorciatoie e binario (`fg-3`) su panel | — | 7,88 | — | 7,34 | 4,5 |
 | Pulsante ⌘ delle scorciatoie (`fg-2`) su panel / panel + `sel` | — | 11,19 / 8,30 | — | 10,71 / 9,38 | 3 |
 | Popover delle scorciatoie: righe, tasti (`fg-2`) e gruppi (`fg-3`) su panel | — | 11,19 / 7,88 | — | 10,71 / 7,34 | 4,5 |
+| ⌘P: nome (`fg`) e seconda riga (`fg-2`) su panel + `sel` | — | 12,53 / 8,30 | — | 14,94 / 9,38 | 4,5 |
 | `line` su panel (linee decorative) | 1,19 | 1,44 | 1,22 | 1,22 | — |
 | `line` su vetro (bordo dei campi) | 1,28 | 1,52 | 1,21 | 1,19 | — |
 | `sel` su panel | 1,23 | 1,35 | 1,14 | 1,14 | — |
@@ -396,6 +397,15 @@ del testo"). Un clic apre sotto il pulsante il popover della larghezza con un al
 con l'azione (13 in `fg-2`) e i tasti a destra (11,5 in `fg-2`, bordo `line` 0,5, raggio 4). Esc, un clic fuori o
 il pulsante lo chiudono; aprire ⌘ chiude ↔ e viceversa. L'elenco è `ui::shortcuts::GROUPS`
 (docs/decisions/2026-11-15-scorciatoie-popover.md).
+
+**Apri file (⌘P).** Un pannello largo 560 (meno con la finestra stretta, 16 dai bordi), centrato nella finestra,
+20 sotto la barra delle schede, sopra un velo `panel` al 60 %: non sposta niente. Riempimento `panel`, raggio 10,
+bordo e ombra del popover. In alto il campo (48, testo 15, icona in `fg-2`), poi le righe come Recenti (44, nome
+in `fg`; sotto repo o cartella e ora in `fg-2`) con l'icona del file, scelta e hover `sel`, otto in vista; in fondo
+(36) ↑ ↓ scegli, ↵ apri, Esc chiudi (tasti in `fg-2`, parole in `fg-3`) e "N file". Con la ricerca vuota le righe
+sono Recenti. Il campo "Apri file ⌘P" della sidebar è un pulsante che apre il pannello. Clic: anteprima, il pannello
+resta; doppio clic: scheda fissa e il pannello si chiude; Invio apre in anteprima e chiude. Esc o un clic fuori
+chiudono (pannello modale). Record docs/decisions/2026-11-15-quick-open-compatto.md.
 
 **Cerca nel file (⌘F).** Solo in lettura. Il campo sta nella barra delle schede, a destra delle schede e prima
 di "⌘E sorgente", così il documento non si sposta: largo 240 (`find-field`), alto 30, raggio 7, riempimento

@@ -17,7 +17,7 @@ use super::quick_open::{self, QuickOpen};
 use super::relative_time;
 use super::theme::{
     CHEVRON, EASE_OUT, FIELD_H, HAIRLINE, HOVER_FADE, ICON, PRESS_SCALE,
-    PRESS_TIME, QUALIFIER_GAP, R_ROW, ROW, ROW_GAP, ROW_PAD, SECTION_PAD_BOTTOM, SECTION_PAD_TOP, SIDEBAR_BOTTOM,
+    PRESS_TIME, R_ROW, ROW, ROW_GAP, ROW_PAD, SECTION_PAD_BOTTOM, SECTION_PAD_TOP, SIDEBAR_BOTTOM,
     SIDEBAR_PAD, SIDEBAR_TOP, TREE_INDENT, TREE_ROW, TREE_ROW_PAD, Theme, UI_SMALL, UI_SMALL_WEIGHT, UI_STRONG_WEIGHT, UI_TEXT, UI_WEIGHT,
 };
 use crate::fx::{self, Mark};
@@ -155,6 +155,8 @@ pub struct Sidebar {
     /// Cmd+P: il campo e i risultati; le righe dei risultati hanno il qualificatore dei nomi doppi.
     pub quick: QuickOpen,
     pub quick_rows: Vec<RecentRow>,
+    /// L'ora di ogni riga di `quick_rows`, calcolata quando i risultati cambiano.
+    pub quick_labels: Vec<String>,
     /// Cmd+N: il campo "Nuovo file" al posto di quello di Cmd+P.
     pub new_file: super::new_file::NewFile,
     /// La riga dell'albero da portare in vista (il file appena aperto); la prende `poll`.
@@ -240,31 +242,32 @@ impl Sidebar {
     }
 
     /// `keep`: la ricerca è la stessa (l'indice è cambiato), la riga scelta resta per percorso.
+    /// Con la ricerca vuota i risultati sono Recenti. Ogni riga ha la seconda riga di Recenti:
+    /// il repo (la cartella fuori da un repo), per i nomi doppi quello che li distingue.
     fn rank_quick(&mut self, index: &Index, keep: bool) {
-        if keep {
+        if self.quick.empty_query() {
+            self.quick.set_hits(self.recent.iter().map(|r| r.path.clone()).collect(), keep);
+        } else if keep {
             self.quick.refresh(index.names());
         } else {
             self.quick.requery(index.names());
         }
-        let mut rows: Vec<RecentRow> = self.quick.hits.iter().map(|p| RecentRow { name: file_name(p), path: p.clone(), qualifier: None, mtime: SystemTime::UNIX_EPOCH }).collect();
+        let mut rows: Vec<RecentRow> = self.quick.hits.iter().map(|p| RecentRow { name: file_name(p), path: p.clone(), qualifier: None, mtime: index.mtime(p).unwrap_or(SystemTime::UNIX_EPOCH) }).collect();
         let names = &mut self.repo_names;
-        qualify(&mut rows, |p| names.entry(p.to_owned()).or_insert_with(|| repo::of(p).name).clone());
+        let mut repo_name = |p: &Path| names.entry(p.to_owned()).or_insert_with(|| repo::of(p).name).clone();
+        qualify(&mut rows, &mut repo_name);
+        for r in rows.iter_mut().filter(|r| r.qualifier.is_none()) {
+            r.qualifier = Some(repo_name(&r.path));
+        }
+        let now = SystemTime::now();
+        self.quick_labels = rows.iter().map(|r| if r.mtime == SystemTime::UNIX_EPOCH { String::new() } else { relative_time::format(now.duration_since(r.mtime).unwrap_or_default()) }).collect();
         self.quick_rows = rows;
     }
 
-    /// Il campo ha perso il fuoco (un clic fuori): lista e ricerca si chiudono, così Esc e frecce
-    /// non restano morti su una lista vecchia. Non durante un clic su una riga: il fuoco lascia il
-    /// campo alla pressione, e il clic parte al rilascio. Vero se la lista si è chiusa.
+    /// Il campo di Cmd+N ha perso il fuoco: si chiude. Il pannello di Cmd+P è modale e si chiude
+    /// da sé al clic fuori (`quick_open::panel`). Vero se il campo si è chiuso.
     pub fn blur_close(&mut self) -> bool {
-        if self.new_file.blur_close() {
-            return true;
-        }
-        if self.quick.active() && !self.quick.edit.focused && self.pressed.is_none() {
-            self.quick.close();
-            self.quick_rows.clear();
-            return true;
-        }
-        false
+        self.new_file.blur_close()
     }
 
     /// Ricalcola Recenti: le `RECENT_MAX` voci più recenti che sono ancora file. Il disco si
@@ -429,13 +432,9 @@ pub fn view<S: 'static>(s: &S, hooks: Hooks<S>, width: f32, theme: &Theme, reduc
     // Tutto ciò che sta nella sidebar sta sul vetro: i suoi grigi (`Theme::on_glass`).
     let glass = theme.on_glass();
     let theme = &glass;
-    let mut side = col().key("sidebar").w(width).h_full().pt(SIDEBAR_TOP).px(SIDEBAR_PAD).pb(SIDEBAR_BOTTOM).child(if sb.new_file.open { super::new_file::field(sb, hooks, theme) } else { quick_open::field(sb, hooks, theme) });
+    let mut side = col().key("sidebar").w(width).h_full().pt(SIDEBAR_TOP).px(SIDEBAR_PAD).pb(SIDEBAR_BOTTOM).child(if sb.new_file.open { super::new_file::field(sb, hooks, theme) } else { quick_open::launcher(hooks, theme) });
     if sb.no_access {
         side = side.child(no_access(sb, hooks, theme, motion));
-    }
-    // La ricerca di Cmd+P prende il posto di Recenti e dell'albero.
-    if sb.quick.active() {
-        return side.child(quick_open::view(sb, hooks, theme, motion));
     }
     if !sb.recent.is_empty() {
         // Al massimo `RECENT_SHARE` dell'altezza della sidebar, poi scorre (con la barra del
@@ -542,16 +541,6 @@ fn ring_host(row: El, mark: Mark, since: Option<f64>, reduced: bool, dark: bool)
 /// l'hover `sel` sul vetro porterebbe `fg3` sotto 4,5:1 (DESIGN.md, "Contrasto").
 pub fn row_meta(theme: &Theme) -> Color {
     theme.fg2
-}
-
-/// Il nome del file e, se un'altra riga ha lo stesso nome, il repo o la cartella in
-/// [`row_meta`]: la riga prende `sel` in hover o scelta.
-pub(super) fn name_cell(name: &str, qualifier: Option<&str>, theme: &Theme) -> El {
-    let mut cell = row().gap(QUALIFIER_GAP).center_y().grow(1.0).shrink().min_w(0.0).child(text(name.to_owned()).font(ui_font()).color(theme.fg).truncate_middle().shrink().min_w(0.0));
-    if let Some(q) = qualifier {
-        cell = cell.child(text(q.to_owned()).font(small_font()).color(row_meta(theme)).truncate().shrink().min_w(0.0));
-    }
-    cell
 }
 
 /// Una riga di Recenti su due righe (record `2026-11-15-recenti-due-righe`): sopra il nome, largo
@@ -1012,7 +1001,8 @@ mod tests {
         assert_eq!(shown, ["note.md", "other.md"]);
     }
 
-    /// I risultati di Cmd+P: un nome doppio prende il repo o la cartella, come in Recenti.
+    /// I risultati di Cmd+P: un nome doppio prende il repo o la cartella, come in Recenti; un nome
+    /// unico prende il repo (la cartella fuori da un repo), come la seconda riga di Recenti.
     #[test]
     fn quick_results_qualify_doubles() {
         let index = Index::from_entries(vec![entry(Path::new("/r1/docs/spec.md"), 1), entry(Path::new("/r2/docs/spec.md"), 2), entry(Path::new("/r1/docs/other.md"), 3)]);
@@ -1024,24 +1014,34 @@ mod tests {
         sb.quick.edit.replace_text("oth");
         sb.requery(&index);
         assert_eq!(sb.quick_rows.len(), 1);
-        assert_eq!(sb.quick_rows[0].qualifier, None);
+        assert_eq!(sb.quick_rows[0].qualifier.as_deref(), Some("docs"));
     }
 
-    /// Un clic fuori dal campo chiude la lista; un clic su una riga (premuta) no, finché non parte.
+    /// Ricerca vuota: il pannello mostra Recenti, con l'ora di ognuno.
     #[test]
-    fn blur_closes_the_list_except_during_a_press() {
+    fn an_empty_query_shows_recent_files() {
+        let index = Index::from_entries(vec![entry(Path::new("/r/a.md"), 1), entry(Path::new("/r/b.md"), 2)]);
+        let recent = vec![RecentRow { path: "/r/b.md".into(), name: "b.md".into(), qualifier: None, mtime: at(2) }, RecentRow { path: "/r/a.md".into(), name: "a.md".into(), qualifier: None, mtime: at(1) }];
+        let mut sb = Sidebar { recent, ..Sidebar::default() };
+        sb.quick.show();
+        sb.requery(&index);
+        let names: Vec<&str> = sb.quick_rows.iter().map(|r| r.name.as_str()).collect();
+        assert_eq!(names, ["b.md", "a.md"]);
+        assert_eq!(sb.quick_labels.len(), 2);
+        assert!(sb.quick_labels.iter().all(|l| !l.is_empty()));
+    }
+
+    /// Il pannello di Cmd+P è modale: perdere il fuoco non lo chiude (lo chiudono Esc e il clic fuori).
+    #[test]
+    fn blur_does_not_close_the_quick_panel() {
         let index = Index::from_entries(vec![entry(Path::new("/r/a.md"), 1)]);
         let mut sb = Sidebar::default();
+        sb.quick.show();
         sb.quick.edit.replace_text("a");
-        sb.quick.edit.focused = true;
         sb.requery(&index);
-        assert!(!sb.blur_close(), "col fuoco resta aperta");
         sb.quick.edit.focused = false;
-        sb.press("quick-/r/a.md", Phase::Down);
-        assert!(!sb.blur_close(), "durante la pressione di una riga resta aperta");
-        sb.press("quick-/r/a.md", Phase::Up);
-        assert!(sb.blur_close());
-        assert!(!sb.quick.active() && sb.quick_rows.is_empty());
+        assert!(!sb.blur_close());
+        assert!(sb.quick.active() && sb.quick_rows.len() == 1);
     }
 
     /// Una scrittura altrove (l'indice cambia) non sposta la riga scelta con le frecce.

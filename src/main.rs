@@ -170,6 +170,7 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
     rune::row().key("app").on_layout_tx(width).w_full().h_full().system_material(rune::SystemMaterial::Glass).fill(theme.glass_fallback()).child(tint).child(sidebar).child(main).child(sidebar_edge)
         .children(ui::tabs::width_popover(s, &theme))
         .children(ui::shortcuts::popover(s, &theme))
+        .children(ui::quick_open::panel(s, hooks, &theme, reduced, !cx.hover_none()))
         .on_window_focus(|s: &mut App, focused, _| s.window_active = focused)
 }
 
@@ -268,11 +269,15 @@ fn on_key(s: &mut App, key: &rune::KeyEvent, tx: &mut Tx) -> bool {
         s.set_column(s.settings.step_column(step), tx);
         return true;
     }
-    // Cmd+P: il fuoco nel campo "Apri file" della sidebar. Un solo campo aperto alla volta.
+    // Cmd+P: apre e chiude il pannello di Apri file (`ui::quick_open::panel`). Un solo campo aperto alla volta.
     if matches!(key.key, rune::Key::Command('p')) && key.mods.cmd && !key.mods.shift && !key.mods.alt && !tx.key_repeat() {
-        s.find.close();
         s.sidebar.new_file.close();
-        s.sidebar.quick.focus();
+        if s.sidebar.quick.active() {
+            s.sidebar.quick.close();
+        } else {
+            s.sidebar.quick.show();
+            s.requery_sidebar();
+        }
         return true;
     }
     // Cmd+N: il campo "Nuovo file" prende il posto di "Apri file".

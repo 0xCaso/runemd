@@ -95,7 +95,6 @@ pub const ROW_PAD: f32 = 10.0;
 pub const TREE_ROW_PAD: f32 = 8.0;
 /// Spazio fra icona, nome e tempo (`row-gap`), e fra nome e repo di un nome doppio (`qualifier-gap`).
 pub const ROW_GAP: f32 = 8.0;
-pub const QUALIFIER_GAP: f32 = 6.0;
 /// Icone di campo e repo (`icon`), freccia delle cartelle (`chevron`).
 pub const ICON: f32 = 14.0;
 pub const CHEVRON: f32 = 10.0;

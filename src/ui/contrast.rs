@@ -47,7 +47,7 @@ pub struct Row {
 }
 
 /// I colori che non sono token: l'anello del risultato attivo di Cerca, il fuoco della tastiera e
-/// il nome doppio della riga scelta (`sidebar::name_cell`).
+/// il nome doppio della riga scelta (seconda riga di Recenti e di ⌘P).
 pub struct Rings {
     pub active: Color,
     pub focus: Color,
@@ -129,6 +129,13 @@ pub fn rows(t: &Theme, rings: &Rings, glass: Color) -> Vec<Row> {
         row("popover delle scorciatoie: gruppi (fg3) su panel", t.fg3, panel, 4.5),
         row("popover delle scorciatoie: tasti (fg2) su panel", t.fg2, panel, 4.5),
         row("popover delle scorciatoie: bordo dei tasti (line) su panel, decorativo", t.line, panel, 1.0),
+        // ⌘P compatto (`ui::quick_open::panel`), sul pannello: righe con hover e scelta `sel`.
+        row("⌘P: nome (fg) su panel + sel (scelta, hover)", t.fg, panel_sel, 4.5),
+        row("⌘P: repo o cartella e ora (fg2) su panel", t.fg2, panel, 4.5),
+        row("⌘P: repo o cartella e ora (fg2) su panel + sel (scelta, hover)", t.fg2, panel_sel, 4.5),
+        row("⌘P: icona del file (fg2) su panel + sel", t.fg2, panel_sel, mark),
+        row("⌘P: tasti in fondo (fg2) e parole (fg3) su panel", t.fg3, panel, 4.5),
+        row("⌘P: segnaposto del campo (fg2) su panel", t.fg2, panel, 4.5),
         row("line su panel (linee decorative)", t.line, panel, 1.0),
         row("line su vetro (bordo campi, decorativo)", t.line, glass, 1.0),
         row("sel su panel (selezione, hover)", t.sel, panel, 1.0),

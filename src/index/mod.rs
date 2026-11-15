@@ -217,6 +217,11 @@ impl Index {
         &self.entries[self.range_under(dir)]
     }
 
+    /// L'mtime di `path` se è nell'indice (ricerca binaria: le voci sono ordinate per percorso).
+    pub fn mtime(&self, path: &Path) -> Option<SystemTime> {
+        self.entries.binary_search_by(|e| e.path.as_path().cmp(path)).ok().map(|i| self.entries[i].mtime)
+    }
+
     /// Tutti i percorsi, in ordine alfabetico (Cmd+P, albero del repo).
     pub fn names(&self) -> impl Iterator<Item = &Path> {
         self.entries.iter().map(|e| e.path.as_path())
