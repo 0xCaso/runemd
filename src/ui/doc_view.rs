@@ -459,7 +459,7 @@ static WARNING_ICON: rune::Icon = rune::Icon {
     view: 16.0,
     body: r#"<path d="M7.13 2.5a1 1 0 0 1 1.74 0l5.5 9.75a1 1 0 0 1-.87 1.5H2.5a1 1 0 0 1-.87-1.5Z" stroke="currentColor" stroke-linejoin="round"/><path d="M8 6.2V9" stroke="currentColor" stroke-linecap="round"/><circle cx="8" cy="11.1" r="0.6" fill="currentColor"/>"#,
 };
-/// Pericolo: un ottagono con "!".
+/// Cautela: un ottagono con "!".
 static CAUTION_ICON: rune::Icon = rune::Icon {
     name: "runemd-caution",
     view: 16.0,
@@ -1332,12 +1332,12 @@ mod tests {
     /// I callout di GitHub (`> [!NOTE]` …) hanno l'etichetta in parole e non mostrano il segno.
     #[test]
     fn callouts_show_a_label_not_the_marker() {
-        let src = "> [!NOTE]\n> Una nota.\n\n> [!TIP]\n> Un suggerimento.\n\n> [!IMPORTANT]\n> Importante.\n\n> [!warning]\n> Un avviso.\n\n> [!CAUTION]\n> Pericolo.\n";
+        let src = "> [!NOTE]\n> Una nota.\n\n> [!TIP]\n> Un suggerimento.\n\n> [!IMPORTANT]\n> Importante.\n\n> [!warning]\n> Un avviso.\n\n> [!CAUTION]\n> Un rischio.\n";
         for dark in [true, false] {
             let rt = open_themed(src, dark);
             let texts: Vec<String> = rt.elements().into_iter().filter_map(|e| e.text).collect();
             assert!(!texts.iter().any(|t| t.contains("[!")), "il segno si vede: {texts:?}");
-            for label in ["Nota", "Suggerimento", "Importante", "Attenzione", "Pericolo"] {
+            for label in ["Nota", "Suggerimento", "Importante", "Attenzione", "Cautela"] {
                 assert!(texts.iter().any(|t| t == label), "manca {label}: {texts:?}");
             }
             assert!(texts.iter().any(|t| t.contains("Un avviso.")), "{texts:?}");

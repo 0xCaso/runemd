@@ -317,7 +317,7 @@ senza separatori più largo di una riga (un hash). Nessuna riga esce dalla colon
 allo stesso modo e resta un link solo, con l'indirizzo intatto.
 
 **Callout** (`> [!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]`, `[!CAUTION]`): la citazione con sopra
-l'etichetta in parole (Nota, Suggerimento, Importante, Attenzione, Pericolo), 13/600 in `fg`, con l'icona da 14 in
+l'etichetta in parole (Nota, Suggerimento, Importante, Attenzione, Cautela), 13/600 in `fg`, con l'icona da 14 in
 `fg-2` 6 prima; 6 sotto l'etichetta, sulla stessa linea della citazione. Il segno `[!NOTE]` non si vede. Nessun
 colore: il tipo lo dicono parola e icona.
 

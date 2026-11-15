@@ -23,7 +23,7 @@ impl Kind {
             Kind::Tip => "Suggerimento",
             Kind::Important => "Importante",
             Kind::Warning => "Attenzione",
-            Kind::Caution => "Pericolo",
+            Kind::Caution => "Cautela",
         }
     }
 }
