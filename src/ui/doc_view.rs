@@ -1372,6 +1372,25 @@ mod tests {
         assert_eq!([h3.1, h4.1, h5.1, h6.1], [Some(t.body), Some(t.body), Some(t.fg2), Some(t.fg3)]);
     }
 
+    /// Le caselle delle liste di compiti sono quelle delle Impostazioni: spenta vuota (bordo `fg3`),
+    /// accesa piena in `fg2`.
+    #[test]
+    fn task_checkboxes_look_like_the_settings_one() {
+        for dark in [true, false] {
+            let t = crate::ui::theme::Theme::for_mode(dark);
+            let rt = open_themed("- [ ] da fare\n- [x] fatto\n", dark);
+            let els = rt.elements();
+            let control = |label: &str| {
+                let row = els.iter().position(|e| e.role == "checkbox" && e.label.as_deref() == Some(label)).unwrap_or_else(|| panic!("manca {label}"));
+                els.iter().find(|e| e.parent == Some(row) && e.key.as_deref() == Some("control")).unwrap().clone()
+            };
+            let (off, on) = (control("da fare"), control("fatto"));
+            assert_eq!(on.fill, t.fg2, "accesa, dark={dark}");
+            assert_eq!(off.fill.a, 0.0, "spenta vuota, dark={dark}");
+            assert_eq!(on.rect[2], crate::ui::theme::ICON);
+        }
+    }
+
     /// Le parole lunghe (fixtures/long-title.md: titolo-percorso, paragrafo, hash senza
     /// separatori, lista, celle) vanno a capo: nessuna riga esce dalla colonna. Ogni testo è
     /// dentro le righe e la sua parte più larga che non si spezza ci sta.

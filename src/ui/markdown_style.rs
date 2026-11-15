@@ -3,7 +3,7 @@
 use rune::{Color, Family, TextStyle};
 use rune_kit::{Kit, MarkdownStyle};
 
-use super::theme::{BODY_LEADING, BODY_TEXT, CODE_TEXT, COLUMN, FIND_RING, FIND_RING_ACTIVE, ROW_PAD_X, Theme, flatten};
+use super::theme::{BODY_LEADING, BODY_TEXT, CODE_TEXT, COLUMN, FIND_RING, FIND_RING_ACTIVE, ICON, R_KBD, ROW_PAD_X, Theme, flatten};
 use crate::fonts::Typeface;
 
 /// I colori dei diagrammi Mermaid (DESIGN.md, "Contrasto"): tutti token del tema. Il diagramma sta sul
@@ -121,6 +121,9 @@ pub fn style_with(theme: &Theme, face: Typeface) -> MarkdownStyle {
         .table_outline(None)
         .table_rules(theme.line)
         .rule(theme.line)
+        // Le caselle delle liste di compiti come quella delle Impostazioni (DESIGN.md, "Contrasto"):
+        // spenta vuota con il bordo di 1 in `fg3`, accesa piena in `fg2` con la spunta in `panel`.
+        .task_checkbox(ICON, R_KBD, TASK_LEFT, None, theme.fg2, theme.panel, Color::TRANSPARENT, theme.fg3)
         .selection(theme.sel)
         // Cerca (DESIGN.md, "Cerca nel file"): nessun accento. I risultati hanno il riempimento
         // `sel` e un anello interno di 1 pt in `mark` (≥ 3:1), che li stacca dal codice e dalla
@@ -132,6 +135,9 @@ pub fn style_with(theme: &Theme, face: Typeface) -> MarkdownStyle {
         .highlight_current_fg(None)
         .highlight_current_ring(Some((theme.fg2, FIND_RING_ACTIVE)))
 }
+
+/// La casella di una lista di compiti parte 8 pt dentro la colonna dei segni (come il kit).
+const TASK_LEFT: f32 = 8.0;
 
 #[cfg(test)]
 mod tests {

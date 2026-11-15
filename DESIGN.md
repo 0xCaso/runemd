@@ -229,6 +229,10 @@ linee solo decorative e i riempimenti. I test falliscono se un minimo non è ris
 | Fuoco della tastiera su panel | 2,13 | 6,78 | 1,97 | 8,80 | 3 |
 | Impostazioni: scelta fatta e sua spunta (`fg`) su panel + `sel` | — | 12,53 | — | 14,94 | 4,5 |
 | Impostazioni: scelte e bottoni (`fg-2`) su panel + `sel` (hover) | — | 8,30 | — | 9,38 | 4,5 |
+| Documento: casella dei compiti spenta, bordo `fg-3` su panel | — | 7,88 | — | 7,34 | 3 |
+| Documento: casella dei compiti accesa (`fg-2`) e sua spunta (`panel`) | — | 11,19 | — | 10,71 | 3 |
+| Documento: casella dei compiti spenta, bordo `fg-3` su panel + `sel` (selezione) | — | 5,84 | — | 6,42 | 3 |
+| Documento: casella dei compiti accesa (`fg-2`) su panel + `sel` (selezione) | — | 8,30 | — | 9,38 | 3 |
 | Impostazioni: casella spenta, bordo `fg-3` su panel | — | 7,88 | — | 7,34 | 3 |
 | Impostazioni: casella accesa (`fg-2`) e sua spunta (`panel`) | — | 11,19 | — | 10,71 | 3 |
 | Impostazioni: casella spenta, bordo `fg-3` su panel + `sel` (hover) | — | 5,84 | — | 6,42 | 3 |
@@ -320,6 +324,9 @@ colore: il tipo lo dicono parola e icona.
 **Note a piè di pagina** (`[^1]`): nel testo il numero in apice, in ordine di primo riferimento; le definizioni
 non si disegnano dove sono scritte ma in fondo al file, sotto una linea di 0,5 in `line` e 12 di spazio, come lista
 numerata a 13,5 in `fg-2`. Un riferimento senza definizione resta scritto com'è.
+
+**Casella delle liste di compiti**: come quella delle Impostazioni, 14 pt, raggio 4, 8 dentro la colonna dei segni;
+spenta vuota con il bordo di 1 in `fg-3`, accesa piena in `fg-2` con la spunta in `panel` (tabella "Contrasto").
 
 ## Layout
 
