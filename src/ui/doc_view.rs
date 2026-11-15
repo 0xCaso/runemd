@@ -62,6 +62,12 @@ pub fn caret_key(doc: u64) -> String {
     format!("caret-{doc:x}")
 }
 
+/// La chiave dell'evidenziazione dell'ultimo carattere del blocco del caret (`At::end`) nel
+/// documento `doc`: se il carattere del caret non ha un rect, il caret va lì.
+pub fn caret_end_key(doc: u64) -> String {
+    format!("caret-end-{doc:x}")
+}
+
 /// La chiave della riga del blocco `block` nel documento `doc` (quella di [`row_key`]).
 pub fn caret_row_key(doc: u64, block: u64) -> String {
     format!("{doc:x}-{block:x}")
@@ -83,6 +89,17 @@ pub fn caret_place(mark: [f32; 4], row: [f32; 4], side: crate::live::caret::Side
     } - row[0];
     let h = (mark[3] * CARET_LINE).round();
     [x, mark[1] - row[1] + (mark[3] - h) * 0.5, h]
+}
+
+/// Dove va il caret dai rect dell'ultimo layout: del suo carattere `mark`, dell'ultimo carattere
+/// del blocco `end` e della riga `row`. Senza `mark` (un carattere che non si vede) va dopo `end`,
+/// alla fine del blocco cambiato (record 2026-11-15-caret-al-punto-modificato, vincolo 2).
+pub fn caret_point(mark: Option<[f32; 4]>, end: Option<[f32; 4]>, row: Option<[f32; 4]>, side: crate::live::caret::Side) -> Option<[f32; 3]> {
+    let row = row?;
+    match mark {
+        Some(m) => Some(caret_place(m, row, side)),
+        None => end.map(|e| caret_place(e, row, crate::live::caret::Side::After)),
+    }
 }
 
 /// Il blocco del frontmatter YAML in lettura (DESIGN.md, "Frontmatter"): monospaziato, piccolo,
@@ -157,7 +174,9 @@ pub fn view<S: 'static>(s: &S, doc_of: fn(&S) -> &Document, style: &MarkdownStyl
                     let mut hits = (signals.hits)(s, b, &row_key(i, doc));
                     let caret = signals.caret.as_ref().filter(|c| c.at.block == b.id);
                     if let Some(c) = caret {
-                        hits.push((vec![c.at.anchor.clone()], rune_kit::markdown::Highlight::new().bg(Color::TRANSPARENT).ring(Color::TRANSPARENT, 1.0).key(caret_key(doc.id))));
+                        let clear = rune_kit::markdown::Highlight::new().bg(Color::TRANSPARENT).ring(Color::TRANSPARENT, 1.0);
+                        hits.push((vec![c.at.anchor.clone()], clear.clone().key(caret_key(doc.id))));
+                        hits.push((vec![c.at.end.clone()], clear.key(caret_end_key(doc.id))));
                     }
                     let row = block_row(&b.source, &style, signals.fonts, (signals.marked)(s, b.id).then_some(signals.mark), hits);
                     match caret {
@@ -707,6 +726,33 @@ mod tests {
         assert_eq!(mark.len(), 1, "un solo blocco segnato");
         assert_eq!(mark[0][2], crate::ui::theme::CHANGED_MARK_W);
         assert!(mark[0][0] > row[0] && mark[0][0] + mark[0][2] < row[0] + crate::ui::theme::ROW_PAD_X, "nel margine sinistro");
+    }
+
+    /// Il carattere del caret senza rect (record 2026-11-15-caret-al-punto-modificato, vincolo 2):
+    /// qui la modifica cade nell'URL di un link, che non si vede. Il caret va alla fine del blocco
+    /// cambiato, dopo l'ultima parola, invece di sparire.
+    #[test]
+    fn without_the_character_rect_the_caret_goes_to_the_end_of_the_block() {
+        let text = |u: &str| format!("# Titolo\n\nVedi [la pagina lunga con molte parole che va a capo di sicuro su due righe nella colonna del documento](http://example.com/{u}) e poi testo che continua per un po' fino alla fine.\n\nFine.\n");
+        let mut rt = open(&text("a"));
+        rt.update(|s, _| {
+            let tab = s.tab_mut().unwrap();
+            let old = tab.doc.blocks.clone();
+            let change = tab.doc.update(&text("b"));
+            let at = crate::live::caret::locate(&old, &tab.doc.blocks, &change);
+            tab.caret_step(at.as_ref(), true, 0.0);
+        });
+        settle(&mut rt);
+        let id = rt.state.active_document().id;
+        assert!(keyed(&rt, &super::caret_key(id)).is_empty(), "il carattere nell'URL non ha rect");
+        let caret = keyed(&rt, "caret");
+        assert_eq!(caret.len(), 1, "il caret si vede lo stesso");
+        let end = keyed(&rt, &super::caret_end_key(id));
+        assert_eq!(end.len(), 1, "l'ultima parola del blocco ha un rect");
+        let (c, e) = (caret[0], end[0]);
+        assert!((c[0] - (e[0] + e[2] + super::CARET_GAP)).abs() < 0.5, "subito dopo «fine.»: {c:?} {e:?}");
+        let row = row_rects(&rt)[1].1;
+        assert!(c[1] > row[1] + row[3] * 0.5, "sull'ultima riga del blocco: {c:?} {row:?}");
     }
 
     /// Il frontmatter YAML in lettura: un blocco di metadati (chiave `frontmatter`) col testo così

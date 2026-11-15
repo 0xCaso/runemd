@@ -111,7 +111,7 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
             // carattere e della sua riga, che lo scroll non sposta (nessuna vista per frame).
             let caret = tab.caret_at.clone().zip(tab.caret_since).map(|(at, since)| {
                 let id = tab.doc.id;
-                let place = cx.layout(&ui::doc_view::caret_key(id)).zip(cx.layout(&ui::doc_view::caret_row_key(id, at.block))).map(|(m, r)| ui::doc_view::caret_place(m, r, at.side));
+                let place = ui::doc_view::caret_point(cx.layout(&ui::doc_view::caret_key(id)), cx.layout(&ui::doc_view::caret_end_key(id)), cx.layout(&ui::doc_view::caret_row_key(id, at.block)), at.side);
                 ui::doc_view::Caret { at, place, since, dark, reduced }
             });
             let signals = ui::doc_view::Signals { marked: App::is_marked, mark: theme.mark, caret, hits: App::find_hits, edge: App::doc_edge, meta: theme.meta(), fonts: ui::markdown_style::fonts(fonts::Typeface::of(&s.settings.font, s.settings.size)) };

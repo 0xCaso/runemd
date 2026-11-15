@@ -12,6 +12,9 @@
 //! del blocco e cade sempre dopo un carattere che si vede (non spazi né segni del Markdown come
 //! `*`, `_`, `` ` ``, `~`, `#`, `>`, `|`): lì la vista mette il caret, alla destra di quel
 //! carattere. Se nessun carattere prima si vede, `Side::Before` sul primo.
+//!
+//! Se nella vista quel carattere non ha un rect (l'URL di un link, per esempio), il caret va
+//! alla fine del blocco cambiato: `At::end` (vincolo 2, "altrimenti alla fine del blocco").
 
 use crate::doc::document::{Block, Change};
 
@@ -23,6 +26,10 @@ pub struct At {
     /// Il carattere su cui si appoggia il caret, in byte del sorgente del blocco.
     pub anchor: std::ops::Range<usize>,
     pub side: Side,
+    /// Il ripiego quando `anchor` non ha un rect nella vista (vincolo 2: un carattere che non si
+    /// vede, come l'URL di un link): l'ultimo carattere del blocco che si vede, saltando la
+    /// destinazione di un link in fondo. Il caret ci sta a destra.
+    pub end: std::ops::Range<usize>,
 }
 
 /// Il caret sta a destra del carattere (il caso comune) o a sinistra (modifica all'inizio).
@@ -83,10 +90,22 @@ fn anchor(b: &Block, end: usize) -> Option<At> {
     let s = &*b.source;
     let end = end.min(s.len());
     if let Some((i, c)) = s[..end].char_indices().rev().find(|(_, c)| visible(*c)) {
-        return Some(At { block: b.id, anchor: i..i + c.len_utf8(), side: Side::After });
+        return Some(At { block: b.id, anchor: i..i + c.len_utf8(), side: Side::After, end: block_end(s) });
     }
     let (i, c) = s.char_indices().find(|(_, c)| visible(*c))?;
-    Some(At { block: b.id, anchor: i..i + c.len_utf8(), side: Side::Before })
+    let anchor = i..i + c.len_utf8();
+    Some(At { block: b.id, end: block_end(s), anchor, side: Side::Before })
+}
+
+/// L'ultimo carattere che si vede di `s`, prima delle destinazioni di link in fondo
+/// (`[testo](url)` finisce su "testo"). Il blocco ne ha uno: lo garantisce [`anchor`].
+fn block_end(s: &str) -> std::ops::Range<usize> {
+    let mut end = s.trim_end().len();
+    while let Some(i) = s[..end].ends_with(')').then(|| s[..end].rfind("](")).flatten() {
+        end = i;
+    }
+    let last = |upto: usize| s[..upto].char_indices().rev().find(|(_, c)| visible(*c)).map(|(i, c)| i..i + c.len_utf8());
+    last(end).or_else(|| last(s.len())).unwrap_or(0..0)
 }
 
 #[cfg(test)]
@@ -167,6 +186,23 @@ mod tests {
     fn an_edit_at_the_start_puts_it_before_the_first_letter() {
         assert_eq!(caret("Primo testo.\n", "testo.\n"), Some((String::new(), Side::Before)));
         assert_eq!(caret("Testo uno.\n", "**Testo uno.\n"), Some(("**".to_owned(), Side::Before)), "un segno aggiunto davanti");
+    }
+
+    /// La fine del blocco per quando il carattere del caret non ha un rect (vincolo 2): l'ultimo
+    /// carattere che si vede, saltando la destinazione di un link in fondo.
+    #[test]
+    fn the_fallback_is_the_last_visible_character_of_the_block() {
+        let end = |a: &str, b: &str| {
+            let mut doc = Document::from_source(Path::new("/r/a.md"), a);
+            let old = doc.blocks.clone();
+            let change = doc.update(b);
+            let at = locate(&old, &doc.blocks, &change).unwrap();
+            let block = doc.blocks.iter().find(|x| x.id == at.block).unwrap();
+            block.source[..at.end.end].to_owned()
+        };
+        assert_eq!(end("Il gatto dorme.\n", "Il cane dorme.\n"), "Il cane dorme.");
+        assert_eq!(end("Vedi [la pagina](http://a.it/x).\n", "Vedi [la pagina](http://a.it/y)\n"), "Vedi [la pagina");
+        assert_eq!(end("Testo [uno](u) e [due](http://a/b).\n", "Testo [uno](u) e [due](http://a/c)"), "Testo [uno](u) e [due");
     }
 
     #[test]
