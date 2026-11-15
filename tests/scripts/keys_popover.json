@@ -1,0 +1,4 @@
+[
+ {"t": 0.5, "type": "tap", "key": "keys-button"},
+ {"t": 1.0, "type": "mark", "name": "open"}
+]
