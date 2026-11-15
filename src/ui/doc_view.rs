@@ -358,6 +358,13 @@ const FRONTMATTER_PAD_Y: f32 = 10.0;
 /// nel margine sinistro, fuori dal flusso (il testo non si sposta), alto quanto il testo del blocco.
 #[allow(clippy::too_many_arguments)]
 fn block_row<S: 'static>(source: &str, style: &MarkdownStyle, notes: &crate::doc::footnotes::Notes, places: &crate::doc::paths::Places, open: fn(&mut S, &str, &mut rune::Tx), fonts: super::markdown_style::Fonts, meta: Meta, mark: Option<Color>, hits: super::find::Marks) -> El {
+    // Un paragrafo a etichetta (registri, piani) tiene i suoi a capo, etichette in grassetto
+    // (`doc::labels`); gli altri restano Markdown standard.
+    let labeled = crate::doc::labels::block(source).map(|lines| crate::doc::labels::one_column(source, &lines));
+    let (source, hits) = match &labeled {
+        Some(e) => (e.text.as_str(), hits.into_iter().map(|(ranges, hl)| (ranges.iter().map(|r| e.map(r)).collect(), hl)).collect()),
+        None => (source, hits),
+    };
     // Un callout (`> [!NOTE]`) si disegna senza la riga del segno, con l'etichetta sopra.
     let callout = crate::doc::callout::of(source);
     let (source, hits) = match &callout {
@@ -1472,6 +1479,46 @@ mod tests {
             let texts: Vec<String> = els.iter().filter_map(|e| e.text.clone()).map(|x| x.replace(['\u{200B}', '\u{2066}', '\u{2069}', '\u{202F}'], "")).collect();
             assert!(texts.iter().any(|x| x.contains("Vedi src/old/gone.rs")), "{texts:?}");
         }
+    }
+
+    /// Il registro (fixtures/registro.md, dall'inizio di .superpowers/sdd/plan/progress.md) si
+    /// legge a righe: ogni riga del file è una riga (vincolo 2 del record degli a capo).
+    #[test]
+    fn a_register_reads_as_lines() {
+        let source = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/registro.md")).unwrap();
+        let rt = open_themed(&source, true);
+        let texts: Vec<String> = rt.elements().into_iter().filter_map(|e| e.text).map(|x| x.replace('\u{200B}', "")).collect();
+        let reg = texts.iter().find(|x| x.starts_with("Task 1: BASE root")).unwrap_or_else(|| panic!("{texts:?}"));
+        assert!(reg.contains("Implementer a382e1858b685d390.\nRuling: keychain"), "{reg:?}");
+        assert!(reg.contains("review clean)\nTask 2: BASE 0095282."), "{reg:?}");
+        let preamble = texts.iter().find(|x| x.starts_with("Spec: docs/spec.md")).unwrap();
+        assert!(preamble.contains("push).\nRuling: lavoro"), "due righe, tutte e due a etichetta: {preamble:?}");
+    }
+
+    /// DESIGN.md (paragraphs andati a capo a mano, nessun registro) esce identico a com'era senza
+    /// i blocchi a etichetta: nessun blocco lo è, e la vista ha gli stessi testi negli stessi posti
+    /// (vincolo 5 del record degli a capo).
+    #[test]
+    fn design_md_renders_as_before() {
+        let source = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/DESIGN.md")).unwrap();
+        let d = Document::from_source(Path::new("DESIGN.md"), &source);
+        let labeled: Vec<&str> = d.blocks.iter().map(|b| &*b.source).filter(|b| crate::doc::labels::block(b).is_some()).collect();
+        assert!(labeled.is_empty(), "{labeled:?}");
+        let layout = |off: bool| {
+            crate::doc::labels::OFF.with(|o| o.set(off));
+            let mut rt = open_themed(&source, false);
+            let mut seen = Vec::new();
+            for step in 0..6 {
+                rt.update(|_, tx| tx.scroll_to_instant("doc", 0.0, step as f32 * 2400.0));
+                settle(&mut rt);
+                seen.extend(rt.elements().into_iter().filter(|e| e.text.is_some()).map(|e| (e.text, e.rect.map(|v| (v * 2.0).round() as i32))));
+            }
+            crate::doc::labels::OFF.with(|o| o.set(false));
+            seen
+        };
+        let before = layout(true);
+        assert!(before.len() > 100, "testi: {}", before.len());
+        assert_eq!(layout(false), before);
     }
 
     /// Il link `key` della vista: un clic al suo centro.

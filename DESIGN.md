@@ -334,6 +334,11 @@ scheda, con `:riga` alla riga. Se non esiste non è un link (niente mano né cli
 (peso del codice, 400), senza pastiglia se è il solo codice del blocco, con la pastiglia se no. Nei blocchi di codice niente; restano
 testo le parole con un punto (`ecc.`, `v1.2`, `Node.js`) e gli URL.
 
+**Registri e piani** (record `2026-11-16-tasks-sezioni-e-colonne` con `2026-11-16-a-capo-solo-blocchi-etichetta`,
+mockup t-mix): un paragrafo in cui più della metà delle righe, e almeno due, comincia con un'etichetta (da una a tre
+parole con la maiuscola o una cifra e i due punti, come `Task 1` o `Ruling`) tiene ogni a capo del file, con le
+etichette in grassetto. Gli altri paragrafi restano Markdown standard: un a capo vale uno spazio.
+
 **Casella delle liste di compiti**: come quella delle Impostazioni, 14 pt, raggio 4, 8 dentro la colonna dei segni;
 spenta vuota con il bordo di 1 in `fg-3`, accesa piena in `fg-2` con la spunta in `panel` (tabella "Contrasto").
 
