@@ -483,9 +483,9 @@ mod tests {
         let back = Settings::load(&prefs);
         assert_eq!((back.fire_strength, back.fire_height, back.fire_speed, back.fire_color), (0.6, 1.6, 0.25, FireColor::Accent));
         prefs.set(FIRE_STRENGTH, &7.0f32).unwrap();
-        prefs.set(FIRE_HEIGHT, &"alto").unwrap();
+        prefs.set(FIRE_HEIGHT, &"tall").unwrap();
         prefs.set(FIRE_SPEED, &-1.0f32).unwrap();
-        prefs.set(FIRE_COLOR, &"Arancio").unwrap();
+        prefs.set(FIRE_COLOR, &"Orange").unwrap();
         let back = Settings::load(&prefs);
         assert_eq!((back.fire_strength, back.fire_height, back.fire_speed, back.fire_color), (1.0, 1.0, 1.0, FireColor::Fire));
         assert!(!back.fire, "the rest stays");

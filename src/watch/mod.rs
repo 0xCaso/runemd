@@ -1,13 +1,13 @@
-//! Un solo stream FSEvents per tutto: schede, barra laterale e ricarica leggono da qui.
+//! A single FSEvents stream for everything: tabs, sidebar and reload read from here.
 //!
-//! Il callback di `notify` mette in coda i percorsi grezzi; `drain` li filtra, li raggruppa (50 ms)
-//! e decide per ogni percorso guardando il disco, non il tipo di evento: FSEvents consegna
-//! rinomina come due eventi o flag fusi. Un file mancante diventa `Removed` solo se dopo 2 s non
-//! è tornato.
+//! The `notify` callback queues the raw paths; `drain` filters them, groups them (50 ms)
+//! and decides for each path by looking at the disk, not at the event type: FSEvents delivers
+//! renames as two events or merged flags. A missing file becomes `Removed` only if it has not
+//! come back after 2 s.
 //!
-//! Una radice che sparisce (la cartella cancellata, un checkout senza di lei) esce dal watcher e
-//! aspetta: finché manca il ticker sveglia l'app ogni secondo, e `drain` la riprende quando la
-//! cartella ricompare. Sparendo e tornando dà un `Rescan`.
+//! A root that disappears (the folder deleted, a checkout without it) leaves the watcher and
+//! waits: while it is missing the ticker wakes the app every second, and `drain` picks it up again when the
+//! folder reappears. Disappearing and coming back gives a `Rescan`.
 
 pub mod debounce;
 pub mod filter;
@@ -25,23 +25,23 @@ use rune::Waker;
 use debounce::Debounce;
 
 const DEBOUNCE_MS: u64 = 50;
-/// Quanto un file mancante può restare tale prima di contare come rimosso.
+/// How long a missing file can stay missing before it counts as removed.
 const REMOVED_GRACE: Duration = Duration::from_secs(2);
-/// Ogni quanto il ticker sveglia l'app finché ci sono eventi in attesa.
+/// How often the ticker wakes the app while there are pending events.
 const TICK: Duration = Duration::from_millis(25);
-/// Ogni quanto il ticker sveglia l'app mentre una radice è sparita: `drain` guarda se è tornata.
+/// How often the ticker wakes the app while a root is gone: `drain` checks whether it came back.
 const DORMANT_TICK: Duration = Duration::from_secs(1);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FsEvent {
     Changed(PathBuf),
     Removed(PathBuf),
-    /// `.git/HEAD`, `ORIG_HEAD` o `FETCH_HEAD` è cambiato: la radice del repo.
+    /// `.git/HEAD`, `ORIG_HEAD` or `FETCH_HEAD` changed: the repo root.
     GitHead(PathBuf),
-    /// Sotto questa cartella i file possono essere cambiati senza un evento per ognuno: una
-    /// cartella spostata, rinominata, creata o tolta (FSEvents riporta solo la cartella), o
-    /// eventi persi sotto una radice ricorsiva. Chi tiene un elenco dei file la riscandisce (fuori
-    /// dal thread della UI); se la cartella non c'è più, ciò che stava sotto è sparito.
+    /// Below this folder the files may have changed without an event for each one: a
+    /// folder moved, renamed, created or removed (FSEvents reports only the folder), or
+    /// events lost below a recursive root. Whoever keeps a list of the files rescans it (off
+    /// the UI thread); if the folder is gone, what was below it is gone.
     Rescan(PathBuf),
 }
 
@@ -52,14 +52,14 @@ enum Key {
     Dir(PathBuf),
 }
 
-/// La radice del repo se `path` è `<repo>/.git/HEAD`, `ORIG_HEAD` o `FETCH_HEAD`: checkout
-/// scrive `HEAD`; pull e `reset --hard` spostano solo i ref, ma scrivono `ORIG_HEAD` e
-/// `FETCH_HEAD`. Per l'app sono tutti "il repo ha cambiato HEAD" (`FsEvent::GitHead`).
+/// The repo root if `path` is `<repo>/.git/HEAD`, `ORIG_HEAD` or `FETCH_HEAD`: checkout
+/// writes `HEAD`; pull and `reset --hard` move only the refs, but write `ORIG_HEAD` and
+/// `FETCH_HEAD`. For the app they all mean "the repo changed HEAD" (`FsEvent::GitHead`).
 ///
-/// In un worktree `.git` è un file (`gitdir: ...`) e HEAD sta in
-/// `<repo principale>/.git/worktrees/<nome>/HEAD`: la radice è la cartella del worktree, letta
-/// dal file `gitdir` accanto (che punta al `.git` del worktree). Limite noto: nei submodule HEAD
-/// sta in `.git/modules/<m>/HEAD` e non esce `GitHead`.
+/// In a worktree `.git` is a file (`gitdir: ...`) and HEAD is in
+/// `<main repo>/.git/worktrees/<name>/HEAD`: the root is the worktree folder, read
+/// from the `gitdir` file next to it (which points to the worktree's `.git`). Known limit: in submodules HEAD
+/// is in `.git/modules/<m>/HEAD` and no `GitHead` comes out.
 fn git_head_root(path: &Path) -> Option<PathBuf> {
     if !["HEAD", "ORIG_HEAD", "FETCH_HEAD"].iter().any(|n| path.file_name() == Some(n.as_ref())) {
         return None;
@@ -78,14 +78,14 @@ fn git_head_root(path: &Path) -> Option<PathBuf> {
     Some(root.canonicalize().unwrap_or_else(|_| root.to_owned()))
 }
 
-/// La logica senza thread né notify, per provarla con un orologio finto.
+/// The logic without threads or notify, to test it with a fake clock.
 struct Core {
     debounce: Debounce<Key>,
-    /// File mancanti e da quando.
+    /// Missing files and since when.
     missing: HashMap<PathBuf, Instant>,
-    /// File visti esistere (uscito `Changed`): da ricontrollare dopo un rescan.
+    /// Files seen to exist (`Changed` emitted): to check again after a rescan.
     known: HashSet<PathBuf>,
-    /// Rescan chiesti e non ancora eseguiti: tanti si accorpano in uno.
+    /// Rescans asked for and not yet run: many merge into one.
     rescan_at: Option<Instant>,
 }
 
@@ -95,7 +95,7 @@ impl Core {
     }
 
     fn observe(&mut self, path: PathBuf, at: Instant) {
-        // `.git/HEAD` prima del filtro: `wanted` esclude tutto ciò che sta sotto `.git`.
+        // `.git/HEAD` before the filter: `wanted` excludes everything below `.git`.
         if let Some(root) = git_head_root(&path) {
             self.debounce.push(Key::Head(root), at);
         } else if filter::wanted(&path) {
@@ -103,7 +103,7 @@ impl Core {
         }
     }
 
-    /// Una cartella spostata, creata o tolta: esce come `Rescan` dopo il debounce.
+    /// A folder moved, created or removed: comes out as `Rescan` after the debounce.
     fn observe_dir(&mut self, path: PathBuf, at: Instant) {
         self.debounce.push(Key::Dir(path), at);
     }
@@ -116,10 +116,10 @@ impl Core {
         self.rescan_at.take()
     }
 
-    /// Notify ha perso eventi: ricontrolla ogni percorso noto e i figli diretti delle radici
-    /// non ricorsive. Una radice ricorsiva non si percorre qui (sul thread della UI sarebbe una
-    /// scansione intera, 0,6–2,8 s su `~/Desktop/GitHub`): esce un `Rescan` della radice e chi
-    /// tiene l'elenco dei file la riscandisce su un thread a parte.
+    /// Notify lost events: check again every known path and the direct children of the
+    /// non-recursive roots. A recursive root is not walked here (on the UI thread it would be a
+    /// full scan, 0.6–2.8 s on `~/Desktop/GitHub`): a `Rescan` of the root comes out and whoever
+    /// keeps the list of files rescans it on its own thread.
     fn rescan(&mut self, roots: &[Root], at: Instant) {
         let mut paths: Vec<PathBuf> = self.known.iter().cloned().collect();
         paths.extend(self.missing.keys().cloned());
@@ -150,7 +150,7 @@ impl Core {
                     self.known.insert(path.clone());
                     out.push(FsEvent::Changed(path));
                 }
-                // Cartella con nome `x.md`: non è un documento.
+                // Folder named `x.md`: not a document.
                 Key::File(path) if path.exists() => {
                     self.missing.remove(&path);
                 }
@@ -180,8 +180,8 @@ impl Core {
     }
 }
 
-/// I file `wanted` in `dir`, e sotto se `recursive`; errori di lettura ignorati. Non entra nelle
-/// cartelle saltate né nei link simbolici a cartelle (un ciclo non finirebbe mai).
+/// The `wanted` files in `dir`, and below if `recursive`; read errors ignored. It does not enter
+/// skipped folders nor symbolic links to folders (a cycle would never end).
 pub(crate) fn walk(dir: &Path, recursive: bool, out: &mut Vec<PathBuf>) {
     let Ok(entries) = std::fs::read_dir(dir) else { return };
     for entry in entries.flatten() {
@@ -197,7 +197,7 @@ pub(crate) fn walk(dir: &Path, recursive: bool, out: &mut Vec<PathBuf>) {
     }
 }
 
-/// Una cartella guardata: con le sottocartelle (`recursive`) o solo i suoi figli diretti.
+/// A watched folder: with its subfolders (`recursive`) or only its direct children.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Root {
     path: PathBuf,
@@ -211,9 +211,9 @@ enum Raw {
     Rescan(Instant),
 }
 
-/// Cosa mettere in coda per un percorso di un evento di notify; `None` se non interessa. Gira
-/// sul thread di notify, così i percorsi di una build (`target/`, `node_modules/`, `.git/objects`)
-/// non tengono sveglia l'app e lo stat di una rinomina non pesa sulla UI.
+/// What to queue for a path of a notify event; `None` if it does not matter. It runs
+/// on the notify thread, so the paths of a build (`target/`, `node_modules/`, `.git/objects`)
+/// do not keep the app awake and the stat of a rename does not weigh on the UI.
 fn classify(path: PathBuf, kind: &notify::EventKind, at: Instant) -> Option<Raw> {
     use notify::event::{CreateKind, ModifyKind, RemoveKind};
     use notify::EventKind;
@@ -225,9 +225,9 @@ fn classify(path: PathBuf, kind: &notify::EventKind, at: Instant) -> Option<Raw>
     }
     let dir = match kind {
         EventKind::Create(CreateKind::Folder) | EventKind::Remove(RemoveKind::Folder) => true,
-        // Una rinomina non dice se era una cartella: lo è se ora c'è una cartella o se non c'è
-        // più niente (il lato vecchio). Per un file non Markdown sparito `Rescan` non costa:
-        // sotto non c'è nulla.
+        // A rename does not say whether it was a folder: it is one if there is now a folder or if there is
+        // nothing left (the old side). For a vanished non-Markdown file `Rescan` costs nothing:
+        // there is nothing below.
         EventKind::Modify(ModifyKind::Name(_)) => std::fs::symlink_metadata(&path).map_or(true, |m| m.is_dir()),
         _ => false,
     };
@@ -237,10 +237,10 @@ fn classify(path: PathBuf, kind: &notify::EventKind, at: Instant) -> Option<Raw>
 #[derive(Default)]
 struct Shared {
     queue: Mutex<Vec<Raw>>,
-    /// Vero se qualcosa attende il debounce o la tolleranza: il ticker sveglia l'app.
+    /// True if something waits for the debounce or the grace period: the ticker wakes the app.
     busy: AtomicBool,
-    /// Vero se una radice è sparita: il ticker sveglia l'app ogni `DORMANT_TICK`, così `drain`
-    /// la riprende quando ricompare (nessun evento la riporta: non è più guardata).
+    /// True if a root is gone: the ticker wakes the app every `DORMANT_TICK`, so `drain`
+    /// picks it up again when it reappears (no event brings it back: it is no longer watched).
     dormant: AtomicBool,
     stop: AtomicBool,
 }
@@ -248,8 +248,8 @@ struct Shared {
 pub struct Watcher {
     notify: Option<RecommendedWatcher>,
     roots: Vec<Root>,
-    /// Le radici sparite (cartella cancellata, un checkout senza di lei): tornano guardate quando
-    /// la cartella ricompare.
+    /// The roots that are gone (folder deleted, a checkout without it): they are watched again when
+    /// the folder reappears.
     dormant: Vec<Root>,
     core: Core,
     shared: Arc<Shared>,
@@ -284,8 +284,8 @@ impl Watcher {
                 let event = match event {
                     Ok(event) => event,
                     Err(e) => {
-                        eprintln!("runemd: errore del watcher: {e}");
-                        // Un errore può voler dire eventi persi: ricontrolla dal disco.
+                        eprintln!("runemd: watcher error: {e}");
+                        // An error can mean lost events: check again from the disk.
                         let mut queue = shared.queue.lock().unwrap_or_else(PoisonError::into_inner);
                         queue.push(Raw::Rescan(now));
                         shared.busy.store(true, Ordering::Release);
@@ -327,11 +327,11 @@ impl Watcher {
         watcher
     }
 
-    /// Guarda `root`, con le sottocartelle se `recursive`, altrimenti solo i suoi figli diretti
-    /// (notify scarta gli eventi più in basso). Una radice già guardata senza sottocartelle
-    /// diventa ricorsiva se lo si chiede. Una radice non ricorsiva sotto una ricorsiva già
-    /// guardata non si aggiunge: i suoi eventi arrivano già, e un secondo percorso sullo stesso
-    /// stream li farebbe arrivare due volte. Le radici sono canoniche: FSEvents riporta percorsi reali.
+    /// Watches `root`, with its subfolders if `recursive`, otherwise only its direct children
+    /// (notify drops the events further down). A root already watched without subfolders
+    /// becomes recursive if asked. A non-recursive root below a recursive one already
+    /// watched is not added: its events already arrive, and a second path on the same
+    /// stream would make them arrive twice. Roots are canonical: FSEvents reports real paths.
     pub fn add_root(&mut self, root: PathBuf, recursive: bool) {
         let root = root.canonicalize().unwrap_or(root);
         let old = self.roots.iter().position(|r| r.path == root);
@@ -349,17 +349,17 @@ impl Watcher {
         let mode = if recursive { RecursiveMode::Recursive } else { RecursiveMode::NonRecursive };
         match notify.watch(&root, mode) {
             Ok(()) => self.roots.push(Root { path: root, recursive }),
-            // Una cartella che non c'è (ancora): la si guarda quando compare (`check_roots`).
+            // A folder that does not exist (yet): it is watched when it appears (`check_roots`).
             Err(_) if !root.exists() => {
                 self.dormant.retain(|r| r.path != root);
                 self.dormant.push(Root { path: root, recursive });
             }
-            Err(e) => eprintln!("runemd: {}: non si può guardare: {e}", root.display()),
+            Err(e) => eprintln!("runemd: {}: cannot watch: {e}", root.display()),
         }
     }
 
-    /// Smette di guardare `root` se è una radice senza sottocartelle (la cartella di un file
-    /// aperto). Le cartelle osservate (ricorsive) restano: le usano l'indice e la sidebar.
+    /// Stops watching `root` if it is a root without subfolders (the folder of an open
+    /// file). The watched folders (recursive) stay: the index and the sidebar use them.
     pub fn remove_root(&mut self, root: &Path) {
         let root = root.canonicalize().unwrap_or_else(|_| root.to_owned());
         self.dormant.retain(|r| !(r.path == root && !r.recursive));
@@ -370,9 +370,9 @@ impl Watcher {
         self.roots.remove(i);
     }
 
-    /// Smette di guardare `root`, anche se è una cartella osservata (ricorsiva): la si toglie
-    /// dalle impostazioni. Le radici non ricorsive sotto, che `add_root` non aveva aggiunto,
-    /// le rimette chi le usa (`Live::remove_tree`).
+    /// Stops watching `root`, even if it is a watched (recursive) folder: it is being removed
+    /// from the settings. The non-recursive roots below, which `add_root` had not added,
+    /// are put back by whoever uses them (`Live::remove_tree`).
     pub fn remove_tree(&mut self, root: &Path) {
         let root = root.canonicalize().unwrap_or_else(|_| root.to_owned());
         self.dormant.retain(|r| r.path != root);
@@ -383,21 +383,21 @@ impl Watcher {
         self.roots.remove(i);
     }
 
-    /// Le radici guardate e se con le sottocartelle.
+    /// The watched roots and whether they include subfolders.
     #[cfg(test)]
     pub fn watched(&self) -> Vec<(PathBuf, bool)> {
         self.roots.iter().map(|r| (r.path.clone(), r.recursive)).collect()
     }
 
-    /// Le radici sparite escono dal watcher e aspettano in `dormant`; quelle che sono tornate
-    /// rientrano. Per ognuna esce un `Rescan`: chi tiene un elenco dei file toglie o riprende
-    /// quelli sotto, e le schede sotto rileggono il loro file.
+    /// The roots that are gone leave the watcher and wait in `dormant`; the ones that came back
+    /// come in again. For each one a `Rescan` comes out: whoever keeps a list of files removes or takes back
+    /// the ones below, and the tabs below reread their file.
     fn check_roots(&mut self, out: &mut Vec<FsEvent>) {
         let Some(notify) = self.notify.as_mut() else { return };
         let (gone, kept): (Vec<Root>, Vec<Root>) = std::mem::take(&mut self.roots).into_iter().partition(|r| !r.path.is_dir());
         self.roots = kept;
         for root in gone {
-            eprintln!("runemd: {}: radice sparita, la si riprende se ricompare", root.path.display());
+            eprintln!("runemd: {}: root gone, it will be picked up again if it reappears", root.path.display());
             let _ = notify.unwatch(&root.path);
             out.push(FsEvent::Rescan(root.path.clone()));
             self.dormant.push(root);
@@ -416,10 +416,10 @@ impl Watcher {
         }
     }
 
-    /// Gli eventi pronti a `now` (debounce passato, tolleranza della rimozione scaduta).
+    /// The events ready at `now` (debounce passed, removal grace period expired).
     ///
-    /// Il chiamante deve chiamarla a ogni risveglio: il watcher sveglia l'app finché c'è
-    /// qualcosa in attesa e si ferma quando `drain` ha svuotato tutto.
+    /// The caller must call it on every wake-up: the watcher wakes the app while there is
+    /// something pending and stops when `drain` has emptied everything.
     pub fn drain(&mut self, now: Instant) -> Vec<FsEvent> {
         let queued = {
             let mut queue = self.shared.queue.lock().unwrap_or_else(PoisonError::into_inner);
@@ -432,14 +432,14 @@ impl Watcher {
                 Raw::Rescan(at) => self.core.request_rescan(at),
             }
         }
-        // Una sola passata su disco per drain, quanti che siano i rescan in coda.
+        // A single pass on disk per drain, however many rescans are queued.
         if let Some(at) = self.core.take_rescan() {
             self.core.rescan(&self.roots, at);
         }
         let mut out = Vec::new();
         self.check_roots(&mut out);
         out.extend(self.core.drain(now));
-        // Sotto lock: un evento arrivato ora non può perdere la sua sveglia.
+        // Under the lock: an event that arrives now cannot lose its wake-up.
         let queue = self.shared.queue.lock().unwrap_or_else(PoisonError::into_inner);
         self.shared.busy.store(self.core.pending() || !queue.is_empty(), Ordering::Release);
         out
@@ -468,16 +468,16 @@ mod tests {
         Arc::new(|| {})
     }
 
-    /// Fa girare `drain` finché passa `until` o scade la scadenza; raccoglie tutto.
+    /// Runs `drain` until `until` holds or the deadline expires; collects everything.
     fn collect(w: &mut Watcher, window: Duration, until: impl Fn(&[FsEvent]) -> bool) -> Vec<FsEvent> {
-        // La sentinella `ready.md` può avere eventi in ritardo: non fa parte delle asserzioni.
+        // The `ready.md` sentinel can have late events: it is not part of the assertions.
         let mut seen = collect_raw(w, window, |s| until(&without_sentinel(s)));
         seen = without_sentinel(&seen);
         seen
     }
 
-    /// Toglie anche i `Rescan`: il lato vecchio di una rinomina atomica (`x.md.tmp`) ne dà uno,
-    /// e queste prove guardano i file.
+    /// Also removes the `Rescan`s: the old side of an atomic rename (`x.md.tmp`) gives one,
+    /// and these tests look at the files.
     fn without_sentinel(events: &[FsEvent]) -> Vec<FsEvent> {
         events
             .iter()
@@ -503,7 +503,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().canonicalize().unwrap();
         let mut w = Watcher::start(vec![root.clone()], waker());
-        // Sentinella: quando arriva il suo Changed, FSEvents è partito.
+        // Sentinel: when its Changed arrives, FSEvents has started.
         let ready = root.join("ready.md");
         fs::write(&ready, "ready").unwrap();
         let seen = collect_raw(&mut w, Duration::from_secs(5), |s| s.contains(&FsEvent::Changed(ready.clone())));
@@ -511,7 +511,7 @@ mod tests {
         (dir, root, w)
     }
 
-    /// Crea `path` e aspetta il suo `Changed`, così il test parte da un file già visto.
+    /// Creates `path` and waits for its `Changed`, so the test starts from a file already seen.
     fn settle_file(w: &mut Watcher, path: &Path) {
         fs::write(path, "# a").unwrap();
         let seen = collect(w, Duration::from_secs(5), |s| s.contains(&FsEvent::Changed(path.to_path_buf())));
@@ -526,7 +526,7 @@ mod tests {
         fs::rename(root.join("x.md.tmp"), &target).unwrap();
         let first = collect(&mut w, Duration::from_secs(5), |s| !s.is_empty());
         assert_eq!(first, vec![FsEvent::Changed(target.clone())]);
-        // Per tutta la tolleranza non deve comparire un Removed.
+        // For the whole grace period no Removed must appear.
         let rest = collect(&mut w, Duration::from_millis(2600), |_| false);
         assert!(rest.iter().all(|e| matches!(e, FsEvent::Changed(p) if *p == target)), "{rest:?}");
     }
@@ -605,9 +605,9 @@ mod tests {
         assert!(w.roots.is_empty());
     }
 
-    /// Una radice che sparisce dà un `Rescan` (chi tiene un elenco toglie i suoi file) e
-    /// torna guardata quando la cartella ricompare: una scrittura dopo dà `Changed`. Mentre è
-    /// sparita il waker continua a svegliare l'app, che se ne accorge in `drain`.
+    /// A root that disappears gives a `Rescan` (whoever keeps a list removes its files) and
+    /// is watched again when the folder reappears: a write afterwards gives `Changed`. While it is
+    /// gone the waker keeps waking the app, which notices it in `drain`.
     #[test]
     fn a_root_that_comes_back_is_watched_again() {
         let dir = tempfile::tempdir().unwrap();
@@ -620,14 +620,14 @@ mod tests {
         fs::remove_dir_all(&root).unwrap();
         let seen = collect_raw(&mut w, Duration::from_secs(5), |s| s.contains(&FsEvent::Rescan(root.clone())));
         assert!(seen.contains(&FsEvent::Rescan(root.clone())), "{seen:?}");
-        assert!(w.roots.is_empty(), "non più guardata");
+        assert!(w.roots.is_empty(), "no longer watched");
         let before = wakes.load(Ordering::SeqCst);
         thread::sleep(DORMANT_TICK * 2 + Duration::from_millis(100));
-        assert!(wakes.load(Ordering::SeqCst) > before, "il waker sveglia l'app mentre la radice manca");
+        assert!(wakes.load(Ordering::SeqCst) > before, "the waker wakes the app while the root is missing");
         fs::create_dir(&root).unwrap();
         let back = collect_raw(&mut w, Duration::from_secs(5), |s| s.contains(&FsEvent::Rescan(root.clone())));
         assert!(back.contains(&FsEvent::Rescan(root.clone())), "{back:?}");
-        assert_eq!(w.watched(), vec![(root.clone(), true)], "guardata di nuovo, con le sottocartelle");
+        assert_eq!(w.watched(), vec![(root.clone(), true)], "watched again, with subfolders");
         thread::sleep(Duration::from_millis(300));
         let file = root.join("a.md");
         fs::write(&file, "# a").unwrap();
@@ -635,7 +635,7 @@ mod tests {
         assert!(events.contains(&FsEvent::Changed(file)), "{events:?}");
     }
 
-    /// Una radice sparita e poi tolta (impostazioni, ultima scheda chiusa) non torna più.
+    /// A root that is gone and then removed (settings, last tab closed) never comes back.
     #[test]
     fn a_removed_dormant_root_stays_removed() {
         let dir = tempfile::tempdir().unwrap();
@@ -649,7 +649,7 @@ mod tests {
         w.remove_root(&root);
         fs::create_dir(&root).unwrap();
         w.drain(Instant::now());
-        assert!(w.roots.is_empty(), "tolta: non torna");
+        assert!(w.roots.is_empty(), "removed: it does not come back");
     }
 
     #[test]
@@ -672,7 +672,7 @@ mod tests {
         assert!(count.load(Ordering::SeqCst) > 0);
     }
 
-    // Logica con orologio finto.
+    // Logic with a fake clock.
     #[test]
     fn core_waits_for_debounce_then_reports_changed() {
         let dir = tempfile::tempdir().unwrap();
@@ -695,7 +695,7 @@ mod tests {
         let at = |ms| t0 + Duration::from_millis(ms);
         let mut core = Core::new();
         core.observe(gone.clone(), at(0));
-        assert!(core.drain(at(60)).is_empty(), "mancante: in tolleranza");
+        assert!(core.drain(at(60)).is_empty(), "missing: within the grace period");
         assert!(core.drain(at(2000)).is_empty());
         assert_eq!(core.drain(at(2100)), vec![FsEvent::Removed(gone)]);
         assert!(!core.pending());
@@ -728,7 +728,7 @@ mod tests {
         core.observe(kept.clone(), at(0));
         core.observe(gone.clone(), at(0));
         assert_eq!(core.drain(at(60)).len(), 2);
-        // Eventi persi: `gone` sparisce, `fresh` nasce, nessun evento arriva.
+        // Lost events: `gone` disappears, `fresh` is born, no event arrives.
         fs::remove_file(&gone).unwrap();
         fs::write(&fresh, "x").unwrap();
         core.rescan(&[Root { path: root.clone(), recursive: false }], at(100));
@@ -738,8 +738,8 @@ mod tests {
         assert_eq!(core.drain(at(2300)), vec![FsEvent::Removed(gone)]);
     }
 
-    /// Una radice ricorsiva non si percorre sul thread di chi chiama `drain`: esce un `Rescan`
-    /// della radice e basta. I percorsi noti si ricontrollano ancora.
+    /// A recursive root is not walked on the thread that calls `drain`: only a `Rescan`
+    /// of the root comes out. Known paths are still checked again.
     #[test]
     fn core_rescan_does_not_walk_a_recursive_root() {
         let dir = tempfile::tempdir().unwrap();
@@ -756,11 +756,11 @@ mod tests {
         core.rescan(&[Root { path: root.clone(), recursive: true }], at(100));
         let mut out = core.drain(at(200));
         out.sort_by_key(|e| format!("{e:?}"));
-        assert_eq!(out, vec![FsEvent::Changed(kept), FsEvent::Rescan(root)], "`deep.md` non letto qui");
+        assert_eq!(out, vec![FsEvent::Changed(kept), FsEvent::Rescan(root)], "`deep.md` not read here");
     }
 
-    /// Misura (`docs/perf.md`): il costo sul thread della UI di un rescan con le cartelle
-    /// osservate vere (`RUNEMD_ROOTS` o `~/Desktop/GitHub`), radici ricorsive.
+    /// Measurement (`docs/perf.md`): the UI-thread cost of a rescan with the real watched
+    /// folders (`RUNEMD_ROOTS` or `~/Desktop/GitHub`), recursive roots.
     /// `cargo test --profile perf rescan_ui_cost -- --ignored --nocapture`
     #[test]
     #[ignore]
@@ -780,8 +780,8 @@ mod tests {
         eprintln!("rescan_ui_cost n={} p50={:.3} ms p95={:.3} ms max={:.3} ms", ms.len(), pct(0.5), pct(0.95), pct(1.0));
     }
 
-    /// Il filtro sul thread di notify: i file di una build non entrano in coda; i Markdown,
-    /// `.git/HEAD` e le cartelle spostate sì.
+    /// The filter on the notify thread: the files of a build do not enter the queue; Markdown files,
+    /// `.git/HEAD` and moved folders do.
     #[test]
     fn handler_prefilter_drops_build_files() {
         use notify::event::{CreateKind, ModifyKind, RemoveKind, RenameMode};
@@ -796,7 +796,7 @@ mod tests {
         assert_eq!(classify(PathBuf::from("/r/a.md"), &file, t), Some(Raw::Path(PathBuf::from("/r/a.md"), t)));
         assert_eq!(classify(PathBuf::from("/r/.git/HEAD"), &file, t), Some(Raw::Path(PathBuf::from("/r/.git/HEAD"), t)));
         assert_eq!(classify(PathBuf::from("/r/docs"), &EventKind::Remove(RemoveKind::Folder), t), Some(Raw::Dir(PathBuf::from("/r/docs"), t)));
-        // Rinomina: il lato che non c'è più conta come cartella; un file esistente no.
+        // Rename: the side that is gone counts as a folder; an existing file does not.
         let dir = tempfile::tempdir().unwrap();
         fs::write(dir.path().join("x.rs"), "x").unwrap();
         let name = EventKind::Modify(ModifyKind::Name(RenameMode::Any));
@@ -813,7 +813,7 @@ mod tests {
             core.request_rescan(t0 + Duration::from_millis(ms));
         }
         assert_eq!(core.take_rescan(), Some(t0 + Duration::from_millis(10)));
-        assert_eq!(core.take_rescan(), None, "una sola passata");
+        assert_eq!(core.take_rescan(), None, "a single pass");
     }
 
     #[test]
@@ -861,15 +861,15 @@ mod tests {
         fs::write(&ready, "ready").unwrap();
         let seen = collect_raw(&mut w, Duration::from_secs(5), |s| s.contains(&FsEvent::Changed(ready.clone())));
         assert!(seen.contains(&FsEvent::Changed(ready)), "watcher non pronto");
-        fs::write(root.join("sub/x.md"), "# sotto").unwrap();
-        fs::write(root.join("top.md"), "# sopra").unwrap();
+        fs::write(root.join("sub/x.md"), "# below").unwrap();
+        fs::write(root.join("top.md"), "# above").unwrap();
         let events = collect(&mut w, Duration::from_secs(5), |s| s.contains(&FsEvent::Changed(root.join("top.md"))));
         assert!(events.contains(&FsEvent::Changed(root.join("top.md"))), "{events:?}");
         let rest = collect(&mut w, Duration::from_millis(300), |_| false);
         assert!(!events.iter().chain(&rest).any(|e| matches!(e, FsEvent::Changed(p) if p.starts_with(root.join("sub")))), "{events:?} {rest:?}");
     }
 
-    /// La cartella del file aperto dentro una radice ricorsiva non diventa una seconda radice.
+    /// The open file's folder inside a recursive root does not become a second root.
     #[test]
     fn a_non_recursive_root_under_a_recursive_one_is_not_added() {
         let dir = tempfile::tempdir().unwrap();
@@ -879,13 +879,13 @@ mod tests {
         w.add_root(root.join("repo"), false);
         w.add_root(root.join("repo/.git"), false);
         assert_eq!(w.roots, vec![Root { path: root.clone(), recursive: true }]);
-        // Fuori dalla radice ricorsiva sì.
+        // Outside the recursive root it does.
         let other = tempfile::tempdir().unwrap();
         w.add_root(other.path().to_path_buf(), false);
         assert_eq!(w.roots.len(), 2);
     }
 
-    /// Una radice senza sottocartelle si toglie; una ricorsiva (cartella osservata) resta.
+    /// A root without subfolders is removed; a recursive one (watched folder) stays.
     #[test]
     fn remove_root_drops_only_non_recursive_roots() {
         let dir = tempfile::tempdir().unwrap();
@@ -910,8 +910,8 @@ mod tests {
         assert!(!filter::wanted(Path::new("/r/.git/HEAD")));
     }
 
-    /// Pull e `reset --hard` non toccano `.git/HEAD` ma `ORIG_HEAD` e `FETCH_HEAD`: anche
-    /// quelli sono un cambio di HEAD del repo. Gli altri file di `.git` no.
+    /// Pull and `reset --hard` do not touch `.git/HEAD` but `ORIG_HEAD` and `FETCH_HEAD`: those
+    /// too are a HEAD change of the repo. The other files in `.git` are not.
     #[test]
     fn orig_head_and_fetch_head_are_head_events() {
         for name in ["HEAD", "ORIG_HEAD", "FETCH_HEAD"] {
@@ -926,8 +926,8 @@ mod tests {
         assert_eq!(core.drain(t0 + Duration::from_millis(60)), vec![FsEvent::GitHead(PathBuf::from("/r"))]);
     }
 
-    /// In un worktree HEAD sta nel repo principale: l'evento porta la radice del worktree,
-    /// letta dal file `gitdir`. Una cartella `worktrees` fuori da `.git` non conta.
+    /// In a worktree HEAD is in the main repo: the event carries the worktree root,
+    /// read from the `gitdir` file. A `worktrees` folder outside `.git` does not count.
     #[test]
     fn worktree_head_is_a_head_event_of_the_worktree() {
         let d = tempfile::tempdir().unwrap();
@@ -939,8 +939,8 @@ mod tests {
         fs::write(admin.join("gitdir"), format!("{}\n", wt.join(".git").display())).unwrap();
         assert_eq!(git_head_root(&admin.join("HEAD")), Some(wt.clone()));
         fs::write(admin.join("gitdir"), "../../../../wt/.git\n").unwrap();
-        assert_eq!(git_head_root(&admin.join("HEAD")), Some(wt), "gitdir relativo");
+        assert_eq!(git_head_root(&admin.join("HEAD")), Some(wt), "relative gitdir");
         assert_eq!(git_head_root(&base.join("x/worktrees/wt/HEAD")), None);
-        assert_eq!(git_head_root(&base.join("main/.git/worktrees/missing/HEAD")), None, "senza gitdir");
+        assert_eq!(git_head_root(&base.join("main/.git/worktrees/missing/HEAD")), None, "without gitdir");
     }
 }

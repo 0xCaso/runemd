@@ -1,4 +1,4 @@
-//! Raggruppa raffiche di eventi sulla stessa chiave: esce una volta sola, a quiete.
+//! Groups bursts of events on the same key: it comes out only once, when quiet.
 
 use std::collections::HashMap;
 use std::hash::Hash;
@@ -14,7 +14,7 @@ impl<K: Hash + Eq + Clone> Debounce<K> {
         Debounce { window: Duration::from_millis(ms), last_seen: HashMap::new() }
     }
 
-    /// Registra un evento su `key` a `at`; ogni evento riparte la finestra.
+    /// Records an event on `key` at `at`; every event restarts the window.
     pub fn push(&mut self, key: K, at: Instant) {
         let slot = self.last_seen.entry(key).or_insert(at);
         if at > *slot {
@@ -22,7 +22,7 @@ impl<K: Hash + Eq + Clone> Debounce<K> {
         }
     }
 
-    /// Le chiavi quiete da almeno la finestra a `now`; escono una volta sola.
+    /// The keys quiet for at least the window at `now`; they come out only once.
     pub fn ready(&mut self, now: Instant) -> Vec<K> {
         let window = self.window;
         let done: Vec<K> = self
@@ -54,7 +54,7 @@ mod tests {
         for ms in [0, 20, 40] {
             d.push("a.md", at(ms));
         }
-        assert!(d.ready(at(60)).is_empty(), "la finestra riparte a ogni evento");
+        assert!(d.ready(at(60)).is_empty(), "the window restarts on every event");
         assert_eq!(d.ready(at(90)), vec!["a.md"]);
         assert!(d.ready(at(200)).is_empty());
         assert!(d.is_empty());

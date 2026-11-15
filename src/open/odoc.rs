@@ -36,7 +36,7 @@ fn hook(mtm: MainThreadMarker) {
     unsafe {
         let delegate: *mut AnyObject = msg_send![&app, delegate];
         let Some(delegate) = delegate.as_ref() else {
-            eprintln!("runemd: nessun delegate, apertura da Finder non attiva");
+            eprintln!("runemd: no delegate, opening from Finder is off");
             return;
         };
         let class = delegate.class();

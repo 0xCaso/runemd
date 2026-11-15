@@ -55,7 +55,7 @@ fn parse_head(text: &str) -> Option<String> {
         let b = r.strip_prefix("refs/heads/").unwrap_or(r);
         return (!b.is_empty()).then(|| b.to_string());
     }
-    // HEAD staccato: sha esadecimale, ne mostriamo 7 caratteri.
+    // Detached HEAD: hex sha, we show 7 characters of it.
     if t.len() >= 7 && t.chars().all(|c| c.is_ascii_hexdigit()) {
         return Some(t.chars().take(7).collect());
     }
@@ -124,12 +124,12 @@ mod tests {
     #[test]
     fn malformed_without_panic() {
         let d = tempfile::tempdir().unwrap();
-        fs::write(d.path().join(".git"), "boh").unwrap();
+        fs::write(d.path().join(".git"), "huh").unwrap();
         fs::write(d.path().join("x.md"), "").unwrap();
         assert_eq!(of(&d.path().join("x.md")).branch, None);
         assert_eq!(head_path(d.path()), None);
         fs::remove_file(d.path().join(".git")).unwrap();
-        fs::create_dir(d.path().join(".git")).unwrap(); // HEAD assente
+        fs::create_dir(d.path().join(".git")).unwrap(); // HEAD missing
         assert_eq!(of(&d.path().join("x.md")).branch, None);
     }
 }

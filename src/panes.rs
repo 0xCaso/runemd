@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 /// The distance within which the edge snaps to a remembered width, pt.
 pub const SNAP: f32 = 8.0;
-/// Quante larghezze ricordate restano per pannello.
+/// How many remembered widths stay per pane.
 pub const LEARNED_MAX: usize = 4;
 
 /// The limits of a pane, pt.
@@ -88,14 +88,14 @@ mod tests {
         assert_eq!(p.drag(900.0, L, 2000.0), 420.0);
         assert_eq!(p.drag(900.0, L, 300.0), 300.0, "the window leaves less room");
         assert_eq!(p.drag(900.0, L, 50.0), 180.0, "never below the minimum");
-        assert_eq!(p.drag(310.4, L, 2000.0), 310.0, "punti interi");
+        assert_eq!(p.drag(310.4, L, 2000.0), 310.0, "whole points");
     }
 
     #[test]
     fn drag_snaps_to_the_default_and_to_learned_widths() {
         let mut p = Pane::new(L);
         assert_eq!(p.drag(254.0, L, 2000.0), 248.0, "the default snaps");
-        assert_eq!(p.drag(257.0, L, 2000.0), 257.0, "oltre SNAP no");
+        assert_eq!(p.drag(257.0, L, 2000.0), 257.0, "not beyond SNAP");
         p.learn(320.0, L);
         assert_eq!(p.drag(314.0, L, 2000.0), 320.0);
         assert_eq!(p.drag(327.0, L, 2000.0), 320.0);

@@ -1,21 +1,21 @@
-//! Quali percorsi interessano a RuneMD: solo i Markdown fuori dalle cartelle di build e da `.git`.
+//! Which paths matter to RuneMD: only Markdown files outside build folders and `.git`.
 
 use std::path::Path;
 
-/// Cartelle che non si guardano mai (i file dentro non sono documenti dell'utente).
+/// Folders never watched (the files inside are not user documents).
 const SKIPPED_DIRS: [&str; 3] = [".git", "node_modules", "target"];
 
-/// Vero se `name` è una cartella saltata.
+/// True if `name` is a skipped folder.
 pub fn skipped_name(name: &std::ffi::OsStr) -> bool {
     SKIPPED_DIRS.iter().any(|s| name == *s)
 }
 
-/// Vero se `path` sta sotto (o è) una cartella saltata.
+/// True if `path` is below (or is) a skipped folder.
 pub fn skipped(path: &Path) -> bool {
     path.components().any(|c| skipped_name(c.as_os_str()))
 }
 
-/// Vero per un file `.md` o `.markdown` (maiuscole comprese) che non sta sotto una cartella saltata.
+/// True for a `.md` or `.markdown` file (any case) that is not below a skipped folder.
 pub fn wanted(path: &Path) -> bool {
     let is_markdown = path
         .extension()
