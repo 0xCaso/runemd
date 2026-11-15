@@ -1,6 +1,6 @@
 [
   {"t": 0.5, "type": "key", "name": "e", "cmd": true},
-  {"t": 0.8, "type": "type", "text": "Nota mia. ", "every": 0.03},
+  {"t": 0.8, "type": "type", "text": "My note. ", "every": 0.03},
   {"t": 1.5, "type": "key", "name": "w", "cmd": true},
   {"t": 2.0, "type": "mark", "name": "asked"},
   {"t": 2.5, "type": "tap", "key": "source-ask-save"},

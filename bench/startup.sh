@@ -1,8 +1,8 @@
 #!/bin/sh
-# Avvio → primo frame con contenuto di RuneMD.
+# Launch → first frame with content of RuneMD.
 # uso: bench/startup.sh WORKDIR ROUNDS cold|warm
-# WORKDIR contiene RuneMD.app (build/RuneMD.app), normal.md, big.md (fuori da Desktop/Documents: TCC blocca).
-# cold = cache shader Metal cancellata prima di ogni lancio (non la cache disco: serve sudo purge).
+# WORKDIR holds RuneMD.app (build/RuneMD.app), normal.md, big.md (outside Desktop/Documents: TCC blocks them).
+# cold = Metal shader cache deleted before each launch (not the disk cache: that needs sudo purge).
 set -eu
 W=$1; N=$2; MODE=$3
 CACHE=$(getconf DARWIN_USER_CACHE_DIR)

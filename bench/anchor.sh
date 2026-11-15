@@ -1,19 +1,19 @@
 #!/bin/sh
-# Ancora di lettura: il primo blocco visibile e il suo offset restano fermi quando il file cambia.
+# Reading anchor: the first visible block and its offset stay still when the file changes.
 # uso: bench/anchor.sh [WORKDIR]
 #
-# 1. Verifica: i test headless di `src/ui/doc_view.rs` aprono un documento nella vista dell'app,
-#    scorrono a metà e applicano `Document::update` nei tre casi (5 paragrafi in testa, blocco in
-#    cima allungato, ultimo blocco allungato), più file vuoto, blocco sparito e 500 KB senza righe
-#    vuote; confrontano id e offset del primo blocco visibile (±1 pt).
-# 2. App vera, modalità append: `--script` scorre una copia di `fixtures/big.md` a metà; "prima"
-#    è il primo blocco visibile a quel punto. Poi, con `--realtime` (frame al passo dell'orologio),
-#    una shell appende un paragrafo ogni 200 ms per 5 s mentre l'app guarda il file: "dopo" è il
-#    primo blocco visibile alla fine. Esce 1 se chiave o offset (±1 pt) cambiano o se l'app non ha
-#    ricaricato.
-# 3. Latenza (`MDSPIKE_LATENCY`): per ogni ricarica, ms dall'mtime del file alla ricarica e al
-#    primo frame dopo. Headless i frame sono offscreen a 30 fps: non è la latenza di un frame
-#    presentato a schermo, che va misurata con l'app in finestra (vedi `latency` sotto).
+# 1. Check: the headless tests in `src/ui/doc_view.rs` open a document in the app view,
+#    scroll halfway and apply `Document::update` in the three cases (5 paragraphs at the top, top
+#    block grown, last block grown), plus empty file, block gone and 500 KB with no empty
+#    lines; they compare id and offset of the first visible block (±1 pt).
+# 2. Real app, append mode: `--script` scrolls a copy of `fixtures/big.md` halfway; "before"
+#    is the first visible block at that point. Then, with `--realtime` (frames at clock pace),
+#    a shell appends a paragraph every 200 ms for 5 s while the app watches the file: "after" is the
+#    first visible block at the end. Exits 1 if key or offset (±1 pt) change or if the app has not
+#    reloaded.
+# 3. Latency (`MDSPIKE_LATENCY`): for each reload, ms from the file mtime to the reload and to the
+#    first frame after. Headless, frames are offscreen at 30 fps: this is not the latency of a frame
+#    presented on screen, which must be measured with the app in a window (see `latency` below).
 set -eu
 cd "$(dirname "$0")/.."
 W=${1:-$(mktemp -d)}
@@ -40,7 +40,7 @@ cp fixtures/big.md "$W/anchor.md"
 target/perf/runemd "$W/anchor.md" --script tests/scripts/anchor_append.json --scale 1 --fps 30 \
   --at mark:middle+0.5 --tree "$W/before.json" >/dev/null 2>&1
 before=$(first_visible "$W/before.json")
-echo "app, prima: $before"
+echo "app, before: $before"
 
 : > "$W/latency.log"
 MDSPIKE_LATENCY="$W/latency.log" target/perf/runemd "$W/anchor.md" --script tests/scripts/anchor_append.json \
@@ -48,16 +48,16 @@ MDSPIKE_LATENCY="$W/latency.log" target/perf/runemd "$W/anchor.md" --script test
 while read -r line; do
   case "$line" in
     "rune-mark middle"*)
-      # 25 paragrafi, uno ogni 200 ms: 5 s.
+      # 25 paragraphs, one every 200 ms: 5 s.
       (for i in $(seq 25); do
-        printf '\n\nParagrafo aggiunto %s: il testo in lettura resta fermo mentre il file cresce.\n' "$i" >> "$W/anchor.md"
+        printf '\n\nAdded paragraph %s: the text being read stays still while the file grows.\n' "$i" >> "$W/anchor.md"
         sleep 0.2
       done) &
       ;;
   esac
 done
 after=$(first_visible "$W/after.json")
-echo "app, dopo 25 append: $after"
+echo "app, after 25 appends: $after"
 echo "ricariche: $(grep -c '^reload' "$W/latency.log" || true)"
 echo "headless, scrittura→ricarica ms: $(latency "$W/latency.log" write_to_reload_ms)"
 echo "headless, scrittura→frame offscreen ms: $(latency "$W/latency.log" write_to_frame_ms)"
@@ -66,5 +66,5 @@ import sys
 (k0, y0), (k1, y1) = (s.split() for s in sys.argv[1:3])
 reloads = int(sys.argv[3])
 ok = k0 == k1 and abs(float(y0) - float(y1)) <= 1.0 and reloads > 0
-print("ancora: " + ("ferma" if ok else "SALTA o nessuna ricarica"))
+print("anchor: " + ("still" if ok else "JUMPS or no reload"))
 sys.exit(0 if ok else 1)' "$before" "$after" "$(grep -c '^reload' "$W/latency.log" || true)"

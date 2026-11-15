@@ -1,6 +1,6 @@
 #!/bin/sh
-# Scroll a velocità costante guidato dall'app (nessun permesso per iniettare eventi).
-# uso: bench/scroll.sh WORKDIR ROUNDS — 4 s di scroll dopo 1 s; normal a 1500 pt/s, big a 3000 pt/s.
+# Constant-speed scroll driven by the app (no permission needed to inject events).
+# usage: bench/scroll.sh WORKDIR ROUNDS — 4 s of scroll after 1 s; normal at 1500 pt/s, big at 3000 pt/s.
 set -eu
 W=$1; N=$2
 mkdir -p "$W/logs"

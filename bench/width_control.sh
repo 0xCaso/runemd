@@ -1,10 +1,10 @@
 #!/bin/sh
-# Controllo della larghezza nella barra delle schede (gruppo 1, item 4), headless con
-# tests/scripts/width_control.json: un clic sul pulsante ↔ apre il popover, ⌘⌥= due volte porta la
-# colonna da 680 a 840 pt. Con RUNEMD_ROOTS le impostazioni restano in memoria.
+# Width control in the tab bar (group 1, item 4), headless with
+# tests/scripts/width_control.json: a click on the ↔ button opens the popover, ⌘⌥= twice brings the
+# column from 680 to 840 pt. With RUNEMD_ROOTS the settings stay in memory.
 # uso: bench/width_control.sh [WORKDIR]
-#   → WORKDIR/width-control-{dark,light}.png (il pannello col popover aperto). Esce 1 se il popover
-#   non c'è o il valore non è 840 pt.
+#   → WORKDIR/width-control-{dark,light}.png (the panel with the popover open). Exits 1 if the popover
+#   is missing or the value is not 840 pt.
 set -eu
 cd "$(dirname "$0")/.."
 cargo build --profile perf -q
@@ -20,6 +20,6 @@ for theme in dark light; do
   python3 -c 'import json,sys; e=json.load(open(sys.argv[1]))["elements"]; sys.exit(not any(x.get("key")=="width-popover" for x in e))' \
     "$W/tree-$theme.json" || fail "$theme: popover chiuso"
   python3 -c 'import json,sys; e=json.load(open(sys.argv[1]))["elements"]; sys.exit(not any(x.get("key")=="width-slider-value" and x.get("text")=="840 pt" for x in e))' \
-    "$W/tree-$theme.json" || fail "$theme: valore diverso da 840 pt"
+    "$W/tree-$theme.json" || fail "$theme: value other than 840 pt"
 done
-echo "foto: $W/width-control-{dark,light}.png"
+echo "photos: $W/width-control-{dark,light}.png"

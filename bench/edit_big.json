@@ -3,6 +3,6 @@
   {"t": 1.0, "type": "wheel", "key": "source", "dy": -200000},
   {"t": 2.0, "type": "tap", "key": "source"},
   {"t": 2.5, "type": "mark", "name": "typing"},
-  {"t": 2.5, "type": "type", "text": "Una frase scritta nel mezzo del file, per misurare il costo di ogni tasto. Una frase scritta nel mezzo del file, per misurare il costo di ogni tasto. Una frase scritta nel mezzo del file, per misurare", "every": 0.05},
+  {"t": 2.5, "type": "type", "text": "A sentence typed in the middle of the file, to measure the cost of each key. A sentence typed in the middle of the file, to measure the cost of each key. A sentence typed in the middle of the file, to", "every": 0.05},
   {"t": 12.5, "type": "mark", "name": "typed"}
 ]

@@ -1,9 +1,9 @@
 #!/bin/sh
-# Modifica di big.md nell'app (headless): Cmd+E, scroll a metà del sorgente, un clic per il
-# cursore, poi 200 caratteri, uno per frame (20 fps, un tasto ogni 0,05 s). Dal `--trace`
-# prende il tempo CPU di ogni frame fra i mark "typing" e "typed" e stampa p50, p95 e max.
-# uso: bench/edit_big.sh [WORKDIR] [FILE]   (FILE: fixtures/big.md di default)
-# Esce 1 se p95 > 8 ms (la soglia della spec).
+# Editing big.md in the app (headless): Cmd+E, scroll to the middle of the source, a click for the
+# cursor, then 200 characters, one per frame (20 fps, one key every 0.05 s). From the `--trace`
+# it takes the CPU time of each frame between the "typing" and "typed" marks and prints p50, p95 and max.
+# usage: bench/edit_big.sh [WORKDIR] [FILE]   (FILE: fixtures/big.md by default)
+# Exits 1 if p95 > 8 ms (the spec threshold).
 set -eu
 cd "$(dirname "$0")/.."
 cargo build --profile perf -q
@@ -25,14 +25,14 @@ for line in open(sys.argv[1]):
     if mark["typing"] <= f["t"] < mark["typed"]:
         ms.append(f["quality"]["cpu_ms"])
 if not ms:
-    sys.exit("edit_big: nessun frame fra i mark typing e typed (il trace è vuoto o lo script è cambiato?)")
+    sys.exit("edit_big: no frames between the typing and typed marks (is the trace empty or did the script change?)")
 ms.sort()
 pct = lambda p: ms[round((len(ms) - 1) * p)]
 print(f"frame cpu ms: n={len(ms)} p50={pct(0.5):.2f} p95={pct(0.95):.2f} max={pct(1.0):.2f}")
 sys.exit(0 if pct(0.95) <= 8.0 else 1)' "$W/trace.jsonl" bench/edit_big.json
-# Il testo è entrato nel file in modifica (il campo ha il fuoco).
+# The text went into the file being edited (the field has focus).
 python3 -c '
 import json, sys
 t = " ".join(x.get("text") or "" for x in json.load(open(sys.argv[1]))["elements"])
-sys.exit(0 if "per misurare il costo di ogni tasto. Una frase" in t else 1)' "$W/tree.json" ||
-  { echo "edit_big: il testo scritto non è nel sorgente" >&2; exit 1; }
+sys.exit(0 if "to measure the cost of each key. A sentence" in t else 1)' "$W/tree.json" ||
+  { echo "edit_big: the typed text is not in the source" >&2; exit 1; }

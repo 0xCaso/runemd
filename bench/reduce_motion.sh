@@ -1,15 +1,15 @@
 #!/bin/sh
-# "Riduci movimento" (task 28), headless e a tempo vero: una shell scrive in fondo al file una
-# frase senza a capo, così si accendono l'anello (scheda e Recenti) e il caret (dopo la frase a
-# metà), e su un file lungo anche il fuoco (testo nuovo più in basso). Due foto a 0,8 s di
-# distanza ("lit" e "later"), su `fixtures/normal.md` (anello e fuoco) e su un file corto (anello
-# e caret, che sul file lungo è fuori vista): con RUNEMD_REDUCE_MOTION=1 sono uguali pixel per
-# pixel (anello e caret fermi, fuoco a piena altezza da subito); senza, cambiano.
+# "Reduce motion" (task 28), headless and in real time: a shell writes a sentence at the end of the file
+# without a newline, so the ring (tab and Recent) and the caret (after the sentence in the
+# middle) light up, and on a long file also the fire (new text further down). Two photos 0.8 s
+# apart ("lit" and "later"), on `fixtures/normal.md` (ring and fire) and on a short file (ring
+# and caret, which is out of view on the long file): with RUNEMD_REDUCE_MOTION=1 they are equal pixel by
+# pixel (ring and caret still, fire at full height from the start); without it, they change.
 # uso: bench/reduce_motion.sh [WORKDIR]
-#   con SNAP=docs/proof/reduce-motion salva SNAP.png (scuro, ridotto, --scale 2, ritagliata al
-#   pannello: la sidebar mostra nomi di file), SNAP-moving.png (lo stesso istante senza riduzione)
-#   e SNAP-caret.png (file corto, ridotto).
-# Esce 1 se le foto ridotte cambiano o se quelle normali non cambiano.
+#   with SNAP=docs/proof/reduce-motion saves SNAP.png (dark, reduced, --scale 2, cropped to the
+#   panel: the sidebar shows file names), SNAP-moving.png (the same instant without reduction)
+#   and SNAP-caret.png (short file, reduced).
+# Exits 1 if the reduced photos change or if the normal ones do not change.
 set -eu
 cd "$(dirname "$0")/.."
 cargo build --profile perf -q
@@ -20,9 +20,9 @@ else
 fi
 W=$(cd "$W" && pwd -P)
 mkdir -p "$W/root"
-printf '# Nota corta\n\nUn file corto: il caret sta dopo la frase nuova.\n' > "$W/short.md"
+printf '# Short note\n\nA short file: the caret sits after the new sentence.\n' > "$W/short.md"
 
-# shot SRC REDUCE MARK OUT: una foto del pannello a MARK+0,3 con RUNEMD_REDUCE_MOTION=REDUCE.
+# shot SRC REDUCE MARK OUT: a photo of the panel at MARK+0.3 with RUNEMD_REDUCE_MOTION=REDUCE.
 shot() {
   src=$1
   shift
@@ -31,7 +31,7 @@ shot() {
     target/perf/runemd "$W/root/doc.md" --script tests/scripts/reduce_motion.json --realtime --size 1100x900 \
     --scale 2 --fps 30 --at "mark:$2+0.3" --snap "$3" --crop main 2>/dev/null |
   while read -r line; do
-    case "$line" in "rune-mark ready"*) printf '\nUn agente sta scrivendo questa frase e non l' >> "$W/root/doc.md" ;; esac
+    case "$line" in "rune-mark ready"*) printf '\nAn agent is writing this sentence and has not' >> "$W/root/doc.md" ;; esac
   done
 }
 same() { cmp -s "$1" "$2"; }
@@ -39,14 +39,14 @@ same() { cmp -s "$1" "$2"; }
 for f in normal short; do
   case $f in normal) src=fixtures/normal.md ;; short) src=$W/short.md ;; esac
   shot "$src" 1 lit "$W/$f-r1.png"; shot "$src" 1 later "$W/$f-r2.png"
-  same "$W/$f-r1.png" "$W/$f-r2.png" || { echo "reduce_motion: $f, con la riduzione le foto cambiano" >&2; exit 1; }
+  same "$W/$f-r1.png" "$W/$f-r2.png" || { echo "reduce_motion: $f, with reduction the photos change" >&2; exit 1; }
   shot "$src" 0 lit "$W/$f-m1.png"; shot "$src" 0 later "$W/$f-m2.png"
-  ! same "$W/$f-m1.png" "$W/$f-m2.png" || { echo "reduce_motion: $f, senza riduzione le foto non cambiano" >&2; exit 1; }
-  echo "$f: ridotto, lit e later uguali pixel per pixel; normale, diverse"
+  ! same "$W/$f-m1.png" "$W/$f-m2.png" || { echo "reduce_motion: $f, without reduction the photos do not change" >&2; exit 1; }
+  echo "$f: reduced, lit and later equal pixel by pixel; normal, different"
 done
 if [ -n "${SNAP:-}" ]; then
   cp "$W/normal-r1.png" "$SNAP.png"
   cp "$W/normal-m1.png" "$SNAP-moving.png"
   cp "$W/short-r1.png" "$SNAP-caret.png"
-  echo "foto: $SNAP.png $SNAP-moving.png $SNAP-caret.png"
+  echo "photos: $SNAP.png $SNAP-moving.png $SNAP-caret.png"
 fi

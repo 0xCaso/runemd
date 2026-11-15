@@ -1,5 +1,5 @@
 #!/bin/sh
-# Memoria a regime: phys_footprint (`footprint`) 6 s dopo il lancio, app a riposo.
+# Steady-state memory: phys_footprint (`footprint`) 6 s after launch, app at rest.
 # uso: bench/memory.sh WORKDIR ROUNDS
 set -eu
 W=$1; N=$2

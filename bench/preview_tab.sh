@@ -1,16 +1,16 @@
 #!/bin/sh
-# Scheda di anteprima (record docs/decisions/2026-11-15-ordine-lavori-dopo-v1.md, gruppo 1), headless:
-# alfa.md aperto dalla riga di comando (fisso); clic singolo su beta.md e poi su gamma.md in Recenti
-# (gamma prende il posto di beta, nome in corsivo); doppio clic su gamma.md (fissa), clic su
-# delta.md (nuova anteprima accanto).
-# uso: bench/preview_tab.sh [WORKDIR]  → WORKDIR/preview-tab-<tema>-<mark>.png; esce 1 se le schede non tornano.
+# Preview tab (record docs/decisions/2026-11-15-work-order-after-v1.md, group 1), headless:
+# alfa.md opened from the command line (pinned); single click on beta.md and then on gamma.md in Recent
+# (gamma takes the place of beta, name in italics); double click on gamma.md (pins it), click on
+# delta.md (new preview next to it).
+# usage: bench/preview_tab.sh [WORKDIR]  → WORKDIR/preview-tab-<theme>-<mark>.png; exits 1 if the tabs do not add up.
 set -eu
 cd "$(dirname "$0")/.."
 cargo build --profile perf -q
 W=${1:-$(mktemp -d)}; mkdir -p "$W"
 W=$(cd "$W" && pwd -P)
 R="$W/root"; rm -rf "$R"; mkdir -p "$R"
-for n in alfa beta gamma delta; do printf '# %s\n\nNota di prova.\n' "$n" > "$R/$n.md"; done
+for n in alfa beta gamma delta; do printf '# %s\n\nTest note.\n' "$n" > "$R/$n.md"; done
 sed "s|ROOT|$R|g" tests/scripts/preview_tab.json > "$W/script.json"
 fail() { echo "preview_tab: $*" >&2; exit 1; }
 tabs() {
@@ -28,4 +28,4 @@ for theme in dark light; do
   got=$(tabs "$W/tree-$theme-preview.json"); [ "$got" = "alfa.md gamma.md" ] || fail "$theme anteprima: $got"
   got=$(tabs "$W/tree-$theme-pinned.json"); [ "$got" = "alfa.md gamma.md delta.md" ] || fail "$theme fissata: $got"
 done
-echo "schede: alfa.md gamma.md → alfa.md gamma.md delta.md; foto: $W/preview-tab-*.png"
+echo "tabs: alfa.md gamma.md → alfa.md gamma.md delta.md; photos: $W/preview-tab-*.png"

@@ -1,16 +1,16 @@
 #!/bin/sh
-# Recenti su due righe e titolo dell'albero (record docs/decisions/2026-11-15-recenti-due-righe.md):
-# i dati del mockup A (due error-context.md nello stesso repo, DESIGN.md in due repo, un nome
-# lungo, branch feat/sito-forma-c), headless, tema chiaro e scuro, sidebar a 180 e 240 pt
-# (`RUNEMD_SIDEBAR`), puntatore sulla seconda riga di Recenti (hover).
-# uso: bench/recenti_due_righe.sh [WORKDIR]  → WORKDIR/recenti-due-righe-<tema>-<larghezza>.png
+# Recent on two lines and tree title (record docs/decisions/2026-11-15-recent-two-lines.md):
+# the mockup A data (two error-context.md in the same repo, DESIGN.md in two repos, a long
+# name, branch feat/sito-forma-c), headless, light and dark theme, sidebar at 180 and 240 pt
+# (`RUNEMD_SIDEBAR`), pointer on the second Recent row (hover).
+# usage: bench/recenti_due_righe.sh [WORKDIR]  → WORKDIR/recenti-due-righe-<theme>-<width>.png
 set -eu
 cd "$(dirname "$0")/.."
 cargo build --profile perf -q
 W=${1:-$(mktemp -d)}; mkdir -p "$W"
 W=$(cd "$W" && pwd -P)
 R="$W/root"; rm -rf "$R"; mkdir -p "$R"
-note() { mkdir -p "$(dirname "$1")"; printf '# %s\n\nNota di prova.\n' "$(basename "$1" .md)" > "$1"; }
+note() { mkdir -p "$(dirname "$1")"; printf '# %s\n\nTest note.\n' "$(basename "$1" .md)" > "$1"; }
 repo() { mkdir -p "$R/$1/.git"; printf 'ref: refs/heads/%s\n' "$2" > "$R/$1/.git/HEAD"; }
 repo my-portfolio feat/sito-forma-c
 repo runemd main
@@ -30,4 +30,4 @@ for theme in dark light; do
       --at mark:hover --snap "$W/recenti-due-righe-$theme-$w.png" --tree "$W/tree-$theme-$w.json" >/dev/null 2>&1
   done
 done
-echo "foto: $W/recenti-due-righe-*.png"
+echo "photos: $W/recenti-due-righe-*.png"

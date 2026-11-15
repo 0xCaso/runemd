@@ -1,6 +1,6 @@
 #!/bin/sh
-# Shim da riga di comando: `runemd file.md [altri.md]` apre i file in RuneMD.
-# Percorsi relativi resi assoluti, perché `open` lavora dalla sua cartella.
+# Command-line shim: `runemd file.md [more.md]` opens the files in RuneMD.
+# Relative paths made absolute, because `open` works from its own folder.
 for f in "$@"; do
   case "$f" in /*) set -- "$@" "$f" ;; *) set -- "$@" "$PWD/$f" ;; esac
   shift

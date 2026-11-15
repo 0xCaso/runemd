@@ -1,11 +1,11 @@
 #!/bin/sh
-# Impostazioni del fuoco (record docs/decisions/2026-11-15-ordine-lavori-dopo-v1.md, gruppo 1), headless
-# con tests/scripts/fire_settings.json: Cmd+, apre il pannello e lo scorre in fondo (Intensità, Altezza,
-# Velocità, Colore); un clic su un colore, Cmd+, chiude; due paragrafi scritti in fondo da una shell
-# accendono il fuoco (tempo vero). Con RUNEMD_ROOTS le impostazioni restano in memoria.
+# Fire settings (record docs/decisions/2026-11-15-work-order-after-v1.md, group 1), headless
+# with tests/scripts/fire_settings.json: Cmd+, opens the panel and scrolls it to the end (Intensity, Height,
+# Speed, Colour); a click on a colour, Cmd+, closes; two paragraphs written at the end by a shell
+# light the fire (real time). With RUNEMD_ROOTS the settings stay in memory.
 # uso: bench/fire_settings.sh [WORKDIR]
-#   → WORKDIR/fire-settings-{dark,light}.png (il pannello, ritagliato) e WORKDIR/fire-<colore>.png
-#   (il fondo del documento col fuoco acceso, scuro). Esce 1 se un colore non viene scelto.
+#   → WORKDIR/fire-settings-{dark,light}.png (the panel, cropped) and WORKDIR/fire-<colour>.png
+#   (the bottom of the document with the fire lit, dark). Exits 1 if a colour is not picked.
 set -eu
 cd "$(dirname "$0")/.."
 cargo build --profile perf -q
@@ -32,10 +32,10 @@ for c in Fire:fire Blue:blue Violet:violet Green:green "System accent:accent"; d
     --realtime --size 1280x860 --scale 2 --theme dark --fps 30 --at mark:lit+0.3 --snap "$W/full-$name.png" --crop main \
     --tree "$W/lit-$name.json" 2>/dev/null |
   while read -r line; do
-    case "$line" in "rune-mark picked"*) printf '\nUn paragrafo nuovo in fondo.\n\nE un altro ancora.\n' >> "$W/$name.md" ;; esac
+    case "$line" in "rune-mark picked"*) printf '\nA new paragraph at the end.\n\nAnd one more.\n' >> "$W/$name.md" ;; esac
   done
   python3 -c 'import json,sys; sys.exit(not any(e.get("key")=="fire" for e in json.load(open(sys.argv[1]))["elements"]))' \
-    "$W/lit-$name.json" || fail "$label: niente fuoco"
+    "$W/lit-$name.json" || fail "$label: no fire"
   ffmpeg -loglevel error -y -i "$W/full-$name.png" -vf "crop=iw:480:0:ih-480" "$W/fire-$name.png"
 done
-echo "foto: $W/fire-settings-{dark,light}.png $W/fire-{fire,blue,violet,green,accent}.png"
+echo "photos: $W/fire-settings-{dark,light}.png $W/fire-{fire,blue,violet,green,accent}.png"

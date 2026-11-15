@@ -1,14 +1,14 @@
 #!/bin/sh
-# Scroll di big.md con l'indice dei titoli (task 25), headless: finestra 1280×800 (l'indice si
-# vede), 16 swipe da 4000 pt ogni 0,5 s su "doc" a 60 fps. Dal `--trace` prende il tempo CPU di
-# ogni frame fra i mark "scrolling" e "scrolled" e stampa p50, p95 e max; dal `--tree` finale
-# controlla che l'indice ci sia ("In questo file").
-# uso: bench/outline_scroll.sh [WORKDIR] [BINARIO]   (BINARIO: target/perf/runemd di default; per
-# il "prima" si passa il binario di un'altra revisione, e il controllo dell'indice si salta)
-# SIZE=900x800 misura la finestra stretta, dove l'indice non c'è (controllo saltato anche lì).
+# Scrolling big.md with the heading outline (task 25), headless: 1280×800 window (the outline
+# shows), 16 swipes of 4000 pt every 0.5 s on "doc" at 60 fps. From the `--trace` it takes the CPU time of
+# each frame between the "scrolling" and "scrolled" marks and prints p50, p95 and max; from the final `--tree`
+# it checks that the outline is there ("In this file").
+# usage: bench/outline_scroll.sh [WORKDIR] [BINARY]   (BINARY: target/perf/runemd by default; for
+# the "before" pass the binary of another revision, and the outline check is skipped)
+# SIZE=900x800 measures the narrow window, where the outline is not shown (check skipped there too).
 set -eu
 cd "$(dirname "$0")/.."
-# Senza WORKDIR la cartella temporanea si cancella all'uscita.
+# Without WORKDIR the temporary folder is deleted on exit.
 if [ -n "${1:-}" ]; then
   W=$1; mkdir -p "$W"
 else
@@ -32,7 +32,7 @@ for line in open(sys.argv[1]):
     if mark["scrolling"] <= f["t"] < mark["scrolled"]:
         ms.append(f["quality"]["cpu_ms"])
 if not ms:
-    sys.exit("outline_scroll: nessun frame fra i mark")
+    sys.exit("outline_scroll: no frames between the marks")
 ms.sort()
 pct = lambda p: ms[round((len(ms) - 1) * p)]
 print(f"frame cpu ms: n={len(ms)} p50={pct(0.5):.2f} p95={pct(0.95):.2f} max={pct(1.0):.2f}")' "$W/trace.jsonl" tests/scripts/outline_scroll.json
@@ -40,4 +40,4 @@ print(f"frame cpu ms: n={len(ms)} p50={pct(0.5):.2f} p95={pct(0.95):.2f} max={pc
 python3 -c '
 import json, sys
 t = {x.get("text") for x in json.load(open(sys.argv[1]))["elements"]}
-sys.exit(0 if "In questo file" in t else 1)' "$W/tree.json" || { echo "outline_scroll: l'\''indice non c'\''è" >&2; exit 1; }
+sys.exit(0 if "In this file" in t else 1)' "$W/tree.json" || { echo "outline_scroll: the outline is missing" >&2; exit 1; }

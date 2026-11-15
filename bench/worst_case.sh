@@ -1,11 +1,11 @@
 #!/bin/sh
-# Sidebar e albero con dati peggiori ma realistici (task 28, `break-ui`): 28 repo, nomi lunghi,
-# corti, non latini e doppi, un repo e un branch lunghi, cartelle annidate, e 12 file che una
-# shell scrive insieme (12 anelli in Recenti). Headless, tempo vero, nessun nome vero: le
-# cartelle osservate sono solo quella di prova (`RUNEMD_ROOTS`).
-# uso: bench/worst_case.sh [WORKDIR] [SIZE]   (SIZE: 1280x800 di default; 1280x600 la finestra bassa)
-#   salva WORKDIR/worst-dark.png e WORKDIR/worst-light.png (--scale 2) al mark "burst",
-#   WORKDIR/worst-tree.json per i rect.
+# Sidebar and tree with worse but realistic data (task 28, `break-ui`): 28 repos, long,
+# short, non-Latin and repeated names, a long repo and branch, nested folders, and 12 files that a
+# shell writes together (12 rings in Recent). Headless, real time, no real names: the
+# watched folders are only the test one (`RUNEMD_ROOTS`).
+# usage: bench/worst_case.sh [WORKDIR] [SIZE]   (SIZE: 1280x800 by default; 1280x600 the short window)
+#   saves WORKDIR/worst-dark.png and WORKDIR/worst-light.png (--scale 2) at the "burst" mark,
+#   WORKDIR/worst-tree.json for the rects.
 set -eu
 cd "$(dirname "$0")/.."
 cargo build --profile perf -q
@@ -13,31 +13,31 @@ W=${1:-$(mktemp -d)}; mkdir -p "$W"
 W=$(cd "$W" && pwd -P)
 SIZE=${2:-1280x800}
 R="$W/root"; rm -rf "$R"; mkdir -p "$R"
-note() { mkdir -p "$(dirname "$1")"; printf '# %s\n\nNota di prova.\n' "$(basename "$1" .md)" > "$1"; }
+note() { mkdir -p "$(dirname "$1")"; printf '# %s\n\nTest note.\n' "$(basename "$1" .md)" > "$1"; }
 for i in $(seq -w 1 28); do
-  repo="$R/servizio-$i"
+  repo="$R/service-$i"
   mkdir -p "$repo/.git"; printf 'ref: refs/heads/main\n' > "$repo/.git/HEAD"
   note "$repo/README.md"
-  note "$repo/docs/piano.md"
+  note "$repo/docs/plan.md"
 done
 big="$R/northwind-industries-holdings-piattaforma-monorepo"
 mkdir -p "$big/.git"
-printf 'ref: refs/heads/feature/aleksandra/sincronizzazione-offline-con-risoluzione-dei-conflitti\n' > "$big/.git/HEAD"
+printf 'ref: refs/heads/feature/aleksandra/offline-synchronization-with-conflict-resolution\n' > "$big/.git/HEAD"
 note "$big/README.md"
 note "$big/a.md"
 note "$big/設計メモ.md"
 note "$big/Привет-заметки.md"
-note "$big/docs/architettura/sincronizzazione/2026-11-14-architettura-del-sistema-di-sincronizzazione-offline-v2-definitiva.md"
-note "$big/docs/architettura/sincronizzazione/decisioni-prese-con-bartholomew.fitzgerald@northwind-industries-holdings.example.com.md"
-note "$big/packages/client-desktop-per-macos-con-supporto-offline/src/componenti/barra-laterale/NOTE.md"
-for k in $(seq 1 40); do note "$big/docs/adr/adr-$k-decisione-su-un-argomento-abbastanza-lungo.md"; done
-open="$big/docs/architettura/sincronizzazione/2026-11-14-architettura-del-sistema-di-sincronizzazione-offline-v2-definitiva.md"
-# 12 file scritti insieme: README e piano di 6 repo.
+note "$big/docs/architecture/synchronization/2026-11-14-architecture-of-the-offline-synchronization-system-v2-final.md"
+note "$big/docs/architecture/synchronization/decisions-made-with-bartholomew.fitzgerald@northwind-industries-holdings.example.com.md"
+note "$big/packages/desktop-client-for-macos-with-offline-support/src/components/sidebar/NOTE.md"
+for k in $(seq 1 40); do note "$big/docs/adr/adr-$k-decision-on-a-fairly-long-topic.md"; done
+open="$big/docs/architecture/synchronization/2026-11-14-architecture-of-the-offline-synchronization-system-v2-final.md"
+# 12 files written together: README and plan of 6 repos.
 burst() {
   for i in 01 02 03 04 05 06; do
-    for f in README.md docs/piano.md; do printf '\nUna riga nuova.\n' >> "$R/servizio-$i/$f"; done
+    for f in README.md docs/plan.md; do printf '\nA new line.\n' >> "$R/service-$i/$f"; done
   done
-  printf '\nUna riga nuova.\n' >> "$open"
+  printf '\nA new line.\n' >> "$open"
 }
 for theme in dark light; do
   RUNEMD_THEME=$theme RUNEMD_ROOTS="$R" RUNE_DIRS_ROOT="$W/dirs-$theme" target/perf/runemd "$open" \
@@ -47,4 +47,4 @@ for theme in dark light; do
     case "$line" in "rune-mark ready"*) burst ;; esac
   done
 done
-echo "foto: $W/worst-dark.png $W/worst-light.png"
+echo "photos: $W/worst-dark.png $W/worst-light.png"

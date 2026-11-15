@@ -1,13 +1,13 @@
 #!/bin/sh
-# Cmd+A, Cmd+C copiano tutto il Markdown sorgente, anche con le righe fuori vista.
+# Cmd+A, Cmd+C copy all the Markdown source, also with rows out of view.
 # uso: bench/copy_all.sh [WORKDIR]
 #
-# 1. Verifica vincolante: i test headless di `src/ui/doc_view.rs` (`copy_*`) aprono il documento
-#    nella vista dell'app e leggono la clipboard di prova di Rune dopo Cmd+A, Cmd+C.
-# 2. App vera: `--script` fa Cmd+A, Cmd+C su `fixtures/big.md`, poi `pbpaste | diff`. Con lo
-#    schermo bloccato la clipboard di sistema può non cambiare: lo script lo dice.
-# Esce 0 se test e diff passano, 1 se un test o il diff falliscono, 2 se l'app non ha scritto
-# la clipboard (non verificato).
+# 1. Binding check: the headless tests in `src/ui/doc_view.rs` (`copy_*`) open the document
+#    in the app view and read Rune's test clipboard after Cmd+A, Cmd+C.
+# 2. Real app: `--script` does Cmd+A, Cmd+C on `fixtures/big.md`, then `pbpaste | diff`. With the
+#    screen locked the system clipboard may not change: the script says so.
+# Exits 0 if tests and diff pass, 1 if a test or the diff fails, 2 if the app did not write
+# the clipboard (not verified).
 set -eu
 cd "$(dirname "$0")/.."
 cargo test --profile perf ui::doc_view::tests::copy_
@@ -17,7 +17,7 @@ printf 'sentinella' | pbcopy
 target/perf/runemd fixtures/big.md --script tests/scripts/copy_all.json --scale 1 --fps 30 \
   --at mark:copied+0.2 --tree "$W/tree.json" >/dev/null 2>&1
 if [ "$(pbpaste | head -c 10)" = "sentinella" ]; then
-  echo "app: non verificato: clipboard di sistema non scritta (schermo bloccato?); vale il test headless" >&2
+  echo "app: not verified: system clipboard not written (screen locked?); the headless test counts" >&2
   exit 2
 fi
-pbpaste | diff - fixtures/big.md && echo "app: diff vuoto"
+pbpaste | diff - fixtures/big.md && echo "app: empty diff"
