@@ -223,8 +223,8 @@ linee solo decorative e i riempimenti. I test falliscono se un minimo non è ris
 | `mark` su panel (anello dei risultati di Cerca, segno "cambiato") | 1,19 | 3,89 | 1,22 | 3,52 | 3 |
 | `mark` su `sel` (anello di Cerca, lato interno) | 1,27 | 3,34 | 1,22 | 3,27 | 3 |
 | Anello del risultato attivo su `sel` (`fg-3` prima, `fg-2` dopo) | 5,73 | 8,30 | 6,42 | 9,38 | 3 |
-| Anello "sta scrivendo" sulla barra delle schede (pixel, minimo; vedi sotto) | — | 4,62 | 3,17 | 4,86 | 3 |
-| Anello "sta scrivendo" sul riempimento `sel` della scheda (pixel, minimo) | — | 3,44 | 2,78 | 4,26 | 3 |
+| Anello "sta scrivendo" sulla barra delle schede (pixel, minimo, banda 5 px; vedi sotto) | — | 5,01 | 3,17 | 4,74 | 3 |
+| Anello "sta scrivendo" sul riempimento `sel` della scheda (pixel, minimo, banda 5 px) | — | 3,73 | 2,78 | 4,16 | 3 |
 | Fuoco della tastiera su vetro | 1,77 | 3,66 | 1,68 | 3,17 | 3 |
 | Fuoco della tastiera su panel | 2,13 | 6,78 | 1,97 | 8,80 | 3 |
 | Impostazioni: scelta fatta e sua spunta (`fg`) su panel + `sel` | — | 12,53 | — | 14,94 | 4,5 |
@@ -270,6 +270,14 @@ linee solo decorative e i riempimenti. I test falliscono se un minimo non è ris
   `docs/proof/ring-light-before.png`, `docs/proof/ring-light-after.png`. Nello scuro il metallo resta il cromo;
   con lo stesso script sulla scheda di `bench/worst_case.sh` dà minimo 4,43 sulla barra e 3,30 sul `sel`
   (mediane 10,66 e 7,93).
+- I numeri sopra sono dell'anello di 1,5 px (banda di 3 px a scala 2). Con l'anello di 2,5 px (`fx::ring::RING_W`,
+  commit 94c9fa9) la banda è 5 px (`bench/ring_contrast.py`, default; 15/11/2026, `bench/worst_case.sh`, scheda a
+  258,16,240×28 pt, due run con lo stesso fotogramma): scuro minimo 5,01 sulla barra e 3,73 sul `sel` (mediane 13,92
+  e 10,36), chiaro 4,74 e 4,16 (mediane 13,87 e 12,16); ≥ 3:1 su tutto il perimetro in tutti e due i temi. Rispetto
+  ai valori di prima lo scuro sale (4,62 → 5,01, 3,44 → 3,73), il chiaro scende di poco (4,86 → 4,74, 4,26 → 4,16),
+  sempre sopra 3. Sullo stesso fotogramma la banda di 3 px darebbe scuro 3,15/2,34 e chiaro 2,43/2,13: vede solo i 3 px
+  interni dell'anello, non tutto il suo spessore. Prove: `docs/proof/ring-2-5px-dark.png`,
+  `docs/proof/ring-2-5px-light.png`.
 - Il nome doppio (repo o cartella) è in `fg-2` sulla riga scelta di ⌘P: in `fg-3` sul `sel` scendeva a 3,2:1.
 - Ogni testo piccolo dentro una riga che prende `sel` in hover sul vetro (seconda riga di Recenti, cioè cartella o
   repo e tempo; nome doppio di ⌘P; link "Apri Impostazioni di Sistema") è in `fg-2` (`sidebar::row_meta`): con i grigi del pannello `fg-3` su vetro + `sel`
