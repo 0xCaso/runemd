@@ -311,6 +311,10 @@ l'etichetta in parole (Nota, Suggerimento, Importante, Attenzione, Pericolo), 13
 `fg-2` 6 prima; 6 sotto l'etichetta, sulla stessa linea della citazione. Il segno `[!NOTE]` non si vede. Nessun
 colore: il tipo lo dicono parola e icona.
 
+**Note a piè di pagina** (`[^1]`): nel testo il numero in apice, in ordine di primo riferimento; le definizioni
+non si disegnano dove sono scritte ma in fondo al file, sotto una linea di 0,5 in `line` e 12 di spazio, come lista
+numerata a 13,5 in `fg-2`. Un riferimento senza definizione resta scritto com'è.
+
 ## Layout
 
 - Finestra: sidebar di vetro larga 248 px a sinistra; il pannello del documento sta a 8 px dai bordi alto,

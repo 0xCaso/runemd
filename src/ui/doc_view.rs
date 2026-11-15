@@ -112,6 +112,8 @@ pub struct Meta {
     pub label: Color,
     pub icon: Color,
     pub rule: Color,
+    /// La linea sopra le note a piè di pagina (`line`).
+    pub line: Color,
 }
 
 /// Un rettangolo della vista del documento, in punti della finestra.
@@ -156,6 +158,7 @@ pub fn rows_version(doc: &Document) -> (u64, u64, u64) {
 pub fn view<S: 'static>(s: &S, doc_of: fn(&S) -> &Document, style: &MarkdownStyle, column: f32, on_rows: fn(&mut S, u64, Range<usize>) -> bool, signals: Signals<S>) -> El {
     let doc = doc_of(s);
     let generation = doc.id;
+    let notes = footnotes(&doc.notes, style, signals.fonts, signals.meta, column);
     let style = style.clone();
     let blocks: Arc<[(u64, Arc<str>)]> = doc.blocks.iter().map(|b| (b.id, b.source.clone())).collect();
     let file = File { path: doc.path.clone(), hash: doc.file_hash };
@@ -173,6 +176,8 @@ pub fn view<S: 'static>(s: &S, doc_of: fn(&S) -> &Document, style: &MarkdownStyl
             move |s: &S, i| Cow::Owned(row_key(i, doc_of(s))),
             move |s: &S, i| match doc_of(s).blocks.get(i) {
                 Some(b) if i == 0 && crate::doc::frontmatter::is_block(&b.source) => frontmatter_row(&b.source, signals.meta),
+                // Le definizioni delle note si disegnano in fondo (`footnotes`).
+                Some(b) if crate::doc::footnotes::definitions(&b.source).is_some() => el().w_full(),
                 Some(b) => {
                     let doc = doc_of(s);
                     let mut hits = (signals.hits)(s, b, &row_key(i, doc));
@@ -182,7 +187,7 @@ pub fn view<S: 'static>(s: &S, doc_of: fn(&S) -> &Document, style: &MarkdownStyl
                         hits.push((vec![c.at.anchor.clone()], clear.clone().key(caret_key(doc.id))));
                         hits.push((vec![c.at.end.clone()], clear.key(caret_end_key(doc.id))));
                     }
-                    let row = block_row(&b.source, &style, signals.fonts, signals.meta, (signals.marked)(s, b.id).then_some(signals.mark), hits);
+                    let row = block_row(&b.source, &style, &doc.notes, signals.fonts, signals.meta, (signals.marked)(s, b.id).then_some(signals.mark), hits);
                     match caret {
                         Some(c) => caret_row(row, c),
                         None => row,
@@ -197,7 +202,7 @@ pub fn view<S: 'static>(s: &S, doc_of: fn(&S) -> &Document, style: &MarkdownStyl
     let edge = signals.edge;
     // Gli `on_layout` dicono solo dove sono vista e pagina: la vista rigira solo se cambia ciò
     // che mostra (`live_only` altrimenti), non a ogni frame di scroll.
-    let page = col().w_full().child(el().h(TOP)).child(rows).child(bottom).on_layout_tx(move |s: &mut S, r, tx: &mut rune::Tx| {
+    let page = col().w_full().child(el().h(TOP)).child(rows).children(notes).child(bottom).on_layout_tx(move |s: &mut S, r, tx: &mut rune::Tx| {
         if !edge(s, generation, Edge::Page(r)) {
             tx.live_only();
         }
@@ -334,11 +339,17 @@ const FRONTMATTER_PAD_Y: f32 = 10.0;
 
 /// Una riga del documento, con i segni di Cerca `hits`; con `mark` ha il segno "cosa è cambiato"
 /// nel margine sinistro, fuori dal flusso (il testo non si sposta), alto quanto il testo del blocco.
-fn block_row(source: &str, style: &MarkdownStyle, fonts: super::markdown_style::Fonts, meta: Meta, mark: Option<Color>, hits: super::find::Marks) -> El {
+fn block_row(source: &str, style: &MarkdownStyle, notes: &crate::doc::footnotes::Notes, fonts: super::markdown_style::Fonts, meta: Meta, mark: Option<Color>, hits: super::find::Marks) -> El {
     // Un callout (`> [!NOTE]`) si disegna senza la riga del segno, con l'etichetta sopra.
     let callout = crate::doc::callout::of(source);
     let (source, hits) = match &callout {
         Some(c) => (c.text.as_str(), hits.into_iter().map(|(ranges, hl)| (ranges.iter().map(|r| c.map(r)).collect(), hl)).collect()),
+        None => (source, hits),
+    };
+    // Le note a piè di pagina: il numero in apice al posto di `[^1]`.
+    let numbered = notes.shown(source);
+    let (source, hits) = match &numbered {
+        Some(e) => (e.text.as_str(), hits.into_iter().map(|(ranges, hl)| (ranges.iter().map(|r| e.map(r)).collect(), hl)).collect()),
         None => (source, hits),
     };
     // Le parole lunghe vanno a capo dopo `/ - _ .`, e ovunque solo se più larghe di una riga: il
@@ -364,6 +375,23 @@ fn block_row(source: &str, style: &MarkdownStyle, fonts: super::markdown_style::
         None => row,
     }
 }
+
+/// Le note a piè di pagina in fondo al file: una linea in `line`, poi le note numerate a 13,5 in
+/// `fg2`, nella colonna del testo. Nessun elemento se non ce ne sono.
+fn footnotes(notes: &crate::doc::footnotes::Notes, style: &MarkdownStyle, fonts: super::markdown_style::Fonts, meta: Meta, column: f32) -> Option<El> {
+    if notes.is_empty() {
+        return None;
+    }
+    let size = super::theme::CODE_TEXT * fonts.body.size / super::theme::BODY_TEXT;
+    let font = TextStyle { size, line_height: size * super::theme::BODY_LEADING, ..fonts.body };
+    let list: String = notes.list.iter().enumerate().map(|(i, n)| format!("{}. {n}\n", i + 1)).collect();
+    let body = rune_kit::Markdown::new(list).selectable(true).render(&style.clone().body_font(font).text(meta.text));
+    let block = col().w_full().px(ROW_PAD_X).py(ROW_PAD_Y).gap(FOOTNOTES_GAP).child(el().w_full().h(super::theme::HAIRLINE).fill(meta.line)).child(body);
+    Some(super::theme::column(col().key("footnotes").w_full(), column).self_center().child(block))
+}
+
+/// Fra la linea e le note.
+const FOOTNOTES_GAP: f32 = 12.0;
 
 /// L'etichetta di un callout: icona 14 in `fg2` e parola 13/600 in `fg`, sulla linea della
 /// citazione (2 pt, 12 prima del testo, come quella del kit), senza colori (DESIGN.md).
@@ -1298,6 +1326,21 @@ mod tests {
             }
             assert!(texts.iter().any(|t| t.contains("Un avviso.")), "{texts:?}");
         }
+    }
+
+    /// Le note a piè di pagina: il numero in alto nel testo, le note in fondo al file sotto una
+    /// linea, non dove sono scritte.
+    #[test]
+    fn footnotes_show_a_number_and_go_to_the_end() {
+        let src = "Una nota[^1] qui.\n\n[^1]: Il testo della nota.\n\nDopo la nota.\n";
+        let rt = open_themed(src, true);
+        let els = rt.elements();
+        let texts: Vec<String> = els.iter().filter_map(|e| e.text.as_deref()).map(|t| t.replace(['\u{2066}', '\u{2069}'], "")).collect();
+        assert!(!texts.iter().any(|t| t.contains("[^")), "{texts:?}");
+        assert!(texts.iter().any(|t| t.contains("Una nota¹ qui.")), "{texts:?}");
+        let y = |needle: &str| els.iter().find(|e| e.text.as_deref().is_some_and(|t| t.replace(['\u{2066}', '\u{2069}'], "").contains(needle))).map(|e| e.rect[1]).unwrap_or_else(|| panic!("manca {needle}: {texts:?}"));
+        assert!(y("Il testo della nota.") > y("Dopo la nota."), "la nota va in fondo");
+        assert!(els.iter().any(|e| e.key.as_deref() == Some("footnotes")));
     }
 
     /// Le parole lunghe (fixtures/long-title.md: titolo-percorso, paragrafo, hash senza

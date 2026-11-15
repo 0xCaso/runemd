@@ -37,6 +37,8 @@ pub struct Document {
     pub revision: u64,
     pub blocks: Vec<Block>,
     pub file_hash: u64,
+    /// Le note a piè di pagina dei blocchi (`doc::footnotes`), rifatte a ogni revisione.
+    pub notes: Arc<super::footnotes::Notes>,
     /// Se la selezione corrente è un Cmd+A (`ui::doc_view`); condiviso con le closure della vista.
     pub select_all: Arc<SelectAllFlag>,
     next_id: u64,
@@ -56,11 +58,13 @@ impl Document {
             revision: 0,
             blocks: Vec::new(),
             file_hash: ids::hash_str(source),
+            notes: Arc::default(),
             select_all: Arc::default(),
             next_id: 1,
         };
         let (blocks, _) = ids::assign(&[], ids::hash_sources(blocks::split(source)), &mut doc.next_id);
         doc.blocks = blocks;
+        doc.notes = Arc::new(super::footnotes::Notes::of(doc.blocks.iter().map(|b| &*b.source)));
         doc
     }
 
@@ -80,6 +84,7 @@ impl Document {
             return None;
         }
         self.blocks = p.blocks;
+        self.notes = Arc::new(super::footnotes::Notes::of(self.blocks.iter().map(|b| &*b.source)));
         self.file_hash = p.file_hash;
         self.next_id = p.next_id;
         self.revision += 1;
