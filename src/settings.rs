@@ -104,6 +104,9 @@ pub struct Settings {
     /// La sidebar e l'indice dei titoli: larghezza e larghezze imparate (`panes`).
     pub sidebar: Pane,
     pub outline: Pane,
+    /// Le cartelle salvate nella sidebar, nell'ordine in cui si sono salvate (record
+    /// `2026-11-15-cartelle-al-posto-albero`, vincolo 4).
+    pub saved: Vec<PathBuf>,
 }
 
 impl Default for Settings {
@@ -121,6 +124,7 @@ impl Default for Settings {
             column: DEFAULT_COLUMN,
             sidebar: Pane::new(panes::SIDEBAR),
             outline: Pane::new(panes::OUTLINE),
+            saved: Vec::new(),
         }
     }
 }
@@ -148,6 +152,7 @@ const FIRE_COLOR: &str = "fire_color";
 const COLUMN: &str = "column";
 const SIDEBAR: &str = "sidebar";
 const OUTLINE: &str = "outline";
+const SAVED: &str = "saved_folders";
 
 impl Settings {
     /// Le impostazioni salvate in `prefs`; i valori che mancano o non valgono prendono il default.
@@ -175,6 +180,7 @@ impl Settings {
                 .unwrap_or(d.column),
             sidebar: prefs.get::<Pane>(SIDEBAR).map_or(d.sidebar, |p| p.sanitized(panes::SIDEBAR)),
             outline: prefs.get::<Pane>(OUTLINE).map_or(d.outline, |p| p.sanitized(panes::OUTLINE)),
+            saved: prefs.get(SAVED).unwrap_or(d.saved),
         }
     }
 
@@ -191,7 +197,8 @@ impl Settings {
         prefs.set(FIRE_COLOR, &self.fire_color)?;
         prefs.set(COLUMN, &self.column)?;
         prefs.set(SIDEBAR, &self.sidebar)?;
-        prefs.set(OUTLINE, &self.outline)
+        prefs.set(OUTLINE, &self.outline)?;
+        prefs.set(SAVED, &self.saved)
     }
 
     /// La larghezza dopo quella di adesso in `COLUMNS`, nella direzione `step` (−1 o +1); ferma
@@ -242,6 +249,22 @@ impl Settings {
         let before = self.roots.len();
         self.roots.retain(|r| !same(r, root));
         self.roots.len() != before
+    }
+
+    /// Salva la cartella `root` nella sidebar, in fondo, se non c'è già. Vero se è cambiato.
+    pub fn save_folder(&mut self, root: &Path) -> bool {
+        if self.saved.iter().any(|r| same(r, root)) {
+            return false;
+        }
+        self.saved.push(root.to_owned());
+        true
+    }
+
+    /// Toglie la cartella salvata `root`. Vero se c'era.
+    pub fn unsave_folder(&mut self, root: &Path) -> bool {
+        let before = self.saved.len();
+        self.saved.retain(|r| !same(r, root));
+        self.saved.len() != before
     }
 
     /// La dimensione dopo quella di adesso nella direzione `step` (−1 o +1); ferma ai capi.
@@ -354,6 +377,7 @@ mod tests {
             column: 920.0,
             sidebar: Pane { width: 300.0, learned: vec![300.0, 210.0] },
             outline: Pane { width: 240.0, learned: vec![240.0] },
+            saved: vec![PathBuf::from("/a/runemd")],
         };
         s.save(&mut prefs).unwrap();
         assert_eq!(Settings::load(&prefs), s);
@@ -494,6 +518,29 @@ mod tests {
         assert!(!ThemePref::System.dark(false));
         assert!(!ThemePref::Light.dark(true));
         assert!(ThemePref::Dark.dark(false));
+    }
+
+    /// Le cartelle salvate restano fra un avvio e l'altro, nel loro ordine (record
+    /// `2026-11-15-cartelle-al-posto-albero`, vincolo 4); una cartella si salva una volta e si toglie.
+    #[test]
+    fn saved_folders_round_trip_through_prefs_json() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("prefs.json");
+        let mut s = Settings::default();
+        assert!(s.save_folder(Path::new("/b/note")));
+        assert!(s.save_folder(Path::new("/a/runemd")));
+        assert!(!s.save_folder(Path::new("/b/note")), "già salvata");
+        s.save(&mut Prefs::at(&path)).unwrap();
+        let back = Settings::load(&Prefs::at(&path));
+        assert_eq!(back.saved, [PathBuf::from("/b/note"), PathBuf::from("/a/runemd")]);
+        let raw = std::fs::read_to_string(&path).unwrap();
+        assert!(raw.contains("saved_folders"), "{raw}");
+        let mut back = back;
+        assert!(back.unsave_folder(Path::new("/b/note")));
+        assert!(!back.unsave_folder(Path::new("/b/note")));
+        back.save(&mut Prefs::at(&path)).unwrap();
+        assert_eq!(Settings::load(&Prefs::at(&path)).saved, [PathBuf::from("/a/runemd")]);
+        assert!(Settings::load(&Prefs::memory()).saved.is_empty(), "di default nessuna");
     }
 
     #[test]

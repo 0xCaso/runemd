@@ -1,8 +1,10 @@
 //! La sidebar (DESIGN.md, "Layout" e "Riga della sidebar"): campo "Apri file ⌘P", "Recenti" su
-//! due righe e, sotto una linea, il repo del file aperto (nome, branch) con il suo albero.
+//! due righe e, sotto una linea, le cartelle salvate, ognuna con il suo albero; la cartella del
+//! file aperto si apre da sola, con "Salva" se non è salvata (record
+//! `2026-11-15-cartelle-al-posto-albero`). In fondo "Aggiungi cartella".
 //!
-//! Lo stato (`Sidebar`) si ricalcola solo quando cambia l'indice, il file aperto o il branch:
-//! la vista legge righe già pronte, senza toccare il disco. L'albero del repo viene dall'indice
+//! Lo stato (`Sidebar`) si ricalcola solo quando cambia l'indice, il file aperto, le salvate o il
+//! branch: la vista legge righe già pronte, senza toccare il disco. Gli alberi vengono dall'indice
 //! (solo cartelle con Markdown, spec "Sidebar"), non da una lettura del disco.
 
 use std::borrow::Cow;
@@ -16,7 +18,7 @@ use rune_kit::{FileNode, FileTree, TreeModel, glyphs};
 use super::quick_open::{self, QuickOpen};
 use super::relative_time;
 use super::theme::{
-    CHEVRON, EASE_OUT, FIELD_H, HAIRLINE, HOVER_FADE, ICON, PRESS_SCALE,
+    CHEVRON, EASE_OUT, HAIRLINE, HOVER_FADE, ICON, PRESS_SCALE,
     PRESS_TIME, R_ROW, ROW, ROW_GAP, ROW_PAD, SECTION_PAD_BOTTOM, SECTION_PAD_TOP, SIDEBAR_BOTTOM,
     SIDEBAR_PAD, SIDEBAR_TOP, TREE_INDENT, TREE_ROW, TREE_ROW_PAD, Theme, UI_SMALL, UI_SMALL_WEIGHT, UI_STRONG_WEIGHT, UI_TEXT, UI_WEIGHT,
 };
@@ -30,8 +32,6 @@ pub const RECENT_MAX: usize = 20;
 pub const RECENT_SHARE: f32 = 0.4;
 /// Lo spazio fra le righe di Recenti, con o senza anelli (`recent-gap`).
 pub const RECENT_GAP: f32 = 3.0;
-/// Sopra e sotto le due righe della riga del repo (nome e branch).
-const REPO_PAD_Y: f32 = 4.0;
 /// Una riga di Recenti è alta così (`recent-row`): il nome sopra, cartella o repo e ora sotto
 /// (record `2026-11-15-recenti-due-righe`, mockup A).
 pub const RECENT_ROW: f32 = 44.0;
@@ -39,8 +39,6 @@ pub const RECENT_ROW: f32 = 44.0;
 pub const RECENT_NAME_LH: f32 = 16.0;
 pub const RECENT_META_LH: f32 = 15.0;
 pub const RECENT_LINE_GAP: f32 = 2.0;
-/// Il repo con il branch sotto è alto almeno quanto una riga di Recenti; senza branch, quanto il campo.
-const REPO_HEAD_H: f32 = RECENT_ROW;
 /// Fra l'icona del branch e il branch.
 const BRANCH_GAP: f32 = 4.0;
 /// Il branch ha l'icona più piccola delle altre (mockup A, 12 contro 14).
@@ -71,9 +69,24 @@ pub static BRANCH_ICON_GLYPH: Icon = Icon {
     body: r#"<circle cx="4.5" cy="3.5" r="1.75" stroke="currentColor" stroke-width="1.2"/><circle cx="4.5" cy="12.5" r="1.75" stroke="currentColor" stroke-width="1.2"/><circle cx="11.5" cy="5" r="1.75" stroke="currentColor" stroke-width="1.2"/><path d="M4.5 5.25V10.75M11.5 6.75C11.5 9.75 4.5 8.35 4.5 10.75" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>"#,
 };
 
-/// La linea guida del livello 0 sta sotto il centro dell'icona del repo; ogni livello ne aggiunge
+/// La linea guida del livello 0 sta sotto la freccia della radice; ogni livello ne aggiunge
 /// una `TREE_INDENT` più a destra, sotto la freccia della cartella sopra.
-const GUIDE_X: f32 = ROW_PAD + ICON / 2.0;
+const GUIDE_X: f32 = TREE_ROW_PAD + CHEVRON / 2.0;
+/// "Salva" e "Togli": 6 pt ai lati, 1 sopra e sotto, raggio 4 (mockup "al posto", `.pin`).
+const CHIP_PAD_X: f32 = 6.0;
+const CHIP_PAD_Y: f32 = 1.0;
+const CHIP_R: f32 = 4.0;
+/// Il nome di una radice non si stringe e arriva fino a 120 pt (mockup "al posto", `.froot .rn`,
+/// `flex:none`): si stringe il branch, a cui restano almeno 48 pt.
+const ROOT_NAME_MAX: f32 = 120.0;
+const ROOT_BRANCH_MIN: f32 = 48.0;
+
+/// La larghezza massima del nome di una radice in una sidebar larga `width`: `ROOT_NAME_MAX`, o
+/// meno se la riga non ci sta con freccia, icona e `ROOT_BRANCH_MIN` per il branch.
+fn root_name_max(width: f32) -> f32 {
+    let room = width - 2.0 * SIDEBAR_PAD - 2.0 * TREE_ROW_PAD - CHEVRON - ICON - 3.0 * ROW_GAP - ROOT_BRANCH_MIN;
+    room.clamp(0.0, ROOT_NAME_MAX)
+}
 /// Le righe di livello `d` partono da qui (+ `d * TREE_INDENT`): la freccia della cartella cade
 /// sulla linea guida del livello sotto.
 const TREE_X: f32 = GUIDE_X + TREE_INDENT - TREE_ROW_PAD - CHEVRON / 2.0;
@@ -120,6 +133,98 @@ fn parent_name(path: &Path) -> String {
     path.parent().map(file_name).unwrap_or_default()
 }
 
+/// Una radice sotto Recenti: una cartella salvata, o quella del file aperto non salvata (con
+/// "Salva"). Il suo albero ha solo le cartelle con un Markdown, anche più giù.
+pub struct Folder {
+    pub root: PathBuf,
+    pub name: String,
+    pub branch: Option<String>,
+    /// La radice ha un `.git`: icona del repo e branch.
+    pub git: bool,
+    pub saved: bool,
+    /// La radice è aperta: le sue righe si vedono.
+    pub expanded: bool,
+    pub tree: TreeModel<FileNode<PathBuf>>,
+    /// I file da cui è costruito l'albero, per non ricostruirlo se non cambiano.
+    files: Vec<PathBuf>,
+    /// Le cartelle aperte, per tenerle aperte quando l'albero si ricostruisce.
+    open_dirs: HashSet<String>,
+}
+
+impl Folder {
+    /// Una radice nuova, chiusa. Il disco si legge qui (`.git`, branch), una volta per radice.
+    fn new(root: PathBuf, saved: bool, repo: Option<&Repo>) -> Folder {
+        let git = root.join(".git").exists();
+        let (name, branch) = match repo.filter(|r| r.root == root) {
+            Some(r) => (r.name.clone(), r.branch.clone()),
+            None => (file_name(&root), if git { repo::branch(&root) } else { None }),
+        };
+        Folder { root, name, branch: branch.filter(|_| git), git, saved, expanded: false, tree: TreeModel::default(), files: Vec::new(), open_dirs: HashSet::new() }
+    }
+
+    /// Tutto ciò che sta sotto si vede per una cartella salvata o un repo; la cartella non salvata
+    /// di un file fuori da un repo mostra solo i suoi file (un `~/Desktop/nota.md` non porta tutto
+    /// il Desktop).
+    fn recursive(&self) -> bool {
+        self.saved || self.git
+    }
+
+    /// Ricostruisce l'albero se i suoi file sono cambiati (non per un mtime). Vero se è cambiato.
+    fn refresh(&mut self, index: &Index, open: Option<&Path>) -> bool {
+        let files = shown_files(index.under(&self.root), &self.root, self.recursive(), open);
+        if !self.tree.is_empty() && files.iter().copied().eq(self.files.iter().map(PathBuf::as_path)) {
+            return false;
+        }
+        let files: Vec<PathBuf> = files.into_iter().map(Path::to_path_buf).collect();
+        let root = &self.root;
+        let rel = |p: &PathBuf| p.strip_prefix(root).ok().map(|r| (r.to_string_lossy().into_owned(), p.clone()));
+        let mut tree = FileTree::new().compact_folders(false).key("repo-tree").build(files.iter().filter_map(rel));
+        for id in &self.open_dirs {
+            tree.set_expanded(id, true);
+        }
+        if let Some(id) = open.and_then(|o| self.id_of(o)) {
+            tree.select(&id);
+        }
+        self.tree = tree;
+        self.files = files;
+        true
+    }
+
+    /// L'id nell'albero di `path` (relativo alla radice), se ci sta sotto.
+    fn id_of(&self, path: &Path) -> Option<String> {
+        let rel = path.strip_prefix(&self.root).ok()?;
+        Some(rel.to_string_lossy().into_owned())
+    }
+
+    /// Le righe che si vedono: la radice e, se aperta, il suo albero.
+    fn rows(&self) -> usize {
+        1 + if self.expanded { self.tree.visible_len() } else { 0 }
+    }
+}
+
+/// Una cartella nascosta (`.worktrees`, `.claude`): fuori dall'albero.
+fn hidden(name: &std::ffi::OsStr) -> bool {
+    name.to_string_lossy().starts_with('.')
+}
+
+/// I file da mostrare sotto `root` (record `2026-11-15-cartelle-al-posto-albero`, vincolo 3):
+/// l'indice ha solo Markdown, quindi le cartelle senza Markdown, anche vuote, non entrano; fuori
+/// le cartelle nascoste e, se non `recursive`, le sottocartelle. Il file aperto `open` c'è sempre
+/// se sta sotto `root`, anche in una cartella nascosta o prima della scansione.
+fn shown_files<'a>(under: &'a [crate::index::Entry], root: &Path, recursive: bool, open: Option<&'a Path>) -> Vec<&'a Path> {
+    let shown = |p: &Path| {
+        let Some(dir) = p.strip_prefix(root).ok().and_then(Path::parent) else { return false };
+        if recursive { !dir.iter().any(hidden) } else { dir.as_os_str().is_empty() }
+    };
+    let mut files: Vec<&Path> = under.iter().map(|e| e.path.as_path()).filter(|p| shown(p)).collect();
+    if let Some(o) = open.filter(|o| o.starts_with(root) && o != &root)
+        && let Err(at) = files.binary_search(&o)
+    {
+        files.insert(at, o);
+    }
+    files
+}
+
 /// Lo stato della sidebar.
 #[derive(Default)]
 pub struct Sidebar {
@@ -137,17 +242,17 @@ pub struct Sidebar {
     repo_names: HashMap<PathBuf, String>,
     /// Il file aperto (canonico, come i percorsi dell'indice).
     open: Option<PathBuf>,
+    /// Il repo del file aperto (o la sua cartella fuori da un repo), con il branch.
     pub repo: Option<Repo>,
-    /// La radice ha un `.git`: senza, l'albero mostra solo i file della cartella del file, non
-    /// tutto ciò che sta sotto (un `~/Desktop/nota.md` non porta tutto il Desktop).
-    in_repo: bool,
-    pub tree: TreeModel<FileNode<PathBuf>>,
-    /// I file da cui è costruito l'albero, per non ricostruirlo se non cambiano.
-    tree_files: Vec<PathBuf>,
-    /// Le cartelle aperte, per tenerle aperte quando l'albero si ricostruisce.
-    open_dirs: HashSet<String>,
-    /// Cresce a ogni cambio delle righe dell'albero: Rune rilegge le chiavi.
+    /// Le cartelle salvate (canoniche), nell'ordine di `Settings::saved`.
+    saved: Vec<PathBuf>,
+    /// Le radici sotto Recenti: le salvate e, in fondo, quella del file aperto se non sta in una
+    /// salvata (record `2026-11-15-cartelle-al-posto-albero`).
+    pub folders: Vec<Folder>,
+    /// Cresce a ogni cambio delle righe sotto Recenti: Rune rilegge le chiavi.
     pub tree_version: u64,
+    /// La radice salvata sotto il puntatore: la sua riga mostra "Togli" al posto del branch.
+    hover_folder: Option<PathBuf>,
     /// La riga premuta adesso (la sua chiave): scala a 0,98 finché il puntatore non si alza.
     pressed: Option<String>,
     /// macOS nega la lettura di una cartella osservata (Desktop): la sidebar lo dice.
@@ -164,30 +269,78 @@ pub struct Sidebar {
 }
 
 impl Sidebar {
-    /// Il file aperto è `path`: repo, branch e albero aperto fino al file. Il disco si legge qui
+    /// Il file aperto è `path`: la sua radice (la salvata più profonda che lo contiene, o il suo
+    /// repo con "Salva") si apre da sola fino al file (vincolo 2). Il disco si legge qui
     /// (`repo::of`), una volta per file aperto.
     pub fn set_open(&mut self, path: &Path, index: &Index) {
         let path = path.canonicalize().unwrap_or_else(|_| path.to_owned());
-        let repo = repo::of(&path);
-        if self.repo.as_ref().map(|r| &r.root) != Some(&repo.root) {
-            self.tree_files.clear();
-            self.open_dirs.clear();
-            self.in_repo = repo.root.join(".git").exists();
+        self.repo = Some(repo::of(&path));
+        self.open = Some(path.clone());
+        self.sync_folders(index);
+        for f in &mut self.folders {
+            f.tree.clear_selection();
         }
-        self.repo = Some(repo);
-        self.open = Some(path);
-        self.refresh_tree(index);
-        if let Some(id) = self.open_id() {
-            self.tree.expand_to(&id);
-            self.tree.select(&id);
-            self.reveal = Some(id.clone());
+        let Some(k) = self.home() else { return };
+        let f = &mut self.folders[k];
+        f.expanded = true;
+        if let Some(id) = f.id_of(&path) {
+            f.tree.expand_to(&id);
+            f.tree.select(&id);
             let mut dir = Path::new(&id).parent();
             while let Some(d) = dir.filter(|d| !d.as_os_str().is_empty()) {
-                self.open_dirs.insert(d.to_string_lossy().into_owned());
+                f.open_dirs.insert(d.to_string_lossy().into_owned());
                 dir = d.parent();
             }
-            self.tree_version += 1;
+            self.reveal = Some(flat_id(k, &id));
         }
+        self.tree_version += 1;
+    }
+
+    /// Le cartelle salvate sono queste (canoniche, in ordine): le radici si rifanno, tenendo lo
+    /// stato di quelle che restano.
+    pub fn set_saved(&mut self, saved: Vec<PathBuf>, index: &Index) {
+        self.saved = saved;
+        self.sync_folders(index);
+        self.tree_version += 1;
+    }
+
+    /// La radice del file aperto: la salvata più profonda che lo contiene, o quella non salvata.
+    pub fn home(&self) -> Option<usize> {
+        let open = self.open.as_ref()?;
+        let saved = self.folders.iter().enumerate().filter(|(_, f)| f.saved && open.starts_with(&f.root)).max_by_key(|(_, f)| f.root.components().count());
+        saved.or_else(|| self.folders.iter().enumerate().find(|(_, f)| !f.saved)).map(|(k, _)| k)
+    }
+
+    /// L'albero della radice del file aperto (i test).
+    #[cfg(test)]
+    pub fn tree(&self) -> &TreeModel<FileNode<PathBuf>> {
+        &self.folders[self.home().expect("radice del file aperto")].tree
+    }
+
+    /// Rifà la lista delle radici: le salvate, poi quella del file aperto se nessuna salvata lo
+    /// contiene. Una radice che c'era tiene albero e cartelle aperte (anche passando da non
+    /// salvata a salvata); gli alberi si ricontrollano tutti.
+    fn sync_folders(&mut self, index: &Index) {
+        let mut old: Vec<Folder> = std::mem::take(&mut self.folders);
+        let mut take = |root: &Path, saved: bool, repo: Option<&Repo>| match old.iter().position(|f| f.root == root) {
+            Some(i) => {
+                let mut f = old.swap_remove(i);
+                f.saved = saved;
+                f
+            }
+            None => Folder::new(root.to_owned(), saved, repo),
+        };
+        let mut folders: Vec<Folder> = self.saved.iter().map(|r| take(r, true, self.repo.as_ref())).collect();
+        if let (Some(open), Some(repo)) = (&self.open, &self.repo)
+            && !self.saved.iter().any(|r| open.starts_with(r))
+        {
+            folders.push(take(&repo.root, false, Some(repo)));
+        }
+        let open = self.open.as_deref();
+        for f in &mut folders {
+            f.refresh(index, open);
+        }
+        self.folders = folders;
     }
 
     /// La riga dell'albero del file appena aperto, da portare in vista una volta
@@ -196,29 +349,48 @@ impl Sidebar {
         self.reveal.take()
     }
 
-    /// Nessun file aperto (l'ultima scheda chiusa): il repo sparisce con il suo albero e
-    /// la riga scelta, e il branch non si aggiorna più (la cartella di HEAD può non essere più
-    /// guardata, `live::Live::unfollow`).
+    /// Nessun file aperto (l'ultima scheda chiusa): la radice non salvata sparisce, le salvate
+    /// restano senza riga scelta, e il branch non si aggiorna più (la cartella di HEAD può non
+    /// essere più guardata, `live::Live::unfollow`).
     pub fn clear_open(&mut self) {
         self.open = None;
         self.repo = None;
-        self.in_repo = false;
-        self.tree = TreeModel::default();
-        self.tree_files.clear();
-        self.open_dirs.clear();
+        self.folders.retain(|f| f.saved);
+        for f in &mut self.folders {
+            f.tree.clear_selection();
+        }
         self.tree_version += 1;
     }
 
-    /// L'id nell'albero del file aperto (il percorso relativo alla radice del repo).
-    fn open_id(&self) -> Option<String> {
-        let root = &self.repo.as_ref()?.root;
-        let rel = self.open.as_ref()?.strip_prefix(root).ok()?;
-        Some(rel.to_string_lossy().into_owned())
+    /// Quante righe ci sono sotto Recenti: per ogni radice la sua riga e, se aperta, l'albero.
+    pub fn flat_len(&self) -> usize {
+        self.folders.iter().map(Folder::rows).sum()
+    }
+
+    /// La riga `i` sotto Recenti: la radice `k` e, per una riga dell'albero, la sua posizione
+    /// fra le righe visibili.
+    pub fn flat(&self, mut i: usize) -> Option<(usize, Option<usize>)> {
+        for (k, f) in self.folders.iter().enumerate() {
+            if i < f.rows() {
+                return Some((k, i.checked_sub(1)));
+            }
+            i -= f.rows();
+        }
+        None
+    }
+
+    /// La chiave della riga `i` sotto Recenti (vedi [`flat_id`]).
+    pub fn flat_key(&self, i: usize) -> String {
+        match self.flat(i) {
+            Some((k, None)) => flat_id(k, ""),
+            Some((k, Some(r))) => flat_id(k, self.folders[k].tree.visible_id(r).unwrap_or_default()),
+            None => String::new(),
+        }
     }
 
     /// L'indice è cambiato. `touched` sono i percorsi (file o cartelle) che il cambio riguarda:
-    /// l'albero si ricontrolla solo se uno di essi sta sopra o sotto la radice del repo. Vero se
-    /// la vista cambia.
+    /// un albero si ricontrolla solo se uno di essi sta sopra o sotto la sua radice. Vero se la
+    /// vista cambia.
     pub fn refresh(&mut self, index: &Index, touched: &[PathBuf], now: SystemTime) -> bool {
         let mut changed = self.refresh_recent(index);
         changed |= self.tick(now);
@@ -229,10 +401,15 @@ impl Sidebar {
             changed |= before != (self.quick.hits.clone(), self.quick.selected);
         }
         let near = |root: &Path| touched.iter().any(|p| p.starts_with(root) || root.starts_with(p));
-        if self.repo.as_ref().is_some_and(|r| near(&r.root)) {
-            changed |= self.refresh_tree(index);
+        let open = self.open.as_deref();
+        let mut trees = false;
+        for f in self.folders.iter_mut().filter(|f| near(&f.root)) {
+            trees |= f.refresh(index, open);
         }
-        changed
+        if trees {
+            self.tree_version += 1;
+        }
+        changed | trees
     }
 
     /// La ricerca di Cmd+P è cambiata, o l'indice: ricalcola i risultati. I nomi doppi prendono il
@@ -303,34 +480,15 @@ impl Sidebar {
         changed
     }
 
-    /// Ricostruisce l'albero se i file sotto la radice del repo sono cambiati (non per un mtime).
-    /// Il confronto scorre la parte dell'indice sotto la radice senza copiarla; si copia solo
-    /// quando l'albero va ricostruito.
-    fn refresh_tree(&mut self, index: &Index) -> bool {
-        let Some(root) = self.repo.as_ref().map(|r| r.root.clone()) else { return false };
-        let under = index.under(&root);
-        let in_repo = self.in_repo;
-        let shown = move |p: &&Path| in_repo || p.parent() == Some(root.as_path());
-        // Il file aperto c'è sempre, anche fuori dalle cartelle osservate o prima della scansione.
-        let extra = self.open.as_deref().filter(|o| under.binary_search_by(|e| e.path.as_path().cmp(o)).is_err());
-        let files = || under.iter().map(|e| e.path.as_path()).filter(shown.clone()).chain(extra);
-        if !self.tree.is_empty() && files().eq(self.tree_files.iter().map(PathBuf::as_path)) {
-            return false;
+    /// Ricontrolla tutti gli alberi (i test). Vero se uno è cambiato.
+    #[cfg(test)]
+    fn refresh_trees(&mut self, index: &Index) -> bool {
+        let open = self.open.clone();
+        let changed = self.folders.iter_mut().fold(false, |c, f| f.refresh(index, open.as_deref()) | c);
+        if changed {
+            self.tree_version += 1;
         }
-        let files: Vec<PathBuf> = files().map(Path::to_path_buf).collect();
-        let root = &self.repo.as_ref().expect("repo").root;
-        let rel = |p: &PathBuf| p.strip_prefix(root).ok().map(|r| (r.to_string_lossy().into_owned(), p.clone()));
-        let mut tree = FileTree::new().compact_folders(false).key("repo-tree").build(files.iter().filter_map(rel));
-        for id in &self.open_dirs {
-            tree.set_expanded(id, true);
-        }
-        if let Some(id) = self.open_id() {
-            tree.select(&id);
-        }
-        self.tree = tree;
-        self.tree_files = files;
-        self.tree_version += 1;
-        true
+        changed
     }
 
     /// Un gesto sulla riga `key`: giù la preme, su la rilascia (anche annullato o fuori).
@@ -347,22 +505,43 @@ impl Sidebar {
     }
 
     /// `.git/HEAD` di `root` è cambiato (checkout, anche in un worktree: `Live` guarda la
-    /// cartella di `repo::head_path`): si rilegge il branch. Vero se è cambiato.
+    /// cartella di `repo::head_path`): si rilegge il branch del repo e della sua radice. Vero se
+    /// è cambiato.
     pub fn git_head(&mut self, root: &Path) -> bool {
         let Some(repo) = self.repo.as_mut().filter(|r| r.root == root) else { return false };
         let branch = repo::branch(root);
+        for f in self.folders.iter_mut().filter(|f| f.root == root && f.git) {
+            f.branch = branch.clone();
+        }
         std::mem::replace(&mut repo.branch, branch.clone()) != branch
     }
 
-    /// Apre o chiude la cartella `id` dell'albero.
-    pub fn toggle(&mut self, id: &str) {
-        self.tree.toggle(id);
-        if self.tree.is_expanded(id) {
-            self.open_dirs.insert(id.to_owned());
+    /// Apre o chiude la cartella `id` dell'albero della radice `k`.
+    pub fn toggle(&mut self, k: usize, id: &str) {
+        let Some(f) = self.folders.get_mut(k) else { return };
+        f.tree.toggle(id);
+        if f.tree.is_expanded(id) {
+            f.open_dirs.insert(id.to_owned());
         } else {
-            self.open_dirs.remove(id);
+            f.open_dirs.remove(id);
         }
         self.tree_version += 1;
+    }
+
+    /// Apre o chiude la radice `k`.
+    pub fn toggle_folder(&mut self, k: usize) {
+        if let Some(f) = self.folders.get_mut(k) {
+            f.expanded = !f.expanded;
+            self.tree_version += 1;
+        }
+    }
+
+    /// Il puntatore entra (`on`) o esce dalla riga della radice `root`. Vero se cambia.
+    pub fn hover_folder(&mut self, root: &Path, on: bool) -> bool {
+        let next = if on { Some(root.to_owned()) } else { self.hover_folder.clone().filter(|r| r != root) };
+        let changed = next != self.hover_folder;
+        self.hover_folder = next;
+        changed
     }
 
     /// Ricalcola i tempi relativi a `now`. Vero se un'etichetta è cambiata.
@@ -392,6 +571,12 @@ impl Sidebar {
     }
 }
 
+/// La chiave di una riga sotto Recenti: l'indice della radice e l'id nell'albero (vuoto per la
+/// radice). Le radici salvate possono stare una dentro l'altra: il percorso da solo non basta.
+pub fn flat_id(k: usize, id: &str) -> String {
+    format!("{k}:{id}")
+}
+
 /// Come la vista raggiunge lo stato dell'app e cosa fa un clic.
 pub struct Hooks<S> {
     pub get: fn(&S) -> &Sidebar,
@@ -406,6 +591,10 @@ pub struct Hooks<S> {
     pub query: fn(&mut S),
     /// Cmd+N, Invio: crea il file e lo apre nel sorgente. Vero se il campo si chiude.
     pub create: fn(&mut S, String, &mut Tx) -> bool,
+    /// "Salva" sulla radice del file aperto, o la cartella scelta da "Aggiungi cartella".
+    pub save: fn(&mut S, PathBuf),
+    /// "Togli" sulla riga di una cartella salvata.
+    pub unsave: fn(&mut S, PathBuf),
 }
 
 impl<S> Clone for Hooks<S> {
@@ -452,11 +641,14 @@ pub fn view<S: 'static>(s: &S, hooks: Hooks<S>, width: f32, theme: &Theme, reduc
         }
         side = side.child(section("Recenti", theme)).child(list);
     }
-    if let Some(repo) = &sb.repo {
-        // Niente etichetta: il nome del repo è il titolo dell'albero, sotto una linea.
+    if !sb.folders.is_empty() {
+        // Niente etichetta: le radici sono i titoli dei loro alberi, sotto una linea.
         let sep = el().key("repo-sep").h(HAIRLINE).mx(ROW_PAD).mt(SEP_TOP).mb(SEP_BOTTOM).fill(theme.line);
-        side = side.child(sep).child(repo_row(repo, sb.in_repo, theme)).child(tree(sb, hooks, theme, motion));
+        side = side.child(sep).child(tree(sb, hooks, width, theme, motion));
+    } else {
+        side = side.child(el().grow(1.0).min_h(0.0));
     }
+    side = side.child(add_folder(sb, hooks, theme, motion));
     side
 }
 
@@ -572,60 +764,119 @@ fn recent_row<S: 'static>(s: &S, hooks: Hooks<S>, i: usize, r: &RecentRow, label
     ring_host(e, Mark::RecentRing(i as u32), since, motion.reduced, theme.dark).key(key)
 }
 
-/// Il titolo dell'albero (mockup A): a sinistra l'icona del repo in `fg3`, centrata sulle due
-/// righe; il nome 13/600 in `fg` e sotto l'icona del branch e il branch, 12/400 in `fg3` (la riga
-/// non ha hover, e `fg3` sul vetro sta sopra 4,5:1). Fuori da un repo (`in_repo` falso) è la
-/// cartella del file: icona cartella e nome, senza branch. Non sta al livello dei suoi file.
-fn repo_row(repo: &Repo, in_repo: bool, theme: &Theme) -> El {
-    let glyph = if in_repo { &REPO_ICON } else { &glyphs::FOLDER };
-    let name = text(repo.name.clone()).key("repo-name").font(TextStyle::new(UI_TEXT, UI_STRONG_WEIGHT).lh(RECENT_NAME_LH)).color(theme.fg).truncate().w_full().min_w(0.0);
-    let mut stack = col().gap(1.0).grow(1.0).shrink().min_w(0.0).child(name);
-    let branch = repo.branch.as_ref().filter(|_| in_repo);
-    if let Some(b) = branch {
+/// Il "+" di "Aggiungi cartella", disegnato come le icone del kit (viewBox 16, tratto 1).
+pub static PLUS_ICON: Icon = Icon {
+    name: "runemd-plus",
+    view: 16.0,
+    body: r#"<path d="M8 3V13M3 8H13" stroke="currentColor" stroke-linecap="round"/>"#,
+};
+
+/// Un'azione piccola sulla riga di una radice ("Salva", "Togli"): 12/500 in [`row_meta`] dentro
+/// un bordo `line` da mezzo punto, raggio 4 (mockup "al posto", `.pin`).
+fn chip<S: 'static>(label: &'static str, key: String, root: PathBuf, act: fn(&mut S, PathBuf), theme: &Theme) -> El {
+    text(label)
+        .key(key)
+        .font(small_font())
+        .color(row_meta(theme))
+        .px(CHIP_PAD_X)
+        .py(CHIP_PAD_Y)
+        .radius(CHIP_R)
+        .border(HAIRLINE, theme.line)
+        .on_press(move |s: &mut S| act(s, root.clone()))
+}
+
+/// La riga di una radice (mockup "al posto", `.froot`): freccia, icona del repo (o cartella) in
+/// `fg3`, nome; a destra il branch in `fg3` (stretto per primo) e "Salva" se non è salvata; su
+/// una salvata in hover "Togli" prende il posto del branch (vincoli 2 e 5). Il nome di una salvata è 13/600 in `fg`, quello della non salvata 13/400 in
+/// `fg2`. Un clic apre o chiude la radice.
+fn folder_row<S: 'static>(s: &S, hooks: Hooks<S>, k: usize, width: f32, theme: &Theme, motion: Motion) -> El {
+    let sb = (hooks.get)(s);
+    let Some(f) = sb.folders.get(k) else { return el() };
+    let chevron = icon(&glyphs::CHEVRON_DOWN, CHEVRON).color(theme.fg3).icon_rotation(if f.expanded { 0.0 } else { -std::f32::consts::FRAC_PI_2 });
+    let glyph = if f.git { &REPO_ICON } else { &glyphs::FOLDER };
+    let (weight, color) = if f.saved { (UI_STRONG_WEIGHT, theme.fg) } else { (UI_WEIGHT, row_meta(theme)) };
+    // Il nome non si stringe (fino a `root_name_max`): si stringe il branch.
+    let name = text(f.name.clone()).key(format!("folder-name-{k}")).font(TextStyle::new(UI_TEXT, weight)).color(color).truncate().shrink().min_w(0.0);
+    let name = el().max_w(root_name_max(width)).child(name);
+    let mut e = row()
+        .w_full()
+        .h(TREE_ROW)
+        .px(TREE_ROW_PAD)
+        .gap(ROW_GAP)
+        .center_y()
+        .child(el().size(CHEVRON, CHEVRON).center().child(chevron))
+        .child(icon(glyph, ICON).color(theme.fg3).key(format!("folder-icon-{k}")))
+        .child(name)
+        .child(el().grow(1.0).min_w(0.0));
+    let hovered = motion.hover && sb.hover_folder.as_ref() == Some(&f.root);
+    if f.saved && hovered {
+        e = e.child(chip("Togli", format!("folder-remove-{k}"), f.root.clone(), hooks.unsave, theme));
+    } else if let Some(b) = &f.branch {
         let line = row()
             .gap(BRANCH_GAP)
             .center_y()
-            .w_full()
+            .shrink()
+            .min_w(0.0)
             .child(icon(&BRANCH_ICON_GLYPH, BRANCH_ICON).color(theme.fg3))
-            .child(text(b.clone()).key("repo-branch").font(TextStyle::new(UI_SMALL, UI_WEIGHT).lh(RECENT_META_LH)).color(theme.fg3).truncate_middle().shrink().min_w(0.0));
-        stack = stack.child(line);
+            .child(text(b.clone()).key(format!("folder-branch-{k}")).font(TextStyle::new(UI_SMALL, UI_WEIGHT)).color(theme.fg3).truncate_middle().shrink().min_w(0.0));
+        e = e.child(line);
     }
-    row()
-        .key("repo")
-        .w_full()
-        .min_h(if branch.is_some() { REPO_HEAD_H } else { FIELD_H })
-        .px(ROW_PAD)
-        .py(REPO_PAD_Y)
-        .gap(ROW_GAP)
-        .center_y()
-        .child(icon(glyph, ICON).color(theme.fg3).key("repo-icon"))
-        .child(stack)
+    if !f.saved {
+        e = e.child(chip("Salva", format!("folder-save-{k}"), f.root.clone(), hooks.save, theme));
+    }
+    let root = f.root.clone();
+    let e = e
+        .on_press(move |s: &mut S| (hooks.get_mut)(s).toggle_folder(k))
+        .on_hover_change(move |s: &mut S, on: bool, _: &mut Tx| {
+            (hooks.get_mut)(s).hover_folder(&root, on);
+        });
+    pressable(e, flat_id(k, ""), sb, hooks, theme, motion, true)
 }
 
-/// L'albero del repo: righe da 26 pt, rientro 16, linee guida, cartelle aperte fino al file.
-fn tree<S: 'static>(sb: &Sidebar, hooks: Hooks<S>, theme: &Theme, motion: Motion) -> El {
+/// "Aggiungi cartella" in fondo alla sidebar (mockup "al posto"): il dialogo di macOS e la
+/// cartella scelta si salva.
+fn add_folder<S: 'static>(sb: &Sidebar, hooks: Hooks<S>, theme: &Theme, motion: Motion) -> El {
+    let e = row()
+        .w_full()
+        .h(ROW)
+        .px(ROW_PAD)
+        .gap(ROW_GAP)
+        .center_y()
+        .child(icon(&PLUS_ICON, ICON).color(theme.fg3))
+        .child(text("Aggiungi cartella").font(ui_font()).color(row_meta(theme)).truncate().shrink().min_w(0.0))
+        .on_press_tx(move |_: &mut S, tx: &mut Tx| {
+            let directory = std::env::var_os("HOME").map(PathBuf::from);
+            tx.open_folder(rune::FileDialogOptions { title: "Aggiungi cartella".into(), directory, ..Default::default() }, move |s: &mut S, result, _: &mut Tx| match result {
+                Ok(Some(path)) => (hooks.save)(s, path),
+                Ok(None) => {}
+                Err(e) => eprintln!("runemd: dialogo della cartella: {e}"),
+            });
+        });
+    pressable(e, "add-folder".into(), sb, hooks, theme, motion, true).key("add-folder").mt(SEP_BOTTOM)
+}
+
+/// Le radici e i loro alberi: righe da 26 pt, rientro 16, linee guida, la radice del file aperto
+/// aperta fino al file.
+fn tree<S: 'static>(sb: &Sidebar, hooks: Hooks<S>, width: f32, theme: &Theme, motion: Motion) -> El {
     let theme = *theme;
     let rows = col()
         .key("tree-rows")
         .w_full()
         .growth(GrowthSpec::default())
-        .virtual_rows(
-            sb.tree.visible_len(),
-            TREE_ROW,
-            move |s: &S, i| Cow::Owned((hooks.get)(s).tree.visible_id(i).unwrap_or_default().to_owned()),
-            move |s: &S, i| tree_row(s, hooks, i, &theme, motion),
-        )
+        .virtual_rows(sb.flat_len(), TREE_ROW, move |s: &S, i| Cow::Owned((hooks.get)(s).flat_key(i)), move |s: &S, i| tree_row(s, hooks, i, width, &theme, motion))
         .virtual_rows_version(sb.tree_version);
     col().key("tree").pt(RING_ROOM).w_full().grow(1.0).min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(rows)
 }
 
-fn tree_row<S: 'static>(s: &S, hooks: Hooks<S>, i: usize, theme: &Theme, motion: Motion) -> El {
+fn tree_row<S: 'static>(s: &S, hooks: Hooks<S>, i: usize, width: f32, theme: &Theme, motion: Motion) -> El {
     let sb = (hooks.get)(s);
-    let Some((node, r)) = sb.tree.row(i) else { return el() };
+    let Some((k, at)) = sb.flat(i) else { return el() };
+    let Some(at) = at else { return folder_row(s, hooks, k, width, theme, motion) };
+    let Some((node, r)) = sb.folders[k].tree.row(at) else { return el() };
     let depth = r.depth as f32;
     // A destra lo spazio per l'anello: lo scroll dell'albero taglia ciò che esce dai suoi bordi.
     let mut outer = row().w_full().h(TREE_ROW).pr(RING_ROOM);
-    // Una linea per livello, dal repo fino a quello della riga: insieme fanno linee continue.
+    // Una linea per livello, dalla radice fino a quello della riga: insieme fanno linee continue.
     for level in 0..=r.depth {
         let x = GUIDE_X + level as f32 * TREE_INDENT;
         outer = outer.child(el().key(format!("guide{level}")).pin(Some(x), Some(0.0), None, Some(0.0)).w(HAIRLINE).fill(theme.line));
@@ -652,10 +903,10 @@ fn tree_row<S: 'static>(s: &S, hooks: Hooks<S>, i: usize, theme: &Theme, motion:
             let pin = path.clone();
             e.on_double_press_tx(move |s: &mut S, tx: &mut Tx| (hooks.pin)(s, pin.clone(), tx)).on_press_tx(move |s: &mut S, tx: &mut Tx| (hooks.open)(s, path.clone(), tx))
         }
-        None => e.on_press(move |s: &mut S| (hooks.get_mut)(s).toggle(&id)),
+        None => e.on_press(move |s: &mut S| (hooks.get_mut)(s).toggle(k, &id)),
     };
     // La riga selezionata tiene il suo `sel`: niente hover sopra.
-    let e = pressable(e, format!("tree-{}", r.id), sb, hooks, theme, motion, !r.selected);
+    let e = pressable(e, format!("tree-{}", flat_id(k, r.id)), sb, hooks, theme, motion, !r.selected);
     let since = node.data.as_deref().and_then(|p| (hooks.ring)(s, p));
     // L'ospite è largo quanto la riga: col rientro deve stringersi, o esce dall'albero (nome
     // tagliato senza "…", riempimento e anello senza il lato destro).
@@ -791,14 +1042,9 @@ mod tests {
         for r in &rows {
             assert!((r[3] - RECENT_ROW).abs() < 0.5, "riga di Recenti alta {}", r[3]);
         }
-        let (name, branch) = (rect("repo-name"), rect("repo-branch"));
-        assert!(branch[1] >= name[1] + name[3] - 0.5, "branch sotto il nome: {name:?} {branch:?}");
-        let icon = rect("repo-icon");
-        let mid = |r: [f32; 4]| r[1] + r[3] / 2.0;
-        assert!((mid(icon) - (name[1] + branch[1] + branch[3]) / 2.0).abs() < 1.5, "icona del repo centrata sulle due righe: {icon:?}");
         assert!(els.iter().all(|e| e.key.as_deref() != Some("Repo del file")), "niente etichetta \"Repo del file\"");
         let tree = rect("tree");
-        let id = files[59].clone();
+        let id = flat_id(0, &files[59]);
         let row = rect(&id);
         assert!(row[1] >= tree[1] - 0.5 && row[1] + row[3] <= tree[1] + tree[3] + 0.5, "riga del file aperto fuori vista: {row:?} in {tree:?}");
         let tab = rect(&format!("t-{:x}", rt.state.tabs[0].doc.id));
@@ -846,19 +1092,151 @@ mod tests {
         sb.set_open(&root.join("docs/spike/a.md"), &index);
         let repo = sb.repo.clone().unwrap();
         assert_eq!((repo.name.as_str(), repo.branch.as_deref()), ("proj", Some("main")));
-        let shown: Vec<String> = (0..sb.tree.visible_len()).map(|i| sb.tree.visible_id(i).unwrap().to_owned()).collect();
+        let shown: Vec<String> = (0..sb.tree().visible_len()).map(|i| sb.tree().visible_id(i).unwrap().to_owned()).collect();
         assert_eq!(shown, ["design", "docs", "docs/spike", "docs/spike/a.md", "docs/spike/b.md", "CLAUDE.md"]);
-        assert!(sb.tree.is_selected("docs/spike/a.md"));
-        sb.toggle("design");
+        assert!(sb.tree().is_selected("docs/spike/a.md"));
+        sb.toggle(0, "design");
         let v = sb.tree_version;
         let index = Index::from_entries(files.iter().map(|f| entry(&root.join(f), 2)).collect());
-        assert!(!sb.refresh_tree(&index), "solo mtime");
+        assert!(!sb.refresh_trees(&index), "solo mtime");
         assert_eq!(sb.tree_version, v);
         let mut more: Vec<Entry> = files.iter().map(|f| entry(&root.join(f), 2)).collect();
         more.push(entry(&root.join("docs/new.md"), 3));
-        assert!(sb.refresh_tree(&Index::from_entries(more)));
-        assert!(sb.tree.is_expanded("design") && sb.tree.is_expanded("docs/spike"), "cartelle aperte tenute");
-        assert!(sb.tree.contains("docs/new.md") && sb.tree.is_selected("docs/spike/a.md"));
+        assert!(sb.refresh_trees(&Index::from_entries(more)));
+        assert!(sb.tree().is_expanded("design") && sb.tree().is_expanded("docs/spike"), "cartelle aperte tenute");
+        assert!(sb.tree().contains("docs/new.md") && sb.tree().is_selected("docs/spike/a.md"));
+    }
+
+    /// Una radice con le sue righe aperte, tutte le cartelle aperte: gli id che si vedono.
+    fn all_open(f: &mut Folder) -> Vec<String> {
+        f.expanded = true;
+        f.tree.expand_all();
+        (0..f.tree.visible_len()).map(|i| f.tree.visible_id(i).unwrap().to_owned()).collect()
+    }
+
+    /// Vincolo 3 (`2026-11-15-cartelle-al-posto-albero`): solo le cartelle con un Markdown, anche
+    /// più giù; fuori le vuote, quelle con altri file e le nascoste. Un file aperto in una
+    /// nascosta resta raggiungibile.
+    #[test]
+    fn only_folders_with_markdown_show() {
+        let d = tempfile::tempdir().unwrap();
+        let root = d.path().canonicalize().unwrap().join("Note");
+        for f in ["a/b/c/deep.md", "top.md", "solo-testo/x.txt", ".nascosta/h.md", "a/.bozze/z.md", "vuota/dentro/niente.txt"] {
+            let p = root.join(f);
+            fs::create_dir_all(p.parent().unwrap()).unwrap();
+            fs::write(p, "x").unwrap();
+        }
+        fs::create_dir_all(root.join("vuota-del-tutto")).unwrap();
+        let index = Index::from_entries(crate::index::scan::scan(std::slice::from_ref(&root)));
+        let mut sb = Sidebar::default();
+        sb.set_saved(vec![root.clone()], &index);
+        assert_eq!(all_open(&mut sb.folders[0]), ["a", "a/b", "a/b/c", "a/b/c/deep.md", "top.md"]);
+        sb.set_open(&root.join(".nascosta/h.md"), &index);
+        assert_eq!(sb.home(), Some(0), "la salvata contiene il file");
+        assert!(sb.tree().contains(".nascosta/h.md") && sb.tree().is_selected(".nascosta/h.md"));
+        assert!(!sb.tree().contains("a/.bozze/z.md"));
+    }
+
+    /// Vincolo 2: la radice del file aperto si apre da sola fino al file. Fuori dalle salvate è
+    /// il suo repo, in fondo e non salvato ("Salva"); dentro una salvata è quella (la più
+    /// profonda), senza riga in più. Le altre salvate restano chiuse.
+    #[test]
+    fn the_open_files_folder_opens_by_itself() {
+        let (_d, repo) = repo_with(&["docs/a.md", "README.md"]);
+        let notes = repo.parent().unwrap().join("Note");
+        fs::create_dir_all(notes.join("x")).unwrap();
+        fs::write(notes.join("x/n.md"), "x").unwrap();
+        let index = Index::from_entries(crate::index::scan::scan(&[repo.clone(), notes.clone()]));
+        let mut sb = Sidebar::default();
+        sb.set_saved(vec![notes.clone()], &index);
+        sb.set_open(&repo.join("docs/a.md"), &index);
+        let roots: Vec<(&str, bool, bool)> = sb.folders.iter().map(|f| (f.name.as_str(), f.saved, f.expanded)).collect();
+        assert_eq!(roots, [("Note", true, false), ("proj", false, true)]);
+        assert_eq!(sb.folders[1].branch.as_deref(), Some("main"));
+        assert!(sb.tree().is_selected("docs/a.md") && sb.tree().is_expanded("docs"));
+        assert_eq!(sb.take_reveal().as_deref(), Some("1:docs/a.md"));
+        let keys: Vec<String> = (0..sb.flat_len()).map(|i| sb.flat_key(i)).collect();
+        assert_eq!(keys, ["0:", "1:", "1:docs", "1:docs/a.md", "1:README.md"]);
+        // Un file dentro una salvata: si apre quella, la non salvata sparisce.
+        sb.set_saved(vec![notes.clone(), repo.clone(), repo.join("docs")], &index);
+        sb.set_open(&repo.join("docs/a.md"), &index);
+        assert_eq!(sb.folders.len(), 3);
+        assert_eq!(sb.home(), Some(2), "la salvata più profonda");
+        assert!(sb.folders[2].expanded && sb.tree().is_selected("a.md"));
+        assert!(!sb.folders[1].tree.is_selected("docs/a.md"), "una riga scelta sola");
+        sb.toggle_folder(2);
+        assert!(!sb.folders[2].expanded);
+        assert_eq!(sb.flat_len(), 1 + 1 + sb.folders[1].rows());
+    }
+
+    /// Vincoli 2, 4 e 5 nell'app: "Salva" mette la radice fra le salvate (e in prefs, e fra le
+    /// osservate se nessuna la copre); "Togli" la toglie e la radice del file torna con "Salva".
+    /// In vista: "Salva" sulla non salvata, "Togli" in hover sulla salvata al posto del branch.
+    #[test]
+    fn save_and_remove_from_the_row() {
+        let (_d, repo) = repo_with(&["docs/a.md"]);
+        let mut app = crate::App::bare(crate::index::Library::load(Vec::new(), None));
+        app.settings.saved.clear();
+        app.open_paths(vec![repo.join("docs/a.md")]);
+        assert_eq!(app.sidebar.folders.iter().map(|f| f.saved).collect::<Vec<_>>(), [false]);
+        let mut rt = rune::Runtime::new(app, crate::view, (1280.0, 800.0), rune::Env::new(true, 2.0));
+        rt.frame(0.0);
+        for _ in 0..200 {
+            if !rt.frame(1.0 / 120.0) { break; }
+        }
+        let find = |rt: &rune::Runtime<crate::App>, key: &str| rt.elements().into_iter().find(|e| e.key.as_deref() == Some(key) && !e.exiting);
+        let salva = find(&rt, "folder-save-0").expect("\"Salva\" sulla radice non salvata").rect;
+        let branch = find(&rt, "folder-branch-0").expect("il branch resta").rect;
+        assert!(salva[0] >= branch[0] + branch[2] - 0.5, "\"Salva\" dopo il branch");
+        // La radice su una riga (mockup "al posto"): icona, nome, a destra branch e "Salva".
+        let (name, icon) = (find(&rt, "folder-name-0").unwrap().rect, find(&rt, "folder-icon-0").unwrap().rect);
+        let mid = |r: [f32; 4]| r[1] + r[3] / 2.0;
+        assert!(branch[0] >= name[0] + name[2] - 0.5, "branch a destra del nome: {name:?} {branch:?}");
+        for r in [icon, branch, salva] {
+            assert!((mid(r) - mid(name)).abs() < 1.5, "una riga: {r:?} contro {name:?}");
+        }
+        let (x, y) = (salva[0] + salva[2] / 2.0, salva[1] + salva[3] / 2.0);
+        rt.pointer_move(x, y);
+        rt.pointer_down(x, y);
+        rt.pointer_up(x, y);
+        for _ in 0..200 {
+            if !rt.frame(1.0 / 120.0) { break; }
+        }
+        assert_eq!(rt.state.settings.saved, std::slice::from_ref(&repo));
+        assert!(rt.state.library.roots().contains(&repo), "osservata: il suo albero ha i suoi Markdown");
+        let f = &rt.state.sidebar.folders[0];
+        assert!(f.saved && f.expanded, "la radice resta aperta");
+        assert_eq!(rt.state.sidebar.folders.len(), 1, "niente riga non salvata");
+        // Il puntatore è sopra la riga: "Togli" al posto del branch.
+        assert!(find(&rt, "folder-save-0").is_none());
+        let togli = find(&rt, "folder-remove-0").expect("\"Togli\" in hover").rect;
+        let (x, y) = (togli[0] + togli[2] / 2.0, togli[1] + togli[3] / 2.0);
+        rt.pointer_move(x, y);
+        rt.pointer_down(x, y);
+        rt.pointer_up(x, y);
+        for _ in 0..200 {
+            if !rt.frame(1.0 / 120.0) { break; }
+        }
+        assert!(rt.state.settings.saved.is_empty());
+        let f = &rt.state.sidebar.folders[0];
+        assert!(!f.saved && f.expanded, "torna non salvata, aperta");
+        // Fuori dalla riga torna il branch... sulla salvata; qui la riga non salvata ha "Salva".
+        rt.pointer_move(1000.0, 400.0);
+        rt.frame(1.0 / 120.0);
+        assert!(find(&rt, "folder-save-0").is_some());
+    }
+
+    /// "Togli" compare solo col puntatore sopra; fuori torna il branch.
+    #[test]
+    fn hover_swaps_the_branch_for_remove() {
+        let (_d, repo) = repo_with(&["a.md"]);
+        let mut sb = Sidebar::default();
+        sb.set_saved(vec![repo.clone()], &Index::default());
+        assert!(sb.hover_folder(&repo, true));
+        assert!(!sb.hover_folder(&repo, true), "invariato");
+        assert!(!sb.hover_folder(Path::new("/altro"), false), "un'altra riga non spegne questa");
+        assert!(sb.hover_folder(&repo, false));
+        assert_eq!(sb.hover_folder, None);
     }
 
     /// Chiusa l'ultima scheda non c'è un file aperto: niente repo, niente albero, niente riga
@@ -871,7 +1249,7 @@ mod tests {
         assert!(sb.repo.is_some());
         sb.clear_open();
         assert!(sb.repo.is_none() && sb.open.is_none());
-        assert!(sb.tree.is_empty());
+        assert!(sb.folders.is_empty(), "la radice non salvata sparisce");
         assert!(!sb.git_head(&root));
     }
 
@@ -911,7 +1289,7 @@ mod tests {
         sb.git_head(&root);
         drop(restore);
         assert_eq!(sb.recent.iter().map(|r| r.name.as_str()).collect::<Vec<_>>(), ["a.md"]);
-        assert!(sb.tree.contains("secret/b.md"));
+        assert!(sb.tree().contains("secret/b.md"));
     }
 
     /// Un risveglio per cambio di etichetta, non uno per poll; se scatta prima del cambio sul
@@ -975,13 +1353,13 @@ mod tests {
         let index = Index::from_entries(vec![entry(&root.join("a.md"), 1), entry(&root.join("new.md"), 2)]);
         sb.refresh(&index, &[PathBuf::from("/altrove/x.md")], at(5));
         assert_eq!(sb.tree_version, v);
-        assert!(!sb.tree.contains("new.md"));
+        assert!(!sb.tree().contains("new.md"));
         sb.refresh(&index, &[root.join("new.md")], at(5));
-        assert!(sb.tree.contains("new.md"));
+        assert!(sb.tree().contains("new.md"));
         // Una scansione di una cartella sopra la radice la riguarda.
         let index = Index::from_entries(vec![entry(&root.join("a.md"), 1), entry(&root.join("new.md"), 2), entry(&root.join("z.md"), 2)]);
         sb.refresh(&index, &[root.parent().unwrap().to_owned()], at(5));
-        assert!(sb.tree.contains("z.md"));
+        assert!(sb.tree().contains("z.md"));
     }
 
     /// Fuori da un repo l'albero mostra solo i file della cartella del file, non le sottocartelle.
@@ -997,7 +1375,7 @@ mod tests {
         let index = Index::from_entries(["note.md", "other.md", "deep/x.md", "proj/docs/y.md"].iter().map(|f| entry(&desk.join(f), 1)).collect());
         let mut sb = Sidebar::default();
         sb.set_open(&desk.join("note.md"), &index);
-        let shown: Vec<String> = (0..sb.tree.visible_len()).map(|i| sb.tree.visible_id(i).unwrap().to_owned()).collect();
+        let shown: Vec<String> = (0..sb.tree().visible_len()).map(|i| sb.tree().visible_id(i).unwrap().to_owned()).collect();
         assert_eq!(shown, ["note.md", "other.md"]);
     }
 

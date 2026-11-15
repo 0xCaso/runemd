@@ -385,7 +385,7 @@ pub struct App {
 
 impl App {
     pub fn new(library: index::Library, settings: Settings, prefs: rune::prefs::Prefs) -> App {
-        App {
+        let mut app = App {
             tabs: Vec::new(),
             active: 0,
             styles: styles_for(&settings),
@@ -414,7 +414,9 @@ impl App {
             spare_edit: TextEdit::default(),
             find: ui::find::Find::default(),
             recovery: edit::recovery::default_dir(),
-        }
+        };
+        app.sync_saved();
+        app
     }
 
     /// Un'app con le impostazioni di default, in memoria (i test).
@@ -570,6 +572,49 @@ impl App {
         self.sidebar.refresh(&self.library.index, &[], std::time::SystemTime::now());
         self.save_settings();
         true
+    }
+
+    /// La sidebar riprende le cartelle salvate delle impostazioni (canoniche).
+    fn sync_saved(&mut self) {
+        let saved = self.settings.saved.iter().map(|r| index::canonical(r)).collect();
+        self.sidebar.set_saved(saved, &self.library.index);
+    }
+
+    /// "Salva" sulla radice del file aperto, o la cartella di "Aggiungi cartella": entra fra le
+    /// salvate (in fondo) e in prefs.json; se nessuna cartella osservata la copre diventa
+    /// osservata (`add_root`), così il suo albero ha i suoi Markdown. Vero se è cambiato.
+    pub fn save_folder(&mut self, root: &Path) -> bool {
+        let root = index::canonical(root);
+        if !root.is_dir() || !self.settings.save_folder(&root) {
+            return false;
+        }
+        if !self.library.roots().iter().any(|r| root.starts_with(r)) {
+            self.add_root(&root);
+        }
+        self.save_settings();
+        self.sync_saved();
+        true
+    }
+
+    /// "Togli" sulla riga di una cartella salvata: esce dalle salvate e da prefs.json. Resta
+    /// osservata (Recenti non perde i suoi file): si toglie dalle impostazioni. Vero se c'era.
+    pub fn unsave_folder(&mut self, root: &Path) -> bool {
+        if !self.settings.unsave_folder(root) {
+            return false;
+        }
+        self.save_settings();
+        self.sync_saved();
+        true
+    }
+
+    /// Hook della sidebar per "Salva" e "Aggiungi cartella".
+    pub fn save_from_sidebar(&mut self, root: PathBuf) {
+        self.save_folder(&root);
+    }
+
+    /// Hook della sidebar per "Togli".
+    pub fn unsave_from_sidebar(&mut self, root: PathBuf) {
+        self.unsave_folder(&root);
     }
 
     /// Cmd+,: apre o chiude il pannello delle impostazioni.

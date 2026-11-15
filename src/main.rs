@@ -59,6 +59,10 @@ fn init() -> App {
     if let Some(w) = std::env::var("RUNEMD_SIDEBAR").ok().and_then(|v| v.parse::<f32>().ok()) {
         settings.sidebar = panes::Pane { width: w, learned: Vec::new() }.sanitized(panes::SIDEBAR);
     }
+    // `RUNEMD_SAVED` (foto e prove, separate da `:`): le cartelle salvate della sessione.
+    if let Some(v) = std::env::var_os("RUNEMD_SAVED") {
+        settings.saved = std::env::split_paths(&v).filter(|p| !p.as_os_str().is_empty()).collect();
+    }
     let t = Instant::now();
     let library = index::Library::load(index::roots_from(&settings.roots), index::cache_path());
     probe::index_cached(t.elapsed(), library.index.len());
@@ -96,7 +100,7 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
     // (e un po' più scuro nel tema chiaro).
     let focus = ui::theme::focus_ring(cx.focus_color(), dark);
     cx.focus_ring(3.0, 0.0, focus);
-    let hooks = ui::sidebar::Hooks { get: |s: &App| &s.sidebar, get_mut: |s: &mut App| &mut s.sidebar, open: App::open_from_sidebar, pin: App::pin_from_sidebar, ring: App::ring_of, query: App::requery_sidebar, create: App::create_from_sidebar };
+    let hooks = ui::sidebar::Hooks { get: |s: &App| &s.sidebar, get_mut: |s: &mut App| &mut s.sidebar, open: App::open_from_sidebar, pin: App::pin_from_sidebar, ring: App::ring_of, query: App::requery_sidebar, create: App::create_from_sidebar, save: App::save_from_sidebar, unsave: App::unsave_from_sidebar };
     let body = match s.tab() {
         Some(tab @ app::Tab { mode: app::Mode::Source(src), .. }) => {
             let caret = ui::source::caret_lines(cx, tab, src);
