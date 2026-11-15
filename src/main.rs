@@ -114,7 +114,7 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
                 let place = ui::doc_view::caret_point(cx.layout(&ui::doc_view::caret_key(id)), cx.layout(&ui::doc_view::caret_end_key(id)), cx.layout(&ui::doc_view::caret_row_key(id, at.block)), at.side);
                 ui::doc_view::Caret { at, place, since, dark, reduced }
             });
-            let signals = ui::doc_view::Signals { marked: App::is_marked, mark: theme.mark, caret, hits: App::find_hits, edge: App::doc_edge, meta: theme.meta(), fonts: ui::markdown_style::fonts(fonts::Typeface::of(&s.settings.font, s.settings.size)) };
+            let signals = ui::doc_view::Signals { marked: App::is_marked, mark: theme.mark, caret, hits: App::find_hits, edge: App::doc_edge, meta: theme.meta(), fonts: ui::markdown_style::fonts(fonts::Typeface::of(&s.settings.font, s.settings.size)), open: App::open_link };
             let doc = ui::doc_view::view(s, App::active_document, s.style(dark), s.settings.column, App::visible_rows, signals);
             // L'indice dei titoli a destra, solo se la finestra è larga almeno sidebar + colonna
             // + 200 (prima del primo layout non si sa: niente indice). La vista la legge da Rune,

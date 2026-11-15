@@ -899,6 +899,22 @@ impl App {
         }
     }
 
+    /// Un clic su un link del documento. Un percorso che esiste (`runemd-open:`, `doc::paths`)
+    /// apre il file in una scheda fissa (o porta davanti la sua) e, con `:riga`, mette in cima il
+    /// blocco di quella riga. Gli altri link non fanno niente.
+    pub fn open_link(&mut self, url: &str, tx: &mut Tx) {
+        let Some((path, line)) = crate::doc::paths::parse_target(url) else { return };
+        let before = self.tab().map(|t| t.doc.id);
+        self.open_paths(vec![path.clone()]);
+        if self.tab().map(|t| t.doc.id) != before {
+            self.restore_view(tx);
+        }
+        let (Some(line), Ok(text)) = (line, std::fs::read_to_string(&path)) else { return };
+        let Some(tab) = self.tab_mut().filter(|t| matches!(t.mode, Mode::Read)) else { return };
+        let i = crate::doc::paths::block_of_line(&text, tab.doc.blocks.iter().map(|b| &*b.source), line);
+        scroll_block_to_top(tab, i, tx);
+    }
+
     /// Un clic su un titolo dell'indice: il suo blocco va in cima alla vista, senza planata (come
     /// `restore_view`: la riga può non essere montata e la sua altezza è solo stimata). Solo se
     /// la scheda `doc` è ancora davanti e in lettura.

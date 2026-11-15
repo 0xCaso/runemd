@@ -184,7 +184,7 @@ fn cuts(word: &str, protected: &[Range<usize>], kind: Kind, limit: &impl Fn(Kind
 }
 
 /// I caratteri che nel testo del link vanno scritti con `\` per restare letterali.
-fn needs_escape(c: char) -> bool {
+pub(crate) fn needs_escape(c: char) -> bool {
     matches!(c, '\\' | '[' | ']' | '*' | '_' | '`' | '~' | '&')
 }
 

@@ -323,7 +323,15 @@ colore: il tipo lo dicono parola e icona.
 
 **Note a piè di pagina** (`[^1]`): nel testo il numero in apice, in ordine di primo riferimento; le definizioni
 non si disegnano dove sono scritte ma in fondo al file, sotto una linea di 0,5 in `line` e 12 di spazio, come lista
-numerata a 13,5 in `fg-2`. Un riferimento senza definizione resta scritto com'è.
+numerata a 13,5 in `fg-2`. Un riferimento senza definizione resta scritto com'è. Cerca trova il testo delle note
+nella lista in fondo, dove si vede.
+
+**Percorsi e nomi di file** (con o senza backtick; record `2026-11-16-percorsi-nome-e-link`, mockup p-mix): in
+monospaziato a 13,5, senza pastiglia; cartelle e `:riga` in `fg-3`, nome del file in `fg` 600. Se il file esiste
+(accanto al file, nel repo, assoluto o `~`) è un link: linea di 1 in `fg-3` sotto tutto il percorso (il kit non ha la
+linea a puntini del mockup), in hover fondo `sel`, linea in `fg-2` e "Apri in RuneMD"; il clic apre il file in una
+scheda, con `:riga` alla riga. Se non esiste, stesso aspetto senza linea. Nei blocchi di codice niente; restano
+testo le parole con un punto (`ecc.`, `v1.2`, `Node.js`) e gli URL.
 
 **Casella delle liste di compiti**: come quella delle Impostazioni, 14 pt, raggio 4, 8 dentro la colonna dei segni;
 spenta vuota con il bordo di 1 in `fg-3`, accesa piena in `fg-2` con la spunta in `panel` (tabella "Contrasto").

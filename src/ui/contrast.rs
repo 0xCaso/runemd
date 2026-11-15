@@ -80,6 +80,12 @@ pub fn rows(t: &Theme, rings: &Rings, glass: Color) -> Vec<Row> {
         row("body su panel", t.body, panel, 4.5),
         row("fg2 su panel", t.fg2, panel, 4.5),
         row("fg3 su panel", t.fg3, panel, 4.5),
+        // Percorsi nel testo (record 2026-11-16-percorsi-nome-e-link): cartelle e `:riga` in fg3,
+        // nome in fg; in hover fondo sel, puntini (linea) fg2.
+        row("percorso: cartelle fg3 su panel + sel (hover)", t.fg3, panel_sel, 4.5),
+        row("percorso: nome fg su panel + sel (hover)", t.fg, panel_sel, 4.5),
+        row("percorso: linea fg3 su panel", t.fg3, panel, mark),
+        row("percorso: linea fg2 su panel + sel (hover)", t.fg2, panel_sel, mark),
         row("fg su vetro", t.fg, glass, 4.5),
         row("fg3 su vetro", g.fg3, glass, 4.5),
         row("fg2 su vetro", g.fg2, glass, 4.5),

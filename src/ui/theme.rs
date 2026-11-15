@@ -183,7 +183,7 @@ impl Theme {
     /// Il blocco del frontmatter YAML: testo `fg2` su `sel` a metà (più quieto del codice).
     pub fn meta(&self) -> crate::ui::doc_view::Meta {
         let rule = rune_kit::Kit::neutral(self.dark).c.layer_03;
-        crate::ui::doc_view::Meta { text: self.fg2, fill: self.sel.alpha(self.sel.a * 0.5), label: self.fg, icon: self.fg2, rule, line: self.line, headings: [self.body, self.fg2, self.fg3] }
+        crate::ui::doc_view::Meta { text: self.fg2, fill: self.sel.alpha(self.sel.a * 0.5), label: self.fg, icon: self.fg2, rule, line: self.line, headings: [self.body, self.fg2, self.fg3], path: crate::ui::doc_view::PathColors { name: self.fg, dim: self.fg3, hover_line: self.fg2, hover_bg: self.sel } }
     }
 
     /// I colori del testo sul vetro (sidebar): `fg2` e `fg3` più forti che sul pannello, perché

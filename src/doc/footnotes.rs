@@ -81,7 +81,7 @@ pub struct Edited {
 }
 
 impl Edited {
-    fn new(source: &str, edits: Vec<(Range<usize>, String)>) -> Edited {
+    pub fn new(source: &str, edits: Vec<(Range<usize>, String)>) -> Edited {
         let mut text = String::with_capacity(source.len());
         let mut from = 0;
         for (r, s) in &edits {

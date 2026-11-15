@@ -41,6 +41,8 @@ pub struct Signals<S> {
     pub meta: Meta,
     /// I font del documento, per misurare dove vanno a capo le parole lunghe (`doc::breaks`).
     pub fonts: super::markdown_style::Fonts,
+    /// Un clic su un link del documento (destinazione): i percorsi `runemd-open:` aprono il file.
+    pub open: fn(&mut S, &str, &mut rune::Tx),
 }
 
 /// Il caret "sta scrivendo" (record 2026-11-15-caret-al-punto-modificato): il carattere della
@@ -116,6 +118,18 @@ pub struct Meta {
     pub line: Color,
     /// Il colore dei titoli 4, 5 e 6 (`body` come i titoli 1–3, `fg2`, `fg3`).
     pub headings: [Color; 3],
+    /// I percorsi (`doc::paths`): nome del file (`fg`), cartelle, `:riga` e puntini (`fg3`), linea
+    /// in hover (`fg2`) e fondo in hover (`sel`).
+    pub path: PathColors,
+}
+
+/// I colori dei percorsi nel testo (record 2026-11-16-percorsi-nome-e-link, mockup p-mix).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PathColors {
+    pub name: Color,
+    pub dim: Color,
+    pub hover_line: Color,
+    pub hover_bg: Color,
 }
 
 /// Un rettangolo della vista del documento, in punti della finestra.
@@ -167,6 +181,7 @@ pub fn view<S: 'static>(s: &S, doc_of: fn(&S) -> &Document, style: &MarkdownStyl
     let select_all = doc.select_all.clone();
     let flag = select_all.clone();
     let order = blocks.clone();
+    let places = Arc::new(crate::doc::paths::Places::of(&doc.path));
     // La colonna è larga al massimo `column` ("Larghezza del testo"; "Intera" segue il pannello).
     let rows = super::theme::column(col().key("rows").w_full(), column).self_center().selection_group(true)
         .growth(GrowthSpec::default())
@@ -189,7 +204,7 @@ pub fn view<S: 'static>(s: &S, doc_of: fn(&S) -> &Document, style: &MarkdownStyl
                         hits.push((vec![c.at.anchor.clone()], clear.clone().key(caret_key(doc.id))));
                         hits.push((vec![c.at.end.clone()], clear.key(caret_end_key(doc.id))));
                     }
-                    let row = block_row(&b.source, &style, &doc.notes, signals.fonts, signals.meta, (signals.marked)(s, b.id).then_some(signals.mark), hits);
+                    let row = block_row(&b.source, &style, &doc.notes, &places, signals.open, signals.fonts, signals.meta, (signals.marked)(s, b.id).then_some(signals.mark), hits);
                     match caret {
                         Some(c) => caret_row(row, c),
                         None => row,
@@ -341,7 +356,8 @@ const FRONTMATTER_PAD_Y: f32 = 10.0;
 
 /// Una riga del documento, con i segni di Cerca `hits`; con `mark` ha il segno "cosa è cambiato"
 /// nel margine sinistro, fuori dal flusso (il testo non si sposta), alto quanto il testo del blocco.
-fn block_row(source: &str, style: &MarkdownStyle, notes: &crate::doc::footnotes::Notes, fonts: super::markdown_style::Fonts, meta: Meta, mark: Option<Color>, hits: super::find::Marks) -> El {
+#[allow(clippy::too_many_arguments)]
+fn block_row<S: 'static>(source: &str, style: &MarkdownStyle, notes: &crate::doc::footnotes::Notes, places: &crate::doc::paths::Places, open: fn(&mut S, &str, &mut rune::Tx), fonts: super::markdown_style::Fonts, meta: Meta, mark: Option<Color>, hits: super::find::Marks) -> El {
     // Un callout (`> [!NOTE]`) si disegna senza la riga del segno, con l'etichetta sopra.
     let callout = crate::doc::callout::of(source);
     let (source, hits) = match &callout {
@@ -352,6 +368,18 @@ fn block_row(source: &str, style: &MarkdownStyle, notes: &crate::doc::footnotes:
     let numbered = notes.shown(source);
     let (source, hits) = match &numbered {
         Some(e) => (e.text.as_str(), hits.into_iter().map(|(ranges, hl)| (ranges.iter().map(|r| e.map(r)).collect(), hl)).collect()),
+        None => (source, hits),
+    };
+    // I percorsi: link in monospaziato con il nome del file in grassetto (`doc::paths`); il nome
+    // prende il suo colore da un segno senza fondo, come quelli di Cerca.
+    let linked = crate::doc::paths::shown(source, places);
+    let (source, hits) = match &linked {
+        Some((e, names)) => {
+            let mut hits: super::find::Marks = hits.into_iter().map(|(ranges, hl)| (ranges.iter().map(|r| e.map(r)).collect(), hl)).collect();
+            let name = rune_kit::markdown::Highlight::new().bg(Color::TRANSPARENT).ring(Color::TRANSPARENT, 1.0).fg(meta.path.name);
+            hits.splice(0..0, names.iter().map(|r| (vec![r.clone()], name.clone())));
+            (e.text.as_str(), hits)
+        }
         None => (source, hits),
     };
     // Le parole lunghe vanno a capo dopo `/ - _ .`, e ovunque solo se più larghe di una riga: il
@@ -370,7 +398,9 @@ fn block_row(source: &str, style: &MarkdownStyle, notes: &crate::doc::footnotes:
         Some(n @ 4..=6) => Cow::Owned(style.clone().heading_font(4, fonts.headings[n as usize - 1]).muted(meta.headings[n as usize - 4])),
         _ => Cow::Borrowed(style),
     };
-    let body = rune_kit::Markdown::new(shown).highlights(hits).selectable(true).render(&style).selection_group(false);
+    let md = rune_kit::Markdown::new(shown).highlights(hits).selectable(true);
+    let md = if linked.is_some() { path_links(md, &meta, fonts, open) } else { md };
+    let body = md.render(&style).selection_group(false);
     let body = match callout {
         Some(c) => col().w_full().child(callout_head(c.kind, &meta)).child(body),
         None => body,
@@ -382,6 +412,30 @@ fn block_row(source: &str, style: &MarkdownStyle, notes: &crate::doc::footnotes:
         None => row,
     }
 }
+
+/// L'aspetto dei link dei percorsi (mockup p-mix): monospaziato a 13,5 in `fg3`; se il file esiste
+/// sottolineato in `fg3` (il kit non ha la linea a puntini) e in hover fondo `sel`, linea `fg2` e
+/// "Apri in RuneMD"; se non esiste niente linea, niente hover, e il clic non fa niente.
+fn path_links<S: 'static>(md: rune_kit::Markdown, meta: &Meta, fonts: super::markdown_style::Fonts, open: fn(&mut S, &str, &mut rune::Tx)) -> rune_kit::Markdown {
+    use crate::doc::paths::{NOWHERE, OPEN};
+    let c = meta.path;
+    let size = super::theme::CODE_TEXT * fonts.body.size / super::theme::BODY_TEXT;
+    let span = rune::text::Span { mono: true, size: Some(size), color: Some(c.dim), ..Default::default() };
+    md.link_style(move |url| {
+        if url.starts_with(OPEN) {
+            Some((rune::text::Span { underline: Some(c.dim), ..span.clone() }, rune::text::LinkPaint::new().bg(c.hover_bg).underline(c.hover_line)))
+        } else if url.starts_with(NOWHERE) {
+            Some((span.clone(), rune::text::LinkPaint::new().color(c.dim)))
+        } else {
+            None
+        }
+    })
+    .link_help(|url| url.starts_with(OPEN).then(|| OPEN_HELP.to_owned()))
+    .on_link_tx(move |s: &mut S, url, tx| open(s, url, tx))
+}
+
+/// Il suggerimento sui percorsi che si aprono (mockup p-mix).
+pub const OPEN_HELP: &str = "Apri in RuneMD";
 
 /// Il livello di un blocco che è un titolo ATX (`#` … `######`). Il kit porta i livelli dal 4 in giù
 /// a uno solo, in `muted`: per il loro blocco la vista gli dà il font e il colore del livello vero.
@@ -1366,6 +1420,38 @@ mod tests {
         let [h3, h4, h5, h6] = ["T3", "T4", "T5", "T6"].map(h);
         assert!(h3.0 > h4.0 && h4.0 > h5.0 && h5.0 > h6.0, "altezze {h3:?} {h4:?} {h5:?} {h6:?}");
         assert_eq!([h3.1, h4.1, h5.1, h6.1], [Some(t.body), Some(t.body), Some(t.fg2), Some(t.fg3)]);
+    }
+
+    /// I percorsi (record 2026-11-16-percorsi-nome-e-link): senza backtick, in monospaziato; chi
+    /// esiste è un link che apre il file alla riga; chi non esiste no; nel codice niente.
+    #[test]
+    fn paths_show_as_links_that_open_the_file_at_the_line() {
+        let t = std::env::temp_dir().join(format!("runemd-paths-view-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&t);
+        std::fs::create_dir_all(t.join("src/live")).unwrap();
+        std::fs::create_dir_all(t.join(".git")).unwrap();
+        let target: String = (1..=40).map(|n| format!("Paragrafo {n}.\n\n")).collect();
+        std::fs::write(t.join("src/live/below.rs"), &target).unwrap();
+        let src = "Vedi src/live/below.rs:31, `src/live/below.rs` e src/old/gone.rs.\n\n```\ncat src/live/below.rs\n```\n";
+        let doc_path = t.join("doc.md");
+        std::fs::write(&doc_path, src).unwrap();
+        let mut state = Doc::bare(crate::index::Library::load(Vec::new(), None));
+        state.set_style(crate::ui::markdown_style::style(&crate::ui::theme::Theme::for_mode(true), crate::ui::theme::BODY_TEXT));
+        state.open_paths(vec![doc_path.clone()]);
+        let mut rt = Runtime::new(state, crate::view, VIEWPORT, Env::new(true, 2.0));
+        rt.frame(0.0);
+        settle(&mut rt);
+        let texts: Vec<String> = rt.elements().into_iter().filter_map(|e| e.text).map(|x| x.replace('\u{200B}', "")).collect();
+        assert!(texts.iter().any(|x| x.contains("Vedi src/live/below.rs:31, src/live/below.rs e src/old/gone.rs.")), "{texts:?}");
+        assert!(texts.iter().any(|x| x.contains("cat src/live/below.rs")), "il codice resta: {texts:?}");
+        let url = crate::doc::paths::open_target(&t.join("src/live/below.rs").canonicalize().unwrap(), Some(31));
+        rt.update(|s, tx| s.open_link(&url, tx));
+        settle(&mut rt);
+        let tab = rt.state.tab().unwrap();
+        assert!(tab.doc.path.ends_with("src/live/below.rs"), "{:?}", tab.doc.path);
+        let texts: Vec<String> = rt.elements().into_iter().filter(|e| e.visible[3] > 0.0).filter_map(|e| e.text).collect();
+        assert!(texts.iter().any(|x| x == "Paragrafo 16."), "la riga 31 è in vista: {texts:?}");
+        let _ = std::fs::remove_dir_all(&t);
     }
 
     /// Le caselle delle liste di compiti sono quelle delle Impostazioni: spenta vuota (bordo `fg3`),
