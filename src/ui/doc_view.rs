@@ -103,11 +103,15 @@ pub fn caret_point(mark: Option<[f32; 4]>, end: Option<[f32; 4]>, row: Option<[f
 }
 
 /// Il blocco del frontmatter YAML in lettura (DESIGN.md, "Frontmatter"): monospaziato, piccolo,
-/// testo `text` su `fill`, come un blocco di codice ma più quieto.
+/// testo `text` su `fill`, come un blocco di codice ma più quieto; e i colori dei callout.
 #[derive(Clone, Copy, Debug)]
 pub struct Meta {
     pub text: Color,
     pub fill: Color,
+    /// I callout (`doc::callout`): etichetta (`fg`), icona (`fg2`) e linea della citazione.
+    pub label: Color,
+    pub icon: Color,
+    pub rule: Color,
 }
 
 /// Un rettangolo della vista del documento, in punti della finestra.
@@ -178,7 +182,7 @@ pub fn view<S: 'static>(s: &S, doc_of: fn(&S) -> &Document, style: &MarkdownStyl
                         hits.push((vec![c.at.anchor.clone()], clear.clone().key(caret_key(doc.id))));
                         hits.push((vec![c.at.end.clone()], clear.key(caret_end_key(doc.id))));
                     }
-                    let row = block_row(&b.source, &style, signals.fonts, (signals.marked)(s, b.id).then_some(signals.mark), hits);
+                    let row = block_row(&b.source, &style, signals.fonts, signals.meta, (signals.marked)(s, b.id).then_some(signals.mark), hits);
                     match caret {
                         Some(c) => caret_row(row, c),
                         None => row,
@@ -330,7 +334,13 @@ const FRONTMATTER_PAD_Y: f32 = 10.0;
 
 /// Una riga del documento, con i segni di Cerca `hits`; con `mark` ha il segno "cosa è cambiato"
 /// nel margine sinistro, fuori dal flusso (il testo non si sposta), alto quanto il testo del blocco.
-fn block_row(source: &str, style: &MarkdownStyle, fonts: super::markdown_style::Fonts, mark: Option<Color>, hits: super::find::Marks) -> El {
+fn block_row(source: &str, style: &MarkdownStyle, fonts: super::markdown_style::Fonts, meta: Meta, mark: Option<Color>, hits: super::find::Marks) -> El {
+    // Un callout (`> [!NOTE]`) si disegna senza la riga del segno, con l'etichetta sopra.
+    let callout = crate::doc::callout::of(source);
+    let (source, hits) = match &callout {
+        Some(c) => (c.text.as_str(), hits.into_iter().map(|(ranges, hl)| (ranges.iter().map(|r| c.map(r)).collect(), hl)).collect()),
+        None => (source, hits),
+    };
     // Le parole lunghe vanno a capo dopo `/ - _ .`, e ovunque solo se più larghe di una riga: il
     // testo disegnato ha degli U+200B in più, i segni di Cerca si spostano con loro.
     let (shown, hits) = match crate::doc::breaks::soft_breaks(source, line_limit, |t, kind| rune::text::advance(t, font_of(&fonts, kind))) {
@@ -343,6 +353,10 @@ fn block_row(source: &str, style: &MarkdownStyle, fonts: super::markdown_style::
     // `selectable` fa di ogni blocco un selection_group a sé, che fermerebbe un trascinamento
     // al bordo del blocco: si toglie il flag e vale il gruppo unico sulle righe.
     let body = rune_kit::Markdown::new(shown).highlights(hits).selectable(true).render(style).selection_group(false);
+    let body = match callout {
+        Some(c) => col().w_full().child(callout_head(c.kind, &meta)).child(body),
+        None => body,
+    };
     // Le righe virtuali vogliono padding interno, non gap tra righe.
     let row = col().w_full().px(ROW_PAD_X).py(ROW_PAD_Y).child(body);
     match mark {
@@ -350,6 +364,63 @@ fn block_row(source: &str, style: &MarkdownStyle, fonts: super::markdown_style::
         None => row,
     }
 }
+
+/// L'etichetta di un callout: icona 14 in `fg2` e parola 13/600 in `fg`, sulla linea della
+/// citazione (2 pt, 12 prima del testo, come quella del kit), senza colori (DESIGN.md).
+fn callout_head(kind: crate::doc::callout::Kind, meta: &Meta) -> El {
+    let label = rune::text(kind.label()).font(TextStyle::new(UI_SMALL, 600.0)).color(meta.label);
+    let head = rune::row().gap(CALLOUT_GAP).center_y().pl(QUOTE_PAD).pb(CALLOUT_GAP).child(rune::icon(callout_icon(kind), super::theme::ICON).color(meta.icon)).child(label);
+    rune::row().key("callout").w_full().child(el().w(QUOTE_RULE).h_full().radius(QUOTE_RULE / 2.0).fill(meta.rule)).child(head)
+}
+
+/// La linea della citazione del kit e lo spazio prima del testo (`QuoteLook` di Rune Kit).
+const QUOTE_RULE: f32 = 2.0;
+const QUOTE_PAD: f32 = 12.0;
+/// Fra icona ed etichetta, e sotto l'etichetta.
+const CALLOUT_GAP: f32 = 6.0;
+
+/// L'icona di un callout, disegnata come quelle del kit (viewBox 16, tratto 1, giunti tondi).
+fn callout_icon(kind: crate::doc::callout::Kind) -> &'static rune::Icon {
+    use crate::doc::callout::Kind;
+    match kind {
+        Kind::Note => &NOTE_ICON,
+        Kind::Tip => &TIP_ICON,
+        Kind::Important => &IMPORTANT_ICON,
+        Kind::Warning => &WARNING_ICON,
+        Kind::Caution => &CAUTION_ICON,
+    }
+}
+
+/// Nota: una "i" in un cerchio.
+static NOTE_ICON: rune::Icon = rune::Icon {
+    name: "runemd-note",
+    view: 16.0,
+    body: r#"<circle cx="8" cy="8" r="6" stroke="currentColor"/><path d="M8 7.2V11" stroke="currentColor" stroke-linecap="round"/><circle cx="8" cy="5.1" r="0.6" fill="currentColor"/>"#,
+};
+/// Suggerimento: una lampadina.
+static TIP_ICON: rune::Icon = rune::Icon {
+    name: "runemd-tip",
+    view: 16.0,
+    body: r#"<path d="M6 11.5C6 10 4 9 4 6.5a4 4 0 0 1 8 0C12 9 10 10 10 11.5Z" stroke="currentColor" stroke-linejoin="round"/><path d="M6.3 13.5H9.7" stroke="currentColor" stroke-linecap="round"/>"#,
+};
+/// Importante: un fumetto con "!".
+static IMPORTANT_ICON: rune::Icon = rune::Icon {
+    name: "runemd-important",
+    view: 16.0,
+    body: r#"<path d="M3.2 2.5H12.8a1.2 1.2 0 0 1 1.2 1.2V10a1.2 1.2 0 0 1-1.2 1.2H7L4.5 13.5V11.2H3.2A1.2 1.2 0 0 1 2 10V3.7a1.2 1.2 0 0 1 1.2-1.2Z" stroke="currentColor" stroke-linejoin="round"/><path d="M8 4.8V7.6" stroke="currentColor" stroke-linecap="round"/><circle cx="8" cy="9.3" r="0.6" fill="currentColor"/>"#,
+};
+/// Attenzione: un triangolo con "!".
+static WARNING_ICON: rune::Icon = rune::Icon {
+    name: "runemd-warning",
+    view: 16.0,
+    body: r#"<path d="M7.13 2.5a1 1 0 0 1 1.74 0l5.5 9.75a1 1 0 0 1-.87 1.5H2.5a1 1 0 0 1-.87-1.5Z" stroke="currentColor" stroke-linejoin="round"/><path d="M8 6.2V9" stroke="currentColor" stroke-linecap="round"/><circle cx="8" cy="11.1" r="0.6" fill="currentColor"/>"#,
+};
+/// Pericolo: un ottagono con "!".
+static CAUTION_ICON: rune::Icon = rune::Icon {
+    name: "runemd-caution",
+    view: 16.0,
+    body: r#"<path d="M5.5 2H10.5L14 5.5V10.5L10.5 14H5.5L2 10.5V5.5Z" stroke="currentColor" stroke-linejoin="round"/><path d="M8 5V8.4" stroke="currentColor" stroke-linecap="round"/><circle cx="8" cy="10.6" r="0.6" fill="currentColor"/>"#,
+};
 
 /// La riga del blocco con il caret: il caret fissato al punto, fuori dal flusso, così il testo
 /// non si sposta.
@@ -1212,6 +1283,21 @@ mod tests {
         cmd(&mut rt, 'w');
         settle(&mut rt);
         assert_eq!(figures(&rt), ["Flowchart"]);
+    }
+
+    /// I callout di GitHub (`> [!NOTE]` …) hanno l'etichetta in parole e non mostrano il segno.
+    #[test]
+    fn callouts_show_a_label_not_the_marker() {
+        let src = "> [!NOTE]\n> Una nota.\n\n> [!TIP]\n> Un suggerimento.\n\n> [!IMPORTANT]\n> Importante.\n\n> [!warning]\n> Un avviso.\n\n> [!CAUTION]\n> Pericolo.\n";
+        for dark in [true, false] {
+            let rt = open_themed(src, dark);
+            let texts: Vec<String> = rt.elements().into_iter().filter_map(|e| e.text).collect();
+            assert!(!texts.iter().any(|t| t.contains("[!")), "il segno si vede: {texts:?}");
+            for label in ["Nota", "Suggerimento", "Importante", "Attenzione", "Pericolo"] {
+                assert!(texts.iter().any(|t| t == label), "manca {label}: {texts:?}");
+            }
+            assert!(texts.iter().any(|t| t.contains("Un avviso.")), "{texts:?}");
+        }
     }
 
     /// Le parole lunghe (fixtures/long-title.md: titolo-percorso, paragrafo, hash senza

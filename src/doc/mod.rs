@@ -2,6 +2,7 @@
 
 pub mod blocks;
 pub mod breaks;
+pub mod callout;
 pub mod disk;
 pub mod document;
 pub mod frontmatter;

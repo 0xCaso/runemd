@@ -303,7 +303,13 @@ Il grassetto nel corpo è peso 620 in `fg`. I titoli non sono enormi: la gerarch
 
 Una parola più lunga della riga (un percorso, un nome di file) va a capo dopo `/`, `-`, `_` o `.`, così la riga
 finisce con il separatore e la seguente comincia con il pezzo dopo; si spezza in un punto qualsiasi solo un tratto
-senza separatori più largo di una riga (un hash). Nessuna riga esce dalla colonna.
+senza separatori più largo di una riga (un hash). Nessuna riga esce dalla colonna. Un URL nudo lungo va a capo
+allo stesso modo e resta un link solo, con l'indirizzo intatto.
+
+**Callout** (`> [!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]`, `[!CAUTION]`): la citazione con sopra
+l'etichetta in parole (Nota, Suggerimento, Importante, Attenzione, Pericolo), 13/600 in `fg`, con l'icona da 14 in
+`fg-2` 6 prima; 6 sotto l'etichetta, sulla stessa linea della citazione. Il segno `[!NOTE]` non si vede. Nessun
+colore: il tipo lo dicono parola e icona.
 
 ## Layout
 
