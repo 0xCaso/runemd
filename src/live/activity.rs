@@ -1,38 +1,38 @@
-//! Stato "sta scrivendo": quali file un agente ha scritto da poco.
+//! "Writing" state: which files an agent wrote recently.
 //!
-//! `Live` chiama `touch` per una ricarica esterna applicata del file aperto (mai per le scritture
-//! dell'app, le letture saltate o quelle sospette trattenute), per un `Changed` di un altro file
-//! scritto da poco (le righe di Recenti e dell'albero) e `git_head` per ogni cambio di
+//! `Live` calls `touch` for an applied external reload of the open file (never for the app's
+//! own writes, skipped reads or held suspicious ones), for a `Changed` of another file
+//! written recently (the rows of Recents and of the tree) and `git_head` for each change of
 //! `.git/HEAD`.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-/// Quanto resta acceso l'anello dopo l'ultima scrittura. Decisione di Matteo:
-/// `docs/decisions/2026-11-13-writing-ring-10s.md`. Unica costante, non ripeterla.
+/// How long the ring stays lit after the last write. Matteo's decision:
+/// `docs/decisions/2026-11-13-writing-ring-10s.md`. The only constant, do not repeat it.
 pub const WRITING_WINDOW_MS: u64 = 10_000;
 pub const WRITING_WINDOW: Duration = Duration::from_millis(WRITING_WINDOW_MS);
 
-/// Un cambio di `.git/HEAD` nello stesso repo in questo intervallo spegne le scritture: è un
-/// checkout o un pull, non un agente (spec, "Scritture che non sono di un agente").
+/// A change of `.git/HEAD` in the same repo within this interval turns the writes off: it is a
+/// checkout or a pull, not an agent (spec, "Writes that are not from an agent").
 pub const GIT_QUIET: Duration = Duration::from_secs(2);
 
 #[derive(Debug, Default)]
 pub struct Activity {
-    /// Ultima scrittura esterna per file.
+    /// Last external write per file.
     touched: HashMap<PathBuf, Instant>,
-    /// Ultimo cambio di `.git/HEAD` per radice di repo.
+    /// Last change of `.git/HEAD` per repo root.
     heads: HashMap<PathBuf, Instant>,
 }
 
-/// `a` e `b` distano al più `d`, in qualunque ordine.
+/// `a` and `b` are at most `d` apart, in any order.
 fn within(a: Instant, b: Instant, d: Duration) -> bool {
     a.max(b).duration_since(a.min(b)) <= d
 }
 
 impl Activity {
-    /// Un agente ha scritto `path` a `now`. Ignorato se il repo del file ha appena cambiato HEAD.
+    /// An agent wrote `path` at `now`. Ignored if the file's repo has just changed HEAD.
     pub fn touch(&mut self, path: &Path, now: Instant) {
         self.prune(now);
         if self.heads.iter().any(|(repo, at)| path.starts_with(repo) && within(*at, now, GIT_QUIET)) {
@@ -41,27 +41,27 @@ impl Activity {
         self.touched.insert(path.to_owned(), now);
     }
 
-    /// `.git/HEAD` di `repo` è cambiato a `now`: le scritture del repo negli ultimi `GIT_QUIET`
-    /// (arrivate prima dell'evento di HEAD) e nei prossimi non accendono l'anello.
+    /// `.git/HEAD` of `repo` changed at `now`: the repo's writes in the last `GIT_QUIET`
+    /// (arrived before the HEAD event) and in the next ones do not light the ring.
     pub fn git_head(&mut self, repo: &Path, now: Instant) {
         self.prune(now);
         self.touched.retain(|p, at| !(p.starts_with(repo) && within(*at, now, GIT_QUIET)));
         self.heads.insert(repo.to_owned(), now);
     }
 
-    /// I file che "stanno scrivendo" a `now` e fra quanto smettono (le righe di Recenti e
-    /// dell'albero).
+    /// The files that are "writing" at `now` and how soon they stop (the rows of Recents and
+    /// of the tree).
     pub fn writing(&self, now: Instant) -> impl Iterator<Item = (&Path, Duration)> {
         self.touched.keys().filter_map(move |p| Some((p.as_path(), self.left(p, now)?)))
     }
 
-    /// Fra quanto `path` smette di essere "sta scrivendo", se lo è ora.
+    /// How soon `path` stops "writing", if it is now.
     pub fn left(&self, path: &Path, now: Instant) -> Option<Duration> {
         let end = *self.touched.get(path)? + WRITING_WINDOW;
         (now < end).then(|| end - now)
     }
 
-    /// Dimentica scritture e HEAD che non contano più.
+    /// Forgets writes and HEADs that no longer count.
     fn prune(&mut self, now: Instant) {
         self.touched.retain(|_, at| now.saturating_duration_since(*at) < WRITING_WINDOW);
         self.heads.retain(|_, at| now.saturating_duration_since(*at) <= GIT_QUIET);
@@ -86,7 +86,7 @@ mod tests {
         assert!(a.left(p, t0).is_some());
         assert!(a.left(p, t0 + ms(WRITING_WINDOW_MS - 100)).is_some(), "9,9 s");
         assert!(a.left(p, t0 + ms(WRITING_WINDOW_MS + 100)).is_none(), "10,1 s");
-        assert!(a.left(Path::new("/r/b.md"), t0).is_none(), "solo il file toccato");
+        assert!(a.left(Path::new("/r/b.md"), t0).is_none(), "only the touched file");
     }
 
     #[test]
@@ -108,7 +108,7 @@ mod tests {
         a.git_head(repo, t0);
         a.touch(p, t0 + ms(1_000));
         assert!(a.left(p, t0 + ms(1_000)).is_none());
-        // Dopo 2 s una scrittura nel repo è di nuovo di un agente.
+        // After 2 s a write in the repo is from an agent again.
         a.touch(p, t0 + ms(2_100));
         assert!(a.left(p, t0 + ms(2_100)).is_some());
     }
@@ -118,7 +118,7 @@ mod tests {
         let t0 = Instant::now();
         let p = Path::new("/r/x.md");
         let mut a = Activity::default();
-        // La ricarica gira su un altro thread: può arrivare prima dell'evento di HEAD.
+        // The reload runs on another thread: it can arrive before the HEAD event.
         a.touch(p, t0);
         a.git_head(Path::new("/r"), t0 + ms(300));
         assert!(a.left(p, t0 + ms(300)).is_none());

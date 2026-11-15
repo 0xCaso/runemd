@@ -1,10 +1,10 @@
-//! "Testo nuovo più in basso": i blocchi nuovi o cambiati sotto la parte visibile (spec,
-//! "Segnali live", fuoco).
+//! "New text further down": the blocks new or changed below the visible part (spec,
+//! "Live signals", fire).
 //!
-//! `on_change` riceve ogni ricarica applicata con l'id dell'ultimo blocco visibile prima della
-//! ricarica e l'ordine dei blocchi dopo; `on_scroll` riceve l'indice dell'ultimo blocco visibile
-//! a ogni cambio della parte visibile. Un blocco esce dal conto appena entra nella vista: il fuoco
-//! sparisce quando ci entra l'ultimo.
+//! `on_change` receives each applied reload with the id of the last visible block before the
+//! reload and the order of the blocks after; `on_scroll` receives the index of the last visible block
+//! at each change of the visible part. A block leaves the count as soon as it enters the view: the fire
+//! goes away when the last one enters.
 
 use std::collections::{HashMap, HashSet};
 
@@ -12,15 +12,15 @@ use crate::doc::document::Change;
 
 #[derive(Debug, Default)]
 pub struct Below {
-    /// Gli id dei blocchi nuovi o cambiati ancora sotto la vista.
+    /// The ids of the new or changed blocks still below the view.
     pending: HashSet<u64>,
 }
 
 impl Below {
-    /// Una ricarica applicata. `visible_last` è l'id dell'ultimo blocco visibile prima della
-    /// ricarica, `order` gli id dei blocchi dopo. Se `visible_last` non c'è più (rimosso, o la
-    /// vista non ha ancora riportato righe) nessun blocco della ricarica conta: meglio un fuoco
-    /// mancato che uno acceso su testo già in vista.
+    /// An applied reload. `visible_last` is the id of the last visible block before the
+    /// reload, `order` the ids of the blocks after. If `visible_last` is gone (removed, or the
+    /// view has not reported rows yet) no block of the reload counts: better a missed
+    /// fire than one lit on text already in view.
     pub fn on_change(&mut self, change: &Change, visible_last: u64, order: &[u64]) {
         let at = positions(order);
         self.pending.retain(|id| at.contains_key(id));
@@ -29,9 +29,9 @@ impl Below {
         self.pending.extend(below);
     }
 
-    /// La parte visibile è cambiata: `visible_last_index` è l'indice in `order` dell'ultimo
-    /// blocco visibile. Escono dal conto i blocchi fino a quello compreso e quelli che non ci
-    /// sono più.
+    /// The visible part changed: `visible_last_index` is the index in `order` of the last
+    /// visible block. The blocks up to and including that one leave the count, and so do the ones that
+    /// no longer exist.
     pub fn on_scroll(&mut self, visible_last_index: usize, order: &[u64]) {
         if self.pending.is_empty() {
             return;
@@ -40,13 +40,13 @@ impl Below {
         self.pending.retain(|id| at.get(id).is_some_and(|&i| i > visible_last_index));
     }
 
-    /// Quanti blocchi nuovi o cambiati sono sotto la vista.
+    /// How many new or changed blocks are below the view.
     pub fn count(&self) -> usize {
         self.pending.len()
     }
 }
 
-/// La posizione di ogni id in `order`.
+/// The position of each id in `order`.
 fn positions(order: &[u64]) -> HashMap<u64, usize> {
     order.iter().enumerate().map(|(i, id)| (*id, i)).collect()
 }
@@ -55,7 +55,7 @@ fn positions(order: &[u64]) -> HashMap<u64, usize> {
 mod tests {
     use super::*;
 
-    /// Blocchi 1..=10; la vista finisce al blocco 5 (indice 4).
+    /// Blocks 1..=10; the view ends at block 5 (index 4).
     fn order(n: u64) -> Vec<u64> {
         (1..=n).collect()
     }
@@ -74,11 +74,11 @@ mod tests {
     #[test]
     fn blocks_above_view_do_not_count() {
         let mut b = Below::default();
-        // 3 blocchi nuovi in testa: 100, 101, 102 prima di 1..=10.
+        // 3 new blocks at the top: 100, 101, 102 before 1..=10.
         let order: Vec<u64> = [100, 101, 102].into_iter().chain(1..=10).collect();
         b.on_change(&added(&[100, 101, 102]), 5, &order);
         assert_eq!(b.count(), 0);
-        // Un blocco cambiato sopra la vista non conta, uno sotto sì.
+        // A changed block above the view does not count, one below does.
         b.on_change(&Change { changed: vec![2, 8], ..Change::default() }, 5, &order);
         assert_eq!(b.count(), 1);
     }
@@ -88,10 +88,10 @@ mod tests {
         let mut b = Below::default();
         let order = order(13);
         b.on_change(&added(&[11, 12, 13]), 5, &order);
-        // Lo scroll porta in vista il primo dei nuovi: ne restano 2.
+        // The scroll brings the first of the new ones into view: 2 are left.
         b.on_scroll(10, &order);
         assert_eq!(b.count(), 2);
-        // Entra in vista l'ultimo: il conto si azzera.
+        // The last one comes into view: the count goes to zero.
         b.on_scroll(12, &order);
         assert_eq!(b.count(), 0);
     }
@@ -101,7 +101,7 @@ mod tests {
         let mut b = Below::default();
         b.on_change(&added(&[11, 12]), 5, &order(12));
         b.on_change(&Change { changed: vec![12], ..Change::default() }, 5, &order(12));
-        assert_eq!(b.count(), 2, "un blocco cambiato due volte conta una");
+        assert_eq!(b.count(), 2, "a block changed twice counts once");
         b.on_change(&Change { removed: vec![12], ..Change::default() }, 5, &order(11));
         assert_eq!(b.count(), 1);
     }

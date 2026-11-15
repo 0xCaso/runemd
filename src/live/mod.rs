@@ -1,23 +1,23 @@
-//! Lettura live: i file aperti nelle schede si ricaricano quando un agente li scrive.
+//! Live reading: the files open in tabs reload when an agent writes them.
 //!
-//! `Live` tiene il watcher, "sta scrivendo" e le scritture dell'app, comuni a tutte le
-//! schede; ogni scheda ha un [`Follow`] con la sua rilettura. Si rilegge un file a ogni `Changed`
-//! del suo percorso e, dopo una lettura sospetta (file a metà scrittura), ancora una volta dopo
-//! `SETTLE`. La lettura e la preparazione dell'aggiornamento (blocchi, hash, diff con id stabili)
-//! girano su un thread a parte (`reload::read`); sul thread della UI resta `reload::commit`, che
-//! sostituisce i blocchi. Il thread sveglia l'app con il `Waker` quando ha finito.
+//! `Live` holds the watcher, "writing" and the app's own writes, shared by all
+//! tabs; each tab has a [`Follow`] with its own reread. A file is reread at each `Changed`
+//! of its path and, after a suspicious read (file half written), once more after
+//! `SETTLE`. Reading and preparing the update (blocks, hash, diff with stable ids)
+//! run on a separate thread (`reload::read`); on the UI thread stays `reload::commit`, which
+//! replaces the blocks. The thread wakes the app with the `Waker` when it is done.
 //!
-//! Il watcher guarda con le sottocartelle le cartelle osservate (`index::roots_from`). Per
-//! ogni file aperto si aggiungono la sua cartella, senza sottocartelle (un file in `~` non deve far
-//! guardare tutta la home), e il `.git` del suo repo, per i cambi di `.git/HEAD` che spengono
-//! "sta scrivendo" (`activity`); se stanno già sotto una cartella osservata il watcher non le
-//! aggiunge (`Watcher::add_root`), e ogni evento arriva una volta sola.
+//! The watcher watches the watched folders with their subfolders (`index::roots_from`). For
+//! each open file its folder is added, without subfolders (a file in `~` must not make it
+//! watch the whole home), and the `.git` of its repo, for the `.git/HEAD` changes that turn off
+//! "writing" (`activity`); if they are already under a watched folder the watcher does not
+//! add them (`Watcher::add_root`), and each event arrives only once.
 //!
-//! Le radici aggiunte per i file aperti si contano: quando l'ultima scheda che ne ha bisogno si
-//! chiude escono dal watcher (`Live::unfollow`).
+//! The roots added for open files are counted: when the last tab that needs them
+//! closes they leave the watcher (`Live::unfollow`).
 //!
-//! `Live::drain` svuota il watcher a ogni `poll`; gli eventi di quel risveglio restano in
-//! `drained` per le schede (`Live::poll`) e per l'indice.
+//! `Live::drain` drains the watcher at each `poll`; the events of that wakeup stay in
+//! `drained` for the tabs (`Live::poll`) and for the index.
 
 pub mod activity;
 pub mod arriving;
@@ -39,17 +39,17 @@ use crate::watch::{FsEvent, Watcher};
 use activity::Activity;
 use reload::{Commit, OwnWrites, Read};
 
-/// Dopo una lettura sospetta si rilegge dopo questo tempo; se il contenuto è lo stesso, il file
-/// non sta più cambiando e vale. Una riscrittura sul posto di 22 KB dura qualche ms
-/// (`docs/agent-writes.md`): 200 ms la coprono con margine (`ipotesi`).
+/// After a suspicious read the file is reread after this time; if the content is the same, the file
+/// is no longer changing and it holds. An in-place rewrite of 22 KB takes a few ms
+/// (`docs/agent-writes.md`): 200 ms cover it with margin (`ipotesi`).
 const SETTLE: Duration = Duration::from_millis(200);
 
-/// Un ricaricamento applicato: `at` per "sta scrivendo", gli id in `change` per il segno dei blocchi
-/// cambiati.
+/// An applied reload: `at` for "writing", the ids in `change` for the mark on changed
+/// blocks.
 #[derive(Debug)]
 pub struct Reloaded {
     pub at: Instant,
-    /// L'mtime del file letto: quando l'agente l'ha scritto (sonda di latenza).
+    /// The mtime of the file read: when the agent wrote it (latency probe).
     pub written: Option<SystemTime>,
     pub change: Change,
 }
@@ -58,42 +58,42 @@ pub struct Reloaded {
 pub struct Live {
     watcher: Option<Watcher>,
     pub own: OwnWrites,
-    /// "Sta scrivendo": solo le ricariche esterne applicate lo accendono.
+    /// "Writing": only applied external reloads light it.
     activity: Activity,
-    /// Le radici aggiunte per i file aperti (cartella del file, cartella di HEAD) e quante
-    /// schede le usano: l'ultima che si chiude la toglie dal watcher.
+    /// The roots added for open files (folder of the file, folder of HEAD) and how many
+    /// tabs use them: the last one that closes removes it from the watcher.
     roots: BTreeMap<PathBuf, usize>,
     waker: Option<Waker>,
-    /// Gli eventi dell'ultimo `drain`, per le schede e per l'indice.
+    /// The events of the last `drain`, for the tabs and for the index.
     drained: Vec<FsEvent>,
-    /// Nei test la lettura si aspetta subito, così l'orologio finto decide da solo.
+    /// In tests the read is waited for at once, so the fake clock decides alone.
     #[cfg(test)]
     sync: bool,
 }
 
-/// La rilettura di un file aperto (una scheda): ognuna ha la sua, con la sua lettura in corso.
+/// The reread of an open file (a tab): each has its own, with its own read in progress.
 pub struct Follow {
-    /// Il file come lo riporta FSEvents (canonico).
+    /// The file as FSEvents reports it (canonical).
     watched: PathBuf,
-    /// Le radici che questo file ha chiesto al watcher (`Live::roots`).
+    /// The roots this file asked the watcher for (`Live::roots`).
     roots: Vec<PathBuf>,
-    /// L'hash di una lettura sospetta saltata: se la rilettura dà lo stesso, si applica.
+    /// The hash of a skipped suspicious read: if the reread gives the same, it is applied.
     held: Option<u64>,
     recheck_at: Option<Instant>,
-    /// Una rilettura da fare: `Some(true)` se è quella a tempo dopo una lettura sospetta.
+    /// A reread to do: `Some(true)` if it is the timed one after a suspicious read.
     want: Option<bool>,
-    /// La lettura in corso sul thread a parte.
+    /// The read in progress on the separate thread.
     job: Option<Job>,
 }
 
 impl Follow {
-    /// Il file seguito, canonico (come lo riportano FSEvents e `Activity`).
+    /// The followed file, canonical (as FSEvents and `Activity` report it).
     pub fn path(&self) -> &Path {
         &self.watched
     }
 
-    /// Rilegge il file al prossimo `poll`: dopo la modifica (Cmd+E), che sospende la ricarica e
-    /// perde i suoi eventi.
+    /// Rereads the file at the next `poll`: after editing (Cmd+E), which suspends reloading and
+    /// loses its events.
     pub fn reread(&mut self) {
         self.want = Some(self.want.unwrap_or(false));
     }
@@ -104,33 +104,33 @@ struct Job {
     timed: bool,
 }
 
-/// Le cartelle da guardare per `path`, senza sottocartelle: la sua cartella e quella del file
-/// HEAD del suo repo, `.git/` in un repo, `<repo principale>/.git/worktrees/<nome>/` in un
+/// The folders to watch for `path`, without subfolders: its folder and the folder of its
+/// repo's HEAD file, `.git/` in a repo, `<main repo>/.git/worktrees/<name>/` in a
 /// worktree (`repo::head_path`).
 fn roots_for(path: &Path) -> Vec<PathBuf> {
     root_of(path).into_iter().chain(head_dir(path)).collect()
 }
 
-/// La cartella del file HEAD del repo di `path`; `None` fuori da un repo.
+/// The folder of the HEAD file of `path`'s repo; `None` outside a repo.
 fn head_dir(path: &Path) -> Option<PathBuf> {
     crate::repo::head_path(&crate::repo::of(path).root)?.parent().map(Path::to_path_buf)
 }
 
-/// Vero se `path` è cambiato da meno della finestra "sta scrivendo": un `Changed` che rilegge i
-/// file noti dopo eventi persi (`Core::rescan`) non accende l'anello di file fermi da ore.
+/// True if `path` changed less than the "writing" window ago: a `Changed` that rereads the
+/// known files after lost events (`Core::rescan`) does not light the ring of files still for hours.
 fn written_recently(path: &Path) -> bool {
     let modified = std::fs::metadata(path).and_then(|m| m.modified());
     modified.is_ok_and(|m| SystemTime::now().duration_since(m).unwrap_or_default() < activity::WRITING_WINDOW)
 }
 
-/// La cartella da guardare per `path` (non ricorsiva).
+/// The folder to watch for `path` (not recursive).
 fn root_of(path: &Path) -> Option<PathBuf> {
     path.parent().map(|p| if p.as_os_str().is_empty() { PathBuf::from(".") } else { p.to_owned() })
 }
 
 impl Live {
-    /// Avvia il watcher (da `AppSpec::setup`, che ha il waker) sulle cartelle osservate `roots`,
-    /// con le sottocartelle, e guarda i file già aperti.
+    /// Starts the watcher (from `AppSpec::setup`, which has the waker) on the watched folders `roots`,
+    /// with their subfolders, and watches the files already open.
     pub fn start(&mut self, waker: Waker, roots: Vec<PathBuf>) {
         let mut watcher = Watcher::start(roots, waker.clone());
         for root in self.roots.keys() {
@@ -140,8 +140,8 @@ impl Live {
         self.waker = Some(waker);
     }
 
-    /// Un file si apre in una scheda: si guardano la sua cartella e quella di HEAD (se non le
-    /// guarda già un'altra scheda o una cartella osservata, `Watcher::add_root`).
+    /// A file opens in a tab: its folder and the HEAD one are watched (unless another tab or a
+    /// watched folder already watches them, `Watcher::add_root`).
     pub fn follow(&mut self, path: &Path) -> Follow {
         let canonical = path.canonicalize().unwrap_or_else(|_| path.to_owned());
         let roots = roots_for(&canonical);
@@ -157,8 +157,8 @@ impl Live {
         Follow { watched: canonical, roots, held: None, recheck_at: None, want: None, job: None }
     }
 
-    /// La scheda di `f` si chiude: le radici che nessun'altra scheda usa escono dal watcher (le
-    /// cartelle osservate restano, `Watcher::remove_root`). La lettura in corso si perde con `f`.
+    /// The tab of `f` closes: the roots no other tab uses leave the watcher (the
+    /// watched folders stay, `Watcher::remove_root`). The read in progress is lost with `f`.
     pub fn unfollow(&mut self, f: Follow) {
         for root in f.roots {
             let Some(n) = self.roots.get_mut(&root) else { continue };
@@ -172,9 +172,9 @@ impl Live {
         }
     }
 
-    /// Una cartella osservata nuova (dalle impostazioni): il watcher la guarda con le
-    /// sottocartelle. Le cartelle dei file aperti che ora stanno sotto escono dal watcher, così
-    /// i loro eventi non arrivano due volte (restano contate per le schede).
+    /// A new watched folder (from the settings): the watcher watches it with its
+    /// subfolders. The folders of open files that are now under it leave the watcher, so
+    /// their events do not arrive twice (they stay counted for the tabs).
     pub fn add_tree(&mut self, root: &Path) {
         let Some(w) = self.watcher.as_mut() else { return };
         w.add_root(root.to_owned(), true);
@@ -183,8 +183,8 @@ impl Live {
         }
     }
 
-    /// Una cartella osservata tolta: il watcher smette di guardarla, e le cartelle dei file
-    /// aperti che stavano sotto tornano guardate da sole.
+    /// A watched folder removed: the watcher stops watching it, and the folders of the open
+    /// files that were under it are watched on their own again.
     pub fn remove_tree(&mut self, root: &Path) {
         let Some(w) = self.watcher.as_mut() else { return };
         w.remove_tree(root);
@@ -193,32 +193,32 @@ impl Live {
         }
     }
 
-    /// Le radici del watcher e se con le sottocartelle (vuoto prima di `start`).
+    /// The watcher roots and whether with subfolders (empty before `start`).
     #[cfg(test)]
     pub fn watched_roots(&self) -> Vec<(PathBuf, bool)> {
         self.watcher.as_ref().map(Watcher::watched).unwrap_or_default()
     }
 
-    /// Le radici aggiunte per i file aperti (per i test e la misura della memoria).
+    /// The roots added for open files (for the tests and the memory measure).
     #[cfg(test)]
     pub fn open_roots(&self) -> Vec<PathBuf> {
         self.roots.keys().cloned().collect()
     }
 
-    /// Da chiamare a ogni `poll`, prima di [`Live::poll`] per le schede: svuota il watcher (va
-    /// fatto a ogni risveglio) e annota le scritture dei file non aperti. `open`: i file seguiti
-    /// dalle schede, che passano solo dalla ricarica.
+    /// To call at each `poll`, before [`Live::poll`] for the tabs: drains the watcher (it must
+    /// be done at each wakeup) and notes the writes of files that are not open. `open`: the files followed
+    /// by the tabs, which go only through the reload.
     pub fn drain(&mut self, open: &[&Path], now: Instant) {
         let events = self.watcher.as_mut().map(|w| w.drain(now)).unwrap_or_default();
         self.note(&events, open, now);
         self.drained = events;
     }
 
-    /// Per una scheda, dopo [`Live::drain`]: raccoglie la lettura finita e ne avvia una se il
-    /// suo file è cambiato. Ritorna il cambio applicato e, se serve, fra quanto richiamarla.
+    /// For a tab, after [`Live::drain`]: collects the finished read and starts one if its
+    /// file changed. Returns the applied change and, if needed, how soon to call it again.
     pub fn poll(&mut self, f: &mut Follow, doc: &mut Document, now: Instant) -> (Option<Reloaded>, Option<Duration>) {
-        // Un `Rescan` sopra il file (eventi persi, cartella spostata): si rilegge, se il
-        // contenuto è lo stesso la ricarica non cambia nulla.
+        // A `Rescan` above the file (lost events, folder moved): it is reread; if the
+        // content is the same the reload changes nothing.
         let changed = self.drained.iter().any(|e| match e {
             FsEvent::Changed(p) => *p == f.watched,
             FsEvent::Rescan(dir) => f.watched.starts_with(dir),
@@ -227,34 +227,34 @@ impl Live {
         self.step(f, doc, changed, now)
     }
 
-    /// L'ultimo `drain` ha un `Changed` di `path` (canonico).
+    /// The last `drain` has a `Changed` of `path` (canonical).
     pub fn changed(&self, path: &Path) -> bool {
         self.drained.iter().any(|e| matches!(e, FsEvent::Changed(p) if p == path))
     }
 
-    /// Un file aperto nel sorgente (Cmd+E), che non passa dalla ricarica, è stato scritto da
-    /// fuori: "sta scrivendo" si accende come per una ricarica applicata.
+    /// A file open in the source (Cmd+E), which does not go through the reload, was written from
+    /// outside: "writing" lights as for an applied reload.
     pub fn touch_open(&mut self, path: &Path, now: Instant) {
         self.activity.touch(path, now);
     }
 
-    /// Gli eventi del watcher svuotati dall'ultimo `drain`.
+    /// The watcher events drained by the last `drain`.
     pub fn drained(&self) -> &[FsEvent] {
         &self.drained
     }
 
-    /// Fra quanto `path` (canonico) smette di essere "sta scrivendo"; `None` se non lo è.
+    /// How soon `path` (canonical) stops "writing"; `None` if it is not.
     pub fn writing_left(&self, path: &Path, now: Instant) -> Option<Duration> {
         self.activity.left(path, now)
     }
 
-    /// I file che "stanno scrivendo" a `now`, aperti compresi, e fra quanto smettono.
+    /// The files "writing" at `now`, open ones included, and how soon they stop.
     pub fn writing(&self, now: Instant) -> Vec<(PathBuf, Duration)> {
         self.activity.writing(now).map(|(p, d)| (p.to_owned(), d)).collect()
     }
 
-    /// Gli eventi che non sono ricariche dei file aperti: un cambio di `.git/HEAD`, o un altro
-    /// file scritto da poco (lo scrive un agente: l'app scrive solo i file aperti).
+    /// The events that are not reloads of open files: a change of `.git/HEAD`, or another
+    /// file written recently (an agent writes it: the app writes only open files).
     fn note(&mut self, events: &[FsEvent], open: &[&Path], now: Instant) {
         for e in events {
             match e {
@@ -265,7 +265,7 @@ impl Live {
         }
     }
 
-    /// `poll` senza il watcher: `changed` dice se è arrivato un `Changed` del file di `f`.
+    /// `poll` without the watcher: `changed` says whether a `Changed` of `f`'s file arrived.
     fn step(&mut self, f: &mut Follow, doc: &mut Document, changed: bool, now: Instant) -> (Option<Reloaded>, Option<Duration>) {
         if f.recheck_at.is_some_and(|t| now >= t) {
             f.recheck_at = None;
@@ -284,7 +284,7 @@ impl Live {
         (out, f.recheck_at.map(|t| t.saturating_duration_since(now)))
     }
 
-    /// Legge il file su un thread a parte, a partire dai blocchi di adesso.
+    /// Reads the file on a separate thread, starting from the current blocks.
     fn spawn(&mut self, f: &mut Follow, doc: &Document, timed: bool) {
         let (tx, rx) = mpsc::channel();
         let (path, snap, waker) = (doc.path.clone(), doc.snapshot(), self.waker.clone());
@@ -297,7 +297,7 @@ impl Live {
         f.job = Some(Job { rx, timed });
     }
 
-    /// La lettura finita, se c'è, decisa e applicata.
+    /// The finished read, if any, decided and applied.
     fn collect(&mut self, f: &mut Follow, doc: &mut Document, now: Instant) -> Option<Reloaded> {
         let job = f.job.take()?;
         #[cfg(test)]
@@ -306,7 +306,7 @@ impl Live {
         let polled = job.rx.try_recv();
         match polled {
             Ok(Ok(read)) => self.settle(f, doc, read, job.timed, now),
-            // File assente o illeggibile durante un rename: il watcher lo riporta quando torna.
+            // File missing or unreadable during a rename: the watcher reports it when it comes back.
             Ok(Err(_)) | Err(TryRecvError::Disconnected) => None,
             Err(TryRecvError::Empty) => {
                 f.job = Some(job);
@@ -317,9 +317,9 @@ impl Live {
 
     fn settle(&mut self, f: &mut Follow, doc: &mut Document, read: Read, timed: bool, now: Instant) -> Option<Reloaded> {
         if read.suspect {
-            // Una lettura sospetta vale solo alla rilettura a tempo, uguale a quella trattenuta.
-            // Prima, anche un altro `Changed` con lo stesso contenuto aspetta: la scrittura può
-            // non essere finita.
+            // A suspicious read holds only at the timed reread, equal to the held one.
+            // Before that, even another `Changed` with the same content waits: the write may
+            // not be finished.
             if !(timed && f.held == Some(read.hash)) {
                 if f.held != Some(read.hash) || f.recheck_at.is_none() {
                     f.held = Some(read.hash);
@@ -333,8 +333,8 @@ impl Live {
         let written = read.written;
         match reload::commit(doc, read, &self.own) {
             Commit::Applied(change) => {
-                // L'unico punto che accende "sta scrivendo" per un file aperto: mai per le
-                // scritture dell'app, le letture saltate o quelle sospette trattenute.
+                // The only place that lights "writing" for an open file: never for the
+                // app's own writes, skipped reads or held suspicious ones.
                 self.activity.touch(&f.watched, now);
                 Some(Reloaded { at: now, written, change })
             }
@@ -355,7 +355,7 @@ mod tests {
 
     use super::*;
 
-    /// `Live` con una scheda sola, come l'app prima delle schede.
+    /// `Live` with a single tab, like the app before tabs.
     struct One {
         live: Live,
         f: Follow,
@@ -388,7 +388,7 @@ mod tests {
         }
     }
 
-    /// Fa girare `poll` come l'app (ogni ~16 ms) finché arriva un ricaricamento o scade `window`.
+    /// Runs `poll` like the app (every ~16 ms) until a reload arrives or `window` expires.
     fn poll_until(live: &mut One, doc: &mut Document, window: Duration) -> Option<Reloaded> {
         let deadline = Instant::now() + window;
         while Instant::now() < deadline {
@@ -404,7 +404,7 @@ mod tests {
         let mut live = One::new(Live::default(), path);
         live.live.start(Arc::new(|| {}), Vec::new());
         let doc = Document::load(path).unwrap();
-        // FSEvents parte in modo asincrono: una prima scrittura uguale fa da sentinella.
+        // FSEvents starts asynchronously: a first identical write acts as a sentinel.
         thread::sleep(Duration::from_millis(300));
         (live, doc)
     }
@@ -413,19 +413,19 @@ mod tests {
     fn an_external_write_reloads_the_open_file() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("a.md");
-        fs::write(&path, "# a\n\nuno\n").unwrap();
+        fs::write(&path, "# a\n\none\n").unwrap();
         let (mut live, mut doc) = started(&path);
         let first = doc.blocks[0].id;
-        fs::write(&path, "# a\n\nuno\n\ndue\n").unwrap();
-        let r = poll_until(&mut live, &mut doc, Duration::from_secs(5)).expect("ricarica");
+        fs::write(&path, "# a\n\none\n\ntwo\n").unwrap();
+        let r = poll_until(&mut live, &mut doc, Duration::from_secs(5)).expect("reload");
         assert_eq!(r.change.added.len(), 1);
         assert_eq!(doc.blocks.len(), 3);
-        assert_eq!(doc.blocks[0].id, first, "id stabili");
+        assert_eq!(doc.blocks[0].id, first, "stable ids");
         assert!(r.written.is_some());
     }
 
-    /// Il file aperto sta in una sottocartella di una cartella osservata (ricorsiva): una
-    /// scrittura lo ricarica una volta sola, e l'evento resta in `drained` per l'indice.
+    /// The open file is in a subfolder of a watched folder (recursive): a
+    /// write reloads it only once, and the event stays in `drained` for the index.
     #[test]
     fn a_file_under_a_watched_root_reloads_once() {
         let dir = tempfile::tempdir().unwrap();
@@ -444,7 +444,7 @@ mod tests {
         while Instant::now() < deadline {
             if live.poll(&mut doc, Instant::now()).0.is_some() {
                 reloads += 1;
-                // Dopo la prima, ancora 500 ms per vedere un'eventuale seconda ricarica.
+                // After the first one, 500 ms more to see a possible second reload.
                 deadline = deadline.min(Instant::now() + Duration::from_millis(500));
             }
             seen.extend(live.live.drained().iter().cloned());
@@ -459,13 +459,13 @@ mod tests {
     fn a_truncation_is_applied_after_settle() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("a.md");
-        let long: String = (0..200).map(|n| format!("Paragrafo {n} di prova.\n\n")).collect();
+        let long: String = (0..200).map(|n| format!("Test paragraph {n}.\n\n")).collect();
         fs::write(&path, &long).unwrap();
         let (mut live, mut doc) = started(&path);
-        fs::write(&path, "# corto\n").unwrap();
+        fs::write(&path, "# short\n").unwrap();
         let t0 = Instant::now();
-        let r = poll_until(&mut live, &mut doc, Duration::from_secs(5)).expect("ricarica dopo SETTLE");
-        assert!(t0.elapsed() >= SETTLE, "la lettura corta aspetta la seconda");
+        let r = poll_until(&mut live, &mut doc, Duration::from_secs(5)).expect("reload after SETTLE");
+        assert!(t0.elapsed() >= SETTLE, "the short read waits for the second");
         assert_eq!(doc.blocks.len(), 1);
         assert!(!r.change.removed.is_empty());
     }
@@ -474,34 +474,34 @@ mod tests {
     fn a_half_written_read_is_replaced_by_the_full_one() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("a.md");
-        let long: String = (0..200).map(|n| format!("Paragrafo {n} di prova.\n\n")).collect();
+        let long: String = (0..200).map(|n| format!("Test paragraph {n}.\n\n")).collect();
         fs::write(&path, &long).unwrap();
         let (mut live, mut doc) = started(&path);
-        // Codex: tronca, poi scrive tutto il file (più lungo) sullo stesso inode.
+        // Codex: truncates, then writes the whole file (longer) on the same inode.
         fs::write(&path, "").unwrap();
         let mut seen_empty = false;
         let deadline = Instant::now() + Duration::from_secs(3);
         while Instant::now() < deadline && !seen_empty {
             let (r, wait) = live.poll(&mut doc, Instant::now());
-            assert!(r.is_none(), "una lettura vuota non si applica");
+            assert!(r.is_none(), "an empty read is not applied");
             seen_empty = wait.is_some();
             thread::sleep(Duration::from_millis(10));
         }
-        assert!(seen_empty, "la lettura vuota è sospetta");
-        let full = format!("{long}Nuovo in fondo.\n");
+        assert!(seen_empty, "the empty read is suspicious");
+        let full = format!("{long}New at the end.\n");
         fs::write(&path, &full).unwrap();
-        let r = poll_until(&mut live, &mut doc, Duration::from_secs(5)).expect("ricarica");
-        assert_eq!(r.change.added.len(), 1, "solo il blocco nuovo: {:?}", r.change);
+        let r = poll_until(&mut live, &mut doc, Duration::from_secs(5)).expect("reload");
+        assert_eq!(r.change.added.len(), 1, "only the new block: {:?}", r.change);
         assert_eq!(doc.blocks.len(), 201);
     }
 
-    /// Troncamento, poi un secondo `Changed` 60 ms dopo con lo stesso file vuoto: niente si
-    /// applica prima della rilettura a 200 ms; il contenuto pieno che torna prima tiene gli id.
+    /// Truncation, then a second `Changed` 60 ms later with the same empty file: nothing is
+    /// applied before the reread at 200 ms; the full content that comes back earlier keeps the ids.
     #[test]
     fn a_second_changed_does_not_skip_the_settle_wait() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("a.md");
-        let long: String = (0..200).map(|n| format!("Paragrafo {n} di prova.\n\n")).collect();
+        let long: String = (0..200).map(|n| format!("Test paragraph {n}.\n\n")).collect();
         fs::write(&path, &long).unwrap();
         let mut doc = Document::load(&path).unwrap();
         let ids: Vec<u64> = doc.blocks.iter().map(|b| b.id).collect();
@@ -514,24 +514,24 @@ mod tests {
         assert_eq!(wait, Some(SETTLE));
         fs::write(&path, "").unwrap();
         let (r, wait) = live.step(&mut doc, true, at(60));
-        assert!(r.is_none(), "secondo Changed uguale prima della rilettura");
-        assert_eq!(wait, Some(Duration::from_millis(140)), "la rilettura resta a 200 ms");
+        assert!(r.is_none(), "second identical Changed before the reread");
+        assert_eq!(wait, Some(Duration::from_millis(140)), "the reread stays at 200 ms");
         assert!(live.step(&mut doc, false, at(150)).0.is_none());
         assert_eq!(doc.blocks.len(), 200);
-        let full = format!("{long}Nuovo in fondo.\n");
+        let full = format!("{long}New at the end.\n");
         fs::write(&path, &full).unwrap();
         let (r, _) = live.step(&mut doc, true, at(180));
-        assert_eq!(r.expect("contenuto pieno").change.added.len(), 1);
-        assert_eq!(doc.blocks[..200].iter().map(|b| b.id).collect::<Vec<_>>(), ids, "id tenuti");
-        assert!(live.step(&mut doc, false, at(400)).0.is_none(), "nessuna rilettura in sospeso");
+        assert_eq!(r.expect("full content").change.added.len(), 1);
+        assert_eq!(doc.blocks[..200].iter().map(|b| b.id).collect::<Vec<_>>(), ids, "ids kept");
+        assert!(live.step(&mut doc, false, at(400)).0.is_none(), "no reread pending");
     }
 
-    /// Un troncamento vero si applica alla rilettura a tempo, non prima.
+    /// A real truncation is applied at the timed reread, not before.
     #[test]
     fn a_held_truncation_applies_only_on_the_timed_recheck() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("a.md");
-        let long: String = (0..200).map(|n| format!("Paragrafo {n} di prova.\n\n")).collect();
+        let long: String = (0..200).map(|n| format!("Test paragraph {n}.\n\n")).collect();
         fs::write(&path, &long).unwrap();
         let mut doc = Document::load(&path).unwrap();
         let mut live = One::new(Live { sync: true, ..Live::default() }, &path);
@@ -540,7 +540,7 @@ mod tests {
         fs::write(&path, "").unwrap();
         assert!(live.step(&mut doc, true, at(0)).0.is_none());
         assert!(live.step(&mut doc, true, at(199)).0.is_none());
-        assert!(live.step(&mut doc, false, at(200)).0.is_some(), "alla rilettura a tempo");
+        assert!(live.step(&mut doc, false, at(200)).0.is_some(), "at the timed reread");
         assert!(doc.blocks.is_empty());
     }
 
@@ -549,8 +549,8 @@ mod tests {
         (One::new(Live { sync: true, ..Live::default() }, path), doc)
     }
 
-    /// Solo una ricarica esterna applicata accende "sta scrivendo": la rilettura di una
-    /// scrittura dell'app no.
+    /// Only an applied external reload lights "writing": the reread of an
+    /// app write does not.
     #[test]
     fn own_writes_do_not_touch() {
         let dir = tempfile::tempdir().unwrap();
@@ -558,38 +558,38 @@ mod tests {
         fs::write(&path, "# a\n").unwrap();
         let (mut live, mut doc) = sync_live(&path);
         let t0 = Instant::now();
-        // Stesso contenuto (un `touch` senza modifiche): lettura saltata, niente anello.
+        // Same content (a `touch` without changes): read skipped, no ring.
         fs::write(&path, "# a\n").unwrap();
         assert!(live.step(&mut doc, true, t0).0.is_none());
-        assert_eq!(live.writing_left(t0), None, "lettura saltata");
-        let mine = "# a\n\nscritto dall'app\n";
+        assert_eq!(live.writing_left(t0), None, "read skipped");
+        let mine = "# a\n\nwritten by the app\n";
         live.live.own.remember(&doc.path, crate::doc::ids::hash_str(mine));
         fs::write(&path, mine).unwrap();
         assert!(live.step(&mut doc, true, t0).0.is_none());
-        assert_eq!(live.writing_left(t0), None, "scrittura dell'app");
-        fs::write(&path, "# a\n\ndell'agente\n").unwrap();
+        assert_eq!(live.writing_left(t0), None, "app write");
+        fs::write(&path, "# a\n\nby the agent\n").unwrap();
         assert!(live.step(&mut doc, true, t0).0.is_some());
-        assert_eq!(live.writing_left(t0), Some(activity::WRITING_WINDOW), "scrittura dell'agente");
+        assert_eq!(live.writing_left(t0), Some(activity::WRITING_WINDOW), "agent write");
     }
 
-    /// Una lettura sospetta trattenuta non accende l'anello; lo accende quando si applica.
+    /// A held suspicious read does not light the ring; it lights it when it is applied.
     #[test]
     fn a_held_suspect_read_does_not_touch() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("a.md");
-        let long: String = (0..200).map(|n| format!("Paragrafo {n} di prova.\n\n")).collect();
+        let long: String = (0..200).map(|n| format!("Test paragraph {n}.\n\n")).collect();
         fs::write(&path, &long).unwrap();
         let (mut live, mut doc) = sync_live(&path);
         let t0 = Instant::now();
         let at = |ms| t0 + Duration::from_millis(ms);
         fs::write(&path, "").unwrap();
         assert!(live.step(&mut doc, true, at(0)).0.is_none());
-        assert_eq!(live.writing_left(at(0)), None, "trattenuta");
+        assert_eq!(live.writing_left(at(0)), None, "held");
         assert!(live.step(&mut doc, false, at(200)).0.is_some());
-        assert!(live.writing_left(at(200)).is_some(), "applicata alla rilettura");
+        assert!(live.writing_left(at(200)).is_some(), "applied at the reread");
     }
 
-    /// Un cambio di `.git/HEAD` del repo del file spegne le ricariche dei 2 s attorno.
+    /// A change of `.git/HEAD` of the file's repo turns off the reloads of the 2 s around it.
     #[test]
     fn a_git_checkout_reload_does_not_touch() {
         let dir = tempfile::tempdir().unwrap();
@@ -601,8 +601,8 @@ mod tests {
         live.note(&[FsEvent::GitHead(repo)], t0);
         fs::write(&path, "# a\n\ndal checkout\n").unwrap();
         let at = t0 + Duration::from_millis(500);
-        assert!(live.step(&mut doc, true, at).0.is_some(), "il documento si aggiorna");
-        assert_eq!(live.writing_left(at), None, "ma l'anello resta spento");
+        assert!(live.step(&mut doc, true, at).0.is_some(), "the document updates");
+        assert_eq!(live.writing_left(at), None, "but the ring stays off");
     }
 
     #[test]
@@ -619,8 +619,8 @@ mod tests {
         assert_eq!(head_dir(&other.path().join("a.md")), None);
     }
 
-    /// Un altro file scritto da poco "sta scrivendo" (righe di Recenti e albero); uno fermo da
-    /// ore riportato da un rescan no; il file aperto passa solo dalla ricarica.
+    /// Another file written recently is "writing" (rows of Recents and tree); one still for
+    /// hours reported by a rescan is not; the open file goes only through the reload.
     #[test]
     fn other_files_written_recently_are_writing() {
         let dir = tempfile::tempdir().unwrap();
@@ -650,7 +650,7 @@ mod tests {
         assert_eq!(doc.revision, 0);
     }
 
-    /// Due schede: la scrittura di `b` ricarica solo `b`, e il suo anello si accende solo per lei.
+    /// Two tabs: the write of `b` reloads only `b`, and its ring lights only for it.
     #[test]
     fn each_tab_reloads_only_its_file() {
         let dir = tempfile::tempdir().unwrap();
@@ -661,7 +661,7 @@ mod tests {
         let (mut fa, mut fb) = (live.follow(&a), live.follow(&b));
         let (mut da, mut db) = (Document::load(&a).unwrap(), Document::load(&b).unwrap());
         let t0 = Instant::now();
-        fs::write(&b, "# b\n\nnuovo\n").unwrap();
+        fs::write(&b, "# b\n\nnew\n").unwrap();
         live.drained = vec![FsEvent::Changed(fb.watched.clone())];
         assert!(live.poll(&mut fa, &mut da, t0).0.is_none());
         assert!(live.poll(&mut fb, &mut db, t0).0.is_some());
@@ -670,14 +670,14 @@ mod tests {
         assert!(live.writing_left(fa.path(), t0).is_none());
     }
 
-    /// Vale per ogni scheda, non solo l'attiva: il file di una scheda sparisce (letto
-    /// fallisce, il documento resta com'era) e torna entro 2 s: la scheda si ricarica.
+    /// It holds for every tab, not only the active one: a tab's file disappears (the read
+    /// fails, the document stays as it was) and comes back within 2 s: the tab reloads.
     #[test]
     fn a_deleted_file_that_comes_back_reloads_its_tab() {
         let dir = tempfile::tempdir().unwrap();
         let (a, b) = (dir.path().join("a.md"), dir.path().join("b.md"));
         fs::write(&a, "# a\n").unwrap();
-        fs::write(&b, "# b\n\nuno\n").unwrap();
+        fs::write(&b, "# b\n\none\n").unwrap();
         let mut live = Live { sync: true, ..Live::default() };
         let (mut fa, mut fb) = (live.follow(&a), live.follow(&b));
         let (mut da, mut db) = (Document::load(&a).unwrap(), Document::load(&b).unwrap());
@@ -685,16 +685,16 @@ mod tests {
         let watched = fb.watched.clone();
         fs::remove_file(&b).unwrap();
         live.drained = vec![FsEvent::Changed(watched.clone())];
-        assert!(live.poll(&mut fb, &mut db, t0).0.is_none(), "file assente");
-        assert_eq!(db.blocks.len(), 2, "la scheda tiene l'ultimo contenuto");
-        fs::write(&b, "# b\n\nuno\n\ndue\n").unwrap();
+        assert!(live.poll(&mut fb, &mut db, t0).0.is_none(), "file missing");
+        assert_eq!(db.blocks.len(), 2, "the tab keeps the last content");
+        fs::write(&b, "# b\n\none\n\ntwo\n").unwrap();
         let t1 = t0 + Duration::from_millis(1500);
         live.drained = vec![FsEvent::Changed(watched)];
         assert!(live.poll(&mut fa, &mut da, t1).0.is_none());
-        assert_eq!(live.poll(&mut fb, &mut db, t1).0.expect("torna").change.added.len(), 1);
+        assert_eq!(live.poll(&mut fb, &mut db, t1).0.expect("comes back").change.added.len(), 1);
     }
 
-    /// Le radici dei file aperti si contano: si tolgono quando l'ultima scheda che le usa si chiude.
+    /// The roots of open files are counted: they are removed when the last tab that uses them closes.
     #[test]
     fn closing_the_last_tab_of_a_folder_releases_its_root() {
         let dir = tempfile::tempdir().unwrap();
@@ -708,7 +708,7 @@ mod tests {
         let (fa, fb, fc) = (live.follow(&a), live.follow(&b), live.follow(&c));
         assert_eq!(live.open_roots(), vec![root.clone(), root.join("x")]);
         live.unfollow(fa);
-        assert_eq!(live.open_roots(), vec![root.clone(), root.join("x")], "b usa ancora la cartella");
+        assert_eq!(live.open_roots(), vec![root.clone(), root.join("x")], "b still uses the folder");
         live.unfollow(fc);
         assert_eq!(live.open_roots(), vec![root.clone()]);
         live.unfollow(fb);
