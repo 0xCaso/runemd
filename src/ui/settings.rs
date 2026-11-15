@@ -46,6 +46,12 @@ pub const THEMES: [(ThemePref, &str); 3] = [
 ];
 pub const FIRE: &str = "Fuoco in fondo al pannello";
 pub const WIDTH: &str = "Larghezza del testo";
+pub const FIRE_STRENGTH: &str = "Intensità";
+pub const FIRE_HEIGHT: &str = "Altezza";
+pub const FIRE_SPEED: &str = "Velocità";
+pub const FIRE_COLOR: &str = "Colore";
+/// L'opacità dei controlli del fuoco quando è spento.
+const DIMMED: f32 = 0.4;
 /// Il cursore della larghezza: binario di 2 in `fg3`, parte scelta e pomello (12) in `fg2`.
 const TRACK: f32 = 2.0;
 const THUMB: f32 = 12.0;
@@ -340,7 +346,7 @@ pub fn view(s: &App, hooks: Hooks<App>, theme: &Theme, reduced: bool, hover: boo
             .child(step("set-bigger", "+", BIGGER, 1)),
     );
 
-    body = body.child(section(WIDTH, theme)).child(width_slider(set.column, theme));
+    body = body.child(section(WIDTH, theme)).child(width_slider("set-width", set.column, theme));
 
     body = body.child(section(THEME, theme));
     let mut themes = col()
@@ -364,7 +370,8 @@ pub fn view(s: &App, hooks: Hooks<App>, theme: &Theme, reduced: bool, hover: boo
 
     body = body
         .child(el().h(SECTION_PAD_TOP))
-        .child(fire_toggle(s, hooks, theme, motion));
+        .child(fire_toggle(s, hooks, theme, motion))
+        .child(fire_look(s, hooks, theme, motion));
 
     let scroll = col()
         .key("settings-scroll")
@@ -390,50 +397,132 @@ pub fn view(s: &App, hooks: Hooks<App>, theme: &Theme, reduced: bool, hover: boo
         .child(scroll)
 }
 
-/// "Larghezza del testo": un cursore a passi (`settings::COLUMNS`, da 680 a "Intera") e il valore
-/// a destra. Trascinare o cliccare sceglie il passo più vicino; le frecce vanno di un passo e non
-/// scattano altrove. Il binario è in `fg3` e la parte scelta col pomello in `fg2` (≥ 3:1).
-fn width_slider(column: f32, theme: &Theme) -> El {
-    let t = crate::settings::column_t(column);
-    let label = crate::settings::column_label(column);
+/// "Larghezza del testo": il cursore a passi di `settings::COLUMNS` (da 680 a "Intera").
+pub(crate) fn width_slider(key: &'static str, column: f32, theme: &Theme) -> El {
+    stepped_slider(
+        key,
+        WIDTH,
+        crate::settings::column_t(column),
+        crate::settings::column_label(column),
+        true,
+        theme,
+        |s: &mut App, at, tx: &mut Tx| s.set_column(crate::settings::column_at(at), tx),
+        |s: &mut App, step, tx: &mut Tx| s.set_column(s.settings.step_column(step), tx),
+    )
+}
+
+/// Un cursore a passi con il valore `value` a destra (chiave `<key>-value`), al punto `t`
+/// (0..1). Trascinare o cliccare chiama `at` con il punto; le frecce chiamano `step` con −1 o
+/// +1. Il binario è in `fg3` e la parte scelta col pomello in `fg2` (≥ 3:1). Spento
+/// (`enabled` falso): niente gestori, `disabled` per l'accessibilità; l'attenuazione la mette
+/// chi lo contiene.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn stepped_slider(
+    key: &'static str,
+    label: &'static str,
+    t: f32,
+    value: String,
+    enabled: bool,
+    theme: &Theme,
+    at: impl Fn(&mut App, f32, &mut Tx) + 'static,
+    step: impl Fn(&mut App, i32, &mut Tx) + 'static,
+) -> El {
     let track = |grow: f32, color| el().grow(grow).h(TRACK).radius(TRACK / 2.0).fill(color);
     let thumb = el().size(THUMB, THUMB).radius(THUMB / 2.0).fill(theme.fg2);
-    let slider = row()
-        .key("set-width")
+    let mut slider = row()
+        .key(key)
         .role("slider")
-        .label(WIDTH)
-        .a11y_value(label.clone())
-        .focusable(true)
+        .label(label)
+        .a11y_value(value.clone())
         .grow(1.0)
         .min_w(0.0)
         .h(ROW)
         .center_y()
         .child(track(t, theme.fg2))
         .child(thumb)
-        .child(track(1.0 - t, theme.fg3))
-        .on_drag(|s: &mut App, d: &mut rune::Drag, tx: &mut Tx| {
-            if d.phase == rune::Phase::Up {
-                return;
-            }
-            let at = ((d.x - THUMB / 2.0) / (d.w - THUMB).max(1.0)).clamp(0.0, 1.0);
-            s.set_column(crate::settings::column_at(at), tx);
-        })
-        .on_key(|s: &mut App, key: &rune::KeyEvent, tx: &mut Tx| {
-            let step = match key.key {
-                rune::Key::Left | rune::Key::Down => -1,
-                rune::Key::Right | rune::Key::Up => 1,
-                _ => return false,
-            };
-            s.set_column(s.settings.step_column(step), tx);
-            true
-        });
-    let value = text(label)
-        .key("set-width-value")
+        .child(track(1.0 - t, theme.fg3));
+    slider = if enabled {
+        slider
+            .focusable(true)
+            .on_drag(move |s: &mut App, d: &mut rune::Drag, tx: &mut Tx| {
+                if d.phase == rune::Phase::Up {
+                    return;
+                }
+                at(s, ((d.x - THUMB / 2.0) / (d.w - THUMB).max(1.0)).clamp(0.0, 1.0), tx);
+            })
+            .on_key(move |s: &mut App, key: &rune::KeyEvent, tx: &mut Tx| {
+                let by = match key.key {
+                    rune::Key::Left | rune::Key::Down => -1,
+                    rune::Key::Right | rune::Key::Up => 1,
+                    _ => return false,
+                };
+                step(s, by, tx);
+                true
+            })
+    } else {
+        slider.disabled(true)
+    };
+    let value = text(value)
+        .key(format!("{key}-value"))
         .font(ui_font().features("'tnum' 1"))
         .color(theme.fg)
         .w(WIDTH_VALUE)
         .pl(ROW_GAP);
     row().w_full().px(ROW_PAD).child(slider).child(value)
+}
+
+/// Le impostazioni del fuoco sotto l'interruttore: Intensità, Altezza, Velocità (cursori a
+/// passi) e Colore (scelte). Con il fuoco spento sono attenuate (`DIMMED`) e disabilitate.
+fn fire_look(s: &App, hooks: Hooks<App>, theme: &Theme, motion: Motion) -> El {
+    use crate::settings::FireKnob;
+    let on = s.settings.fire;
+    let mut look = col().key("set-fire-look").w_full().disabled(!on);
+    if !on {
+        look = look.opacity(DIMMED);
+    }
+    for (knob, key, label) in [
+        (FireKnob::Strength, "set-fire-strength", FIRE_STRENGTH),
+        (FireKnob::Height, "set-fire-height", FIRE_HEIGHT),
+        (FireKnob::Speed, "set-fire-speed", FIRE_SPEED),
+    ] {
+        let v = s.settings.fire_knob(knob);
+        look = look.child(sub_label(label, theme)).child(stepped_slider(
+            key,
+            label,
+            knob.t(v),
+            knob.label(v),
+            on,
+            theme,
+            move |s: &mut App, at, _: &mut Tx| s.set_fire_knob(knob, knob.at(at)),
+            move |s: &mut App, by, _: &mut Tx| s.set_fire_knob(knob, knob.step(s.settings.fire_knob(knob), by)),
+        ));
+    }
+    look = look.child(sub_label(FIRE_COLOR, theme));
+    let mut colors = col()
+        .key("set-fire-colors")
+        .role("radiogroup")
+        .label(FIRE_COLOR)
+        .w_full();
+    for (color, label) in crate::fx::fire::COLORS {
+        let key = format!("set-fire-color-{label}");
+        let chosen = s.settings.fire_color == color;
+        colors = colors.child(if on {
+            option(s, hooks, key, label, chosen, theme, motion, move |s: &mut App| s.set_fire_color(color))
+        } else {
+            still_option(key, label, chosen, theme)
+        });
+    }
+    look.child(colors)
+}
+
+/// L'etichetta di un controllo dentro una sezione: 13 in `fg2`, senza lo spazio di sezione.
+fn sub_label(label: &'static str, theme: &Theme) -> El {
+    text(label)
+        .key(label)
+        .font(ui_font())
+        .color(theme.fg2)
+        .pt(ROW_GAP)
+        .px(ROW_PAD)
 }
 
 /// Un'etichetta di sezione: 12/500 in `fg3` (`section-pad`), come nella sidebar.
@@ -550,6 +639,33 @@ fn option(
         e = e.fill(theme.sel);
     }
     sidebar::pressable(e, key.clone(), &s.sidebar, hooks, theme, motion, !chosen).key(key)
+}
+
+/// Una scelta che non si può fare (fuoco spento): come `option`, senza pressione né hover.
+fn still_option(key: String, label: &str, chosen: bool, theme: &Theme) -> El {
+    let mark = el().w(ICON).h(ICON).center();
+    let mark = if chosen { mark.child(icon(&glyphs::CHECK, ICON).color(theme.fg)) } else { mark };
+    row()
+        .key(key)
+        .w_full()
+        .h(ROW)
+        .px(ROW_PAD)
+        .gap(ROW_GAP)
+        .center_y()
+        .role("radio")
+        .label(label.to_owned())
+        .checked(chosen)
+        .disabled(true)
+        .child(mark)
+        .child(
+            text(label.to_owned())
+                .font(ui_font())
+                .color(if chosen { theme.fg } else { theme.fg2 })
+                .truncate()
+                .shrink()
+                .min_w(0.0)
+                .a11y_hidden(),
+        )
 }
 
 /// L'interruttore del fuoco: una casella con il bordo in `fg3`; accesa, piena in `fg2` con la
@@ -856,7 +972,7 @@ mod tests {
             .filter(|e| e.role == "radiogroup")
             .filter_map(|e| e.label.clone())
             .collect();
-        assert_eq!(groups, [FONT, THEME]);
+        assert_eq!(groups, [FONT, THEME, FIRE_COLOR]);
     }
 
     /// Una cartella già osservata (o sotto una osservata) non si aggiunge e il pannello lo dice
@@ -886,5 +1002,60 @@ mod tests {
             !texts(&rt).iter().any(|t| t == ALREADY),
             "la prossima azione lo toglie"
         );
+    }
+
+    /// Le impostazioni del fuoco: tre cursori e i cinque colori sotto l'interruttore. Cambiano
+    /// le impostazioni; con il fuoco spento sono attenuati, disabilitati e non rispondono.
+    #[test]
+    fn fire_look_controls_change_settings_and_go_dim_when_off() {
+        let mut rt = open("# Titolo\n\nTesto.\n", true);
+        cmd(&mut rt, ',');
+        for label in [FIRE_STRENGTH, FIRE_HEIGHT, FIRE_SPEED, FIRE_COLOR, "Fuoco", "Blu", "Viola", "Verde", "Accento di sistema", "100 %", "110 pt", "1×"] {
+            assert!(texts(&rt).iter().any(|t| t == label), "manca {label}: {:?}", texts(&rt));
+        }
+        let find = |rt: &Runtime<App>, k: &str| rt.elements().into_iter().find(|e| e.key.as_deref() == Some(k)).unwrap_or_else(|| panic!("manca {k}"));
+        let click = |rt: &mut Runtime<App>, k: &str, right: bool| {
+            let r = find(rt, k).rect;
+            let x = if right { r[0] + r[2] - 1.0 } else { r[0] + r[2] / 2.0 };
+            let y = r[1] + r[3] / 2.0;
+            rt.pointer_move(x, y);
+            rt.pointer_down(x, y);
+            rt.pointer_up(x, y);
+            settle(rt);
+        };
+        assert_eq!(find(&rt, "set-fire-strength").role, "slider");
+        click(&mut rt, "set-fire-strength", true);
+        assert_eq!(rt.state.settings.fire_strength, 1.75);
+        assert!(texts(&rt).iter().any(|t| t == "175 %"));
+        rt.key(KeyEvent { key: Key::Left, mods: Mods::default() });
+        settle(&mut rt);
+        assert_eq!(rt.state.settings.fire_strength, 1.5, "la freccia va di un passo");
+        click(&mut rt, "set-fire-height", true);
+        assert_eq!(rt.state.settings.fire_height, 1.6);
+        click(&mut rt, "set-fire-speed", true);
+        assert_eq!(rt.state.settings.fire_speed, 3.0);
+        // I colori sono in fondo al pannello: lo si scorre fin lì.
+        let r = find(&rt, "settings-scroll").rect;
+        for _ in 0..20 {
+            rt.wheel(r[0] + 40.0, r[1] + 100.0, -400.0);
+            rt.frame(1.0 / 120.0);
+        }
+        settle(&mut rt);
+        let v = find(&rt, "set-fire-color-Viola").rect;
+        assert!(v[1] + v[3] <= r[1] + r[3], "Viola si vede: {v:?} in {r:?}");
+        click(&mut rt, "set-fire-color-Viola", false);
+        assert_eq!(rt.state.settings.fire_color, crate::fx::fire::FireColor::Violet);
+        assert!(find(&rt, "set-fire-look").opacity > 0.99, "acceso: pieno");
+
+        rt.update(|s, _| s.toggle_fire());
+        settle(&mut rt);
+        assert!(find(&rt, "set-fire-look").opacity < 0.5, "spento: attenuato");
+        assert!(!find(&rt, "set-fire-strength").focusable, "spento: fuori dal giro del Tab");
+        let k = find(&rt, "set-fire-strength").rect;
+        assert!(k[1] >= r[1] && k[1] + k[3] <= r[1] + r[3], "il cursore si vede: {k:?}");
+        click(&mut rt, "set-fire-strength", false);
+        click(&mut rt, "set-fire-color-Blu", false);
+        assert_eq!(rt.state.settings.fire_strength, 1.5, "spento: il cursore non risponde");
+        assert_eq!(rt.state.settings.fire_color, crate::fx::fire::FireColor::Violet, "spento: i colori non rispondono");
     }
 }

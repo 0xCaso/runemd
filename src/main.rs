@@ -146,7 +146,8 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
     // `fg` nel chiaro).
     if let Some(tab) = s.tab().filter(|t| matches!(t.mode, app::Mode::Read)) {
         let lit = tab.fire_since.map(|since| (since, tab.below.count()));
-        panel = panel.children(fire_band(lit, s.settings.fire, dark, &theme, reduced, s.window_active));
+        let look = s.settings.fire_look(fx::fire::accent_hex(cx.accent()));
+        panel = panel.children(fire_band(lit, s.settings.fire, look, dark, &theme, reduced, s.window_active));
     }
     // L'anello "sta scrivendo" sta sulla scheda del file (`ui::tabs`) e sulle sue righe in
     // Recenti e nell'albero.
@@ -193,7 +194,7 @@ fn edge(key: &str, sidebar: bool) -> El {
 /// spento dalle impostazioni (`Settings::fire`) non c'è niente a riposo, e con testo nuovo solo
 /// l'etichetta, in `fg2` su una fascia `panel` con la linea `line` sopra: senza le fiamme sotto,
 /// il testo del documento non deve passarle dietro.
-fn fire_band(lit: Option<(f64, usize)>, fire: bool, dark: bool, theme: &ui::theme::Theme, reduced: bool, active: bool) -> Vec<El> {
+fn fire_band(lit: Option<(f64, usize)>, fire: bool, look: fx::fire::Look, dark: bool, theme: &ui::theme::Theme, reduced: bool, active: bool) -> Vec<El> {
     let label = |count, ink| rune::text(ui::doc_view::fire_label(count)).key("fire-text").font(rune::TextStyle::new(ui::theme::UI_TEXT, ui::theme::UI_WEIGHT)).color(ink);
     if !fire {
         let Some((_, count)) = lit else { return Vec::new() };
@@ -201,11 +202,12 @@ fn fire_band(lit: Option<(f64, usize)>, fire: bool, dark: bool, theme: &ui::them
         let strip = rune::col().w_full().h(ui::theme::TAB_BAR_H).fill(theme.panel).items_center().justify_center().child(label(count, theme.fg2));
         return vec![rune::col().key("fire-label").pin(Some(0.0), None, Some(0.0), Some(0.0)).child(line).child(strip)];
     }
-    let band = |key: &str| rune::col().key(key).pin(Some(0.0), None, Some(0.0), Some(0.0)).h(fx::fire::FIRE_H);
-    let flames = fx::fire::slot(band("fire"), lit.map(|(since, _)| since), dark, reduced, active);
+    let band = |key: &str, h: f32| rune::col().key(key).pin(Some(0.0), None, Some(0.0), Some(0.0)).h(h);
+    // Lo slot alto quanto il fuoco acceso con l'altezza scelta; l'etichetta resta dov'era.
+    let flames = fx::fire::slot(band("fire", fx::fire::FIRE_H * look.height), lit.map(|(since, _)| since), dark, reduced, active, look);
     let Some((_, count)) = lit else { return vec![flames] };
     let ink = if dark { theme.panel } else { theme.fg };
-    let text = band("fire-label").items_center().justify_end().pb(ui::theme::FIRE_LABEL_BOTTOM).child(label(count, ink));
+    let text = band("fire-label", fx::fire::FIRE_H).items_center().justify_end().pb(ui::theme::FIRE_LABEL_BOTTOM).child(label(count, ink));
     // Due fasce sorelle: lo slot prima, l'etichetta dopo (Rune la dipinge sopra le fiamme).
     vec![flames, text]
 }

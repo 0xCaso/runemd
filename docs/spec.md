@@ -151,7 +151,9 @@ aperto. Le cartelle osservate sono `~/Desktop/GitHub` (28 repo oggi), più altre
 - **Anello ("sta scrivendo")**: il file è cambiato da una scrittura esterna negli ultimi N secondi (ipotesi: 3 s).
 - **Fuoco** (v1.1: sempre acceso in lettura, basso, a riposo): sale quando ci sono blocchi nuovi o cambiati
   sotto la parte visibile, e torna a riposo quando l'ultimo di questi entra nella parte visibile. L'impostazione
-  "Fuoco in fondo al pannello" lo spegne del tutto (resta solo l'etichetta col testo nuovo). A riposo si
+  "Fuoco in fondo al pannello" lo spegne del tutto (resta solo l'etichetta col testo nuovo). Sotto, intensità, altezza, velocità e colore
+  (Fuoco, Blu, Viola, Verde, Accento di sistema) si salvano in prefs.json; un valore non valido torna al default, e i
+  default sono il fuoco di prima. La velocità non cambia i risvegli a riposo. A riposo si
   ridisegna 12 volte al secondo, senza display link, per non tenere la CPU alta. L'etichetta conta questi blocchi e resta "N paragrafi nuovi più in basso" (testo approvato).
   Con la finestra non attiva l'animazione si ferma e il fuoco resta fermo e visibile [mia scelta].
 - **Dither ("sta arrivando")**: solo per l'ultimo blocco del file, quando è aperto (fence ``` non chiusa, oppure

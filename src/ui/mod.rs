@@ -1,7 +1,7 @@
 //! Le viste dell'app.
 
 #[cfg(test)]
-mod contrast;
+pub(crate) mod contrast;
 pub mod doc_view;
 pub mod find;
 pub mod markdown_style;

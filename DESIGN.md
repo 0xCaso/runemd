@@ -422,7 +422,13 @@ chiude, Esc la chiude. Titolo "Impostazioni" (UI, 600, `fg`), poi sezioni con et
 "Aggiungi cartella…" apre il dialogo delle cartelle; una cartella già osservata, o sotto una osservata, non si
 aggiunge e sotto compare "Già osservata" in `fg-2` per 3 s o fino alla prossima azione), "Font" (Inter, SF Pro, New York se installato col suo nome,
 poi le famiglie installate; lista virtuale alta 8 righe e mezza, così la nona tagliata dice che scorre), "Dimensione" ("−", "15,5 pt", "+"; titoli, tabelle e
-codice scalano col corpo), "Larghezza del testo" (cursore a passi da 680 a 1240 di 80 in 80, l'ultimo "Intera": la colonna segue il pannello, i margini delle righe restano; binario di 2 in `fg-3`, parte scelta e pomello di 12 in `fg-2`, valore a destra in `fg` con cifre tabulari; frecce un passo alla volta; il blocco in cima alla vista resta in cima), "Tema" ("Sistema", "Chiaro", "Scuro"), e la casella "Fuoco in fondo al pannello" (accende e spegne il fuoco, a riposo e col testo nuovo). Le
+codice scalano col corpo), "Larghezza del testo" (cursore a passi da 680 a 1240 di 80 in 80, l'ultimo "Intera": la colonna segue il pannello, i margini delle righe restano; binario di 2 in `fg-3`, parte scelta e pomello di 12 in `fg-2`, valore a destra in `fg` con cifre tabulari; frecce un passo alla volta; il blocco in cima alla vista resta in cima), "Tema" ("Sistema", "Chiaro", "Scuro"), la casella "Fuoco in fondo al pannello" (accende e spegne il fuoco, a riposo e col testo nuovo) e sotto
+l'aspetto del fuoco: "Intensità" (40–175 %), "Altezza" (55–176 pt col fuoco acceso, 110 il default), "Velocità"
+(0,25–3×), tre cursori a passi uguali a quello della larghezza con l'etichetta 13 in `fg-2` sopra, e "Colore"
+("Fuoco", "Blu", "Viola", "Verde", "Accento di sistema", scelte come quelle del tema). I default sono il fuoco di
+sempre. La parte calda di ogni colore resta chiara, così l'etichetta del testo nuovo sopra le fiamme tiene 4,5:1.
+Con il fuoco spento questi controlli sono al 40 % e disabilitati (fuori dal giro del Tab, senza hover né clic):
+un controllo disabilitato non ha obbligo di contrasto. Le
 righe sono quelle della sidebar (28, raggio 6, hover `sel`, scala 0,98). La scelta fatta ha riempimento `sel`,
 testo `fg` e una spunta in `fg`; le altre testo `fg-2`. La casella ha il bordo di 1 in `fg-3`; accesa è piena in
 `fg-2` con la spunta in `panel`. Con il fuoco spento l'etichetta "N paragrafi nuovi più in basso" resta, in `fg-2`

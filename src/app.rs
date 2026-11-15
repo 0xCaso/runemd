@@ -490,6 +490,23 @@ impl App {
         self.save_settings();
     }
 
+    /// Un passo di intensità, altezza o velocità del fuoco (uno di `knob.steps()`).
+    pub fn set_fire_knob(&mut self, knob: crate::settings::FireKnob, v: f32) {
+        self.settings_panel.clear_notice();
+        if self.settings.set_fire_knob(knob, v) {
+            self.save_settings();
+        }
+    }
+
+    /// Il colore del fuoco.
+    pub fn set_fire_color(&mut self, color: crate::fx::fire::FireColor) {
+        self.settings_panel.clear_notice();
+        if self.settings.fire_color != color {
+            self.settings.fire_color = color;
+            self.save_settings();
+        }
+    }
+
     /// Una cartella osservata in più, da subito: la guarda il watcher, l'indice la scandisce e
     /// Recenti si aggiorna quando arriva la scansione. Una cartella sotto una già osservata non
     /// serve e non si aggiunge; una sopra prende il posto di quelle che contiene. Vero se è cambiato.

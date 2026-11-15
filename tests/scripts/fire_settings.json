@@ -1,0 +1,9 @@
+[
+ {"t": 0.5, "type": "key", "name": ",", "cmd": true},
+ {"t": 1.0, "type": "wheel", "key": "settings-scroll", "dy": -3000},
+ {"t": 1.6, "type": "mark", "name": "panel"},
+ {"t": 1.8, "type": "tap", "key": "set-fire-color-COLOR"},
+ {"t": 2.2, "type": "key", "name": ",", "cmd": true},
+ {"t": 2.5, "type": "mark", "name": "picked"},
+ {"t": 5.0, "type": "mark", "name": "lit"}
+]

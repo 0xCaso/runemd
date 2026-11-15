@@ -103,7 +103,7 @@ impl Compositor<App> for FxCompositor {
                 }
                 self.fire_lit = s.lit;
                 let phase = fire_phase(s, self.fire_out, clock);
-                let layer = fire::layer(rect_pt(i), phase, clock as f32, s.dark, s.reduced, s.active_window);
+                let layer = fire::layer(rect_pt(i), phase, clock as f32, s.dark, s.reduced, s.active_window, s.look);
                 // A riposo le fiamme si muovono coi risvegli di `fire::REST_FRAME` (`App::fire_rests`),
                 // non col display link.
                 if fire::paced(phase) {

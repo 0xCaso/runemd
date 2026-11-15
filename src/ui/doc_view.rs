@@ -20,7 +20,7 @@ use crate::doc::select_all::{End, Ends, SelectAll, SelectAllFlag};
 use super::theme::{CHANGED_MARK_W, CHANGED_MARK_X, R_ROW, ROW_PAD_X, ROW_PAD_Y, UI_SMALL, UI_WEIGHT};
 
 /// Altezza dello spazio sotto l'ultima riga: ci sta il dither "sta arrivando".
-pub(super) const BOTTOM: f32 = 48.0;
+pub(crate) const BOTTOM: f32 = 48.0;
 /// Spazio sopra la prima riga (anche il sorgente parte da qui).
 pub(super) const TOP: f32 = 24.0;
 

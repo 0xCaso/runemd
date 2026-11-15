@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use rune::prefs::{Prefs, PrefsError};
 use serde::{Deserialize, Serialize};
 
+use crate::fx::fire::{self, FireColor};
 use crate::panes::{self, Pane};
 
 /// L'id dell'app per `Prefs::open`: la stessa cartella dell'indice (`index::cache_path`).
@@ -91,6 +92,13 @@ pub struct Settings {
     /// sempre acceso dalla v1.1): spento, niente fiamme, né a riposo né col testo nuovo, e
     /// l'etichetta "N paragrafi nuovi più in basso" resta.
     pub fire: bool,
+    /// Intensità, altezza e velocità del fuoco: uno dei passi di `fire::STRENGTHS`, `HEIGHTS`,
+    /// `SPEEDS` (1 è il fuoco di oggi).
+    pub fire_strength: f32,
+    pub fire_height: f32,
+    pub fire_speed: f32,
+    /// Il colore delle fiamme.
+    pub fire_color: FireColor,
     /// La larghezza della colonna del testo, pt, uno di `COLUMNS` (`COLUMN_FULL` è "Intera").
     pub column: f32,
     /// La sidebar e l'indice dei titoli: larghezza e larghezze imparate (`panes`).
@@ -106,6 +114,10 @@ impl Default for Settings {
             size: DEFAULT_SIZE,
             theme: ThemePref::System,
             fire: true,
+            fire_strength: 1.0,
+            fire_height: 1.0,
+            fire_speed: 1.0,
+            fire_color: FireColor::Fire,
             column: DEFAULT_COLUMN,
             sidebar: Pane::new(panes::SIDEBAR),
             outline: Pane::new(panes::OUTLINE),
@@ -129,6 +141,10 @@ const FONT: &str = "font";
 const SIZE: &str = "size";
 const THEME: &str = "theme";
 const FIRE: &str = "fire";
+const FIRE_STRENGTH: &str = "fire_strength";
+const FIRE_HEIGHT: &str = "fire_height";
+const FIRE_SPEED: &str = "fire_speed";
+const FIRE_COLOR: &str = "fire_color";
 const COLUMN: &str = "column";
 const SIDEBAR: &str = "sidebar";
 const OUTLINE: &str = "outline";
@@ -149,6 +165,10 @@ impl Settings {
                 .unwrap_or(d.size),
             theme: prefs.get(THEME).unwrap_or(d.theme),
             fire: prefs.get(FIRE).unwrap_or(d.fire),
+            fire_strength: step_or(prefs, FIRE_STRENGTH, &fire::STRENGTHS, d.fire_strength),
+            fire_height: step_or(prefs, FIRE_HEIGHT, &fire::HEIGHTS, d.fire_height),
+            fire_speed: step_or(prefs, FIRE_SPEED, &fire::SPEEDS, d.fire_speed),
+            fire_color: prefs.get(FIRE_COLOR).unwrap_or(d.fire_color),
             column: prefs
                 .get::<f32>(COLUMN)
                 .filter(|c| COLUMNS.contains(c))
@@ -165,6 +185,10 @@ impl Settings {
         prefs.set(SIZE, &self.size)?;
         prefs.set(THEME, &self.theme)?;
         prefs.set(FIRE, &self.fire)?;
+        prefs.set(FIRE_STRENGTH, &self.fire_strength)?;
+        prefs.set(FIRE_HEIGHT, &self.fire_height)?;
+        prefs.set(FIRE_SPEED, &self.fire_speed)?;
+        prefs.set(FIRE_COLOR, &self.fire_color)?;
         prefs.set(COLUMN, &self.column)?;
         prefs.set(SIDEBAR, &self.sidebar)?;
         prefs.set(OUTLINE, &self.outline)
@@ -175,6 +199,33 @@ impl Settings {
     pub fn step_column(&self, step: i32) -> f32 {
         let at = COLUMNS.iter().position(|c| *c == self.column).unwrap_or(0) as i32;
         COLUMNS[(at + step).clamp(0, COLUMNS.len() as i32 - 1) as usize]
+    }
+
+    /// Il valore di `knob` adesso.
+    pub fn fire_knob(&self, knob: FireKnob) -> f32 {
+        match knob {
+            FireKnob::Strength => self.fire_strength,
+            FireKnob::Height => self.fire_height,
+            FireKnob::Speed => self.fire_speed,
+        }
+    }
+
+    /// Mette `v` in `knob` se è uno dei suoi passi. Vero se è cambiato.
+    pub fn set_fire_knob(&mut self, knob: FireKnob, v: f32) -> bool {
+        if !knob.steps().contains(&v) || self.fire_knob(knob) == v {
+            return false;
+        }
+        match knob {
+            FireKnob::Strength => self.fire_strength = v,
+            FireKnob::Height => self.fire_height = v,
+            FireKnob::Speed => self.fire_speed = v,
+        }
+        true
+    }
+
+    /// L'aspetto del fuoco per il compositor, con l'accento di sistema `accent` (0xRRGGBB).
+    pub fn fire_look(&self, accent: u32) -> fire::Look {
+        fire::Look { strength: self.fire_strength, height: self.fire_height, speed: self.fire_speed, color: self.fire_color, accent }
     }
 
     /// Aggiunge `root` se non c'è già. Vero se è cambiato.
@@ -206,6 +257,59 @@ impl Settings {
         };
         SIZES[at]
     }
+}
+
+/// Un cursore a passi del fuoco (impostazioni, sezione del fuoco).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FireKnob {
+    Strength,
+    Height,
+    Speed,
+}
+
+impl FireKnob {
+    pub fn steps(self) -> &'static [f32] {
+        match self {
+            FireKnob::Strength => &fire::STRENGTHS,
+            FireKnob::Height => &fire::HEIGHTS,
+            FireKnob::Speed => &fire::SPEEDS,
+        }
+    }
+
+    /// Il punto del cursore (0..1) del valore `v`; fuori passo, quello del default (1).
+    pub fn t(self, v: f32) -> f32 {
+        let steps = self.steps();
+        let at = steps.iter().position(|s| *s == v).or_else(|| steps.iter().position(|s| *s == 1.0)).unwrap_or(0);
+        at as f32 / (steps.len() - 1) as f32
+    }
+
+    /// Il passo più vicino al punto `t` (0..1) del cursore.
+    pub fn at(self, t: f32) -> f32 {
+        let steps = self.steps();
+        steps[(t.clamp(0.0, 1.0) * (steps.len() - 1) as f32).round() as usize]
+    }
+
+    /// Il passo dopo `v` nella direzione `step` (−1 o +1), fermo ai capi.
+    pub fn step(self, v: f32, step: i32) -> f32 {
+        let steps = self.steps();
+        let at = steps.iter().position(|s| *s == v).unwrap_or(0) as i32;
+        steps[(at + step).clamp(0, steps.len() as i32 - 1) as usize]
+    }
+
+    /// Come il pannello scrive il valore: intensità in percento, altezza in pt (del fuoco acceso),
+    /// velocità come "1,5×".
+    pub fn label(self, v: f32) -> String {
+        match self {
+            FireKnob::Strength => format!("{:.0} %", v * 100.0),
+            FireKnob::Height => format!("{:.0} pt", fire::FIRE_H * v),
+            FireKnob::Speed => format!("{}×", format!("{v}").replace('.', ",")),
+        }
+    }
+}
+
+/// Il valore di `key` in `prefs` se è uno di `steps`, altrimenti `default`.
+fn step_or(prefs: &Prefs, key: &str, steps: &[f32], default: f32) -> f32 {
+    prefs.get::<f32>(key).filter(|v| steps.contains(v)).unwrap_or(default)
 }
 
 /// Due percorsi sono la stessa cartella (anche se uno è canonico e l'altro no).
@@ -243,6 +347,10 @@ mod tests {
             size: 17.0,
             theme: ThemePref::Dark,
             fire: false,
+            fire_strength: 1.5,
+            fire_height: 0.8,
+            fire_speed: 2.0,
+            fire_color: FireColor::Violet,
             column: 920.0,
             sidebar: Pane { width: 300.0, learned: vec![300.0, 210.0] },
             outline: Pane { width: 240.0, learned: vec![240.0] },
@@ -336,6 +444,48 @@ mod tests {
         let back = Settings::load(&prefs);
         assert_eq!(back.sidebar, Pane { width: panes::SIDEBAR.max, learned: vec![200.0] });
         assert_eq!(back.outline, Pane::new(panes::OUTLINE));
+    }
+
+    /// Il fuoco di default è quello di oggi; intensità, altezza, velocità e colore tornano dopo il
+    /// riavvio; un valore che non è un passo (o un colore che non si legge) torna al default, gli
+    /// altri restano.
+    #[test]
+    fn fire_look_persists_and_bad_values_fall_back() {
+        let d = Settings::default();
+        assert_eq!(d.fire_look(fire::ACCENT_DEFAULT), fire::Look::default());
+        let mut prefs = Prefs::memory();
+        let s = Settings { fire: false, fire_strength: 0.6, fire_height: 1.6, fire_speed: 0.25, fire_color: FireColor::Accent, ..Settings::default() };
+        s.save(&mut prefs).unwrap();
+        let back = Settings::load(&prefs);
+        assert_eq!((back.fire_strength, back.fire_height, back.fire_speed, back.fire_color), (0.6, 1.6, 0.25, FireColor::Accent));
+        prefs.set(FIRE_STRENGTH, &7.0f32).unwrap();
+        prefs.set(FIRE_HEIGHT, &"alto").unwrap();
+        prefs.set(FIRE_SPEED, &-1.0f32).unwrap();
+        prefs.set(FIRE_COLOR, &"Arancio").unwrap();
+        let back = Settings::load(&prefs);
+        assert_eq!((back.fire_strength, back.fire_height, back.fire_speed, back.fire_color), (1.0, 1.0, 1.0, FireColor::Fire));
+        assert!(!back.fire, "il resto resta");
+    }
+
+    #[test]
+    fn fire_knobs_step_clamp_and_read_in_italian() {
+        let mut s = Settings::default();
+        for knob in [FireKnob::Strength, FireKnob::Height, FireKnob::Speed] {
+            let steps = knob.steps();
+            assert_eq!(knob.at(-2.0), steps[0], "sotto 0: il primo");
+            assert_eq!(knob.at(5.0), *steps.last().unwrap(), "sopra 1: l'ultimo");
+            assert_eq!(knob.at(knob.t(1.0)), 1.0);
+            assert_eq!(knob.step(steps[0], -1), steps[0], "fermo al primo");
+            assert_eq!(knob.step(*steps.last().unwrap(), 1), *steps.last().unwrap(), "fermo all'ultimo");
+            assert!(!s.set_fire_knob(knob, 0.123), "non è un passo");
+            assert!(s.set_fire_knob(knob, steps[0]));
+            assert_eq!(s.fire_knob(knob), steps[0]);
+            assert!(!s.set_fire_knob(knob, steps[0]), "già così");
+        }
+        assert_eq!(FireKnob::Strength.label(1.25), "125 %");
+        assert_eq!(FireKnob::Height.label(1.0), "110 pt");
+        assert_eq!(FireKnob::Speed.label(1.5), "1,5×");
+        assert_eq!(FireKnob::Speed.label(1.0), "1×");
     }
 
     #[test]
