@@ -901,9 +901,33 @@ impl App {
 
     /// Un clic su un link del documento. Un percorso che esiste (`runemd-open:`, `doc::paths`)
     /// apre il file in una scheda fissa (o porta davanti la sua) e, con `:riga`, mette in cima il
-    /// blocco di quella riga. Gli altri link non fanno niente.
+    /// blocco di quella riga. `#titolo` mette in cima quel titolo; un link relativo a un file che
+    /// esiste lo apre come un percorso; gli altri (`https:`, `mailto:`) li apre il sistema.
     pub fn open_link(&mut self, url: &str, tx: &mut Tx) {
-        let Some((path, line)) = crate::doc::paths::parse_target(url) else { return };
+        if url.starts_with('#') {
+            let Some(tab) = self.tab_mut().filter(|t| matches!(t.mode, Mode::Read)) else { return };
+            if let Some(i) = crate::doc::anchors::find(tab.doc.blocks.iter().map(|b| &*b.source), url) {
+                scroll_block_to_top(tab, i, tx);
+            }
+            return;
+        }
+        let url = match crate::doc::paths::parse_target(url) {
+            Some(_) => url.to_owned(),
+            None => {
+                let file = url.split('#').next().unwrap_or(url);
+                let local = !file.is_empty() && !file.contains(':');
+                match self.tab().filter(|_| local).and_then(|t| crate::doc::paths::Places::of(&t.doc.path).resolve(file)) {
+                    Some(f) => crate::doc::paths::open_target(&f, None),
+                    None => {
+                        if let Err(e) = tx.open_url(url) {
+                            eprintln!("runemd: link {url}: {e}");
+                        }
+                        return;
+                    }
+                }
+            }
+        };
+        let Some((path, line)) = crate::doc::paths::parse_target(&url) else { return };
         let before = self.tab().map(|t| t.doc.id);
         self.open_paths(vec![path.clone()]);
         if self.tab().map(|t| t.doc.id) != before {

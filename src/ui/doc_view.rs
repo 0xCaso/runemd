@@ -406,7 +406,9 @@ fn block_row<S: 'static>(source: &str, style: &MarkdownStyle, notes: &crate::doc
         _ => style,
     };
     let md = rune_kit::Markdown::new(shown).highlights(hits).selectable(true);
-    let md = if linked.is_some() { path_links(md, &meta, fonts, open) } else { md };
+    let md = if linked.is_some() { path_links(md, &meta, fonts) } else { md };
+    // Ogni link si apre (`App::open_link`): percorsi, URL e `#titolo`.
+    let md = md.on_link_tx(move |s: &mut S, url, tx| open(s, url, tx));
     let body = md.render(&style).selection_group(false);
     let body = match callout {
         Some(c) => col().w_full().child(callout_head(c.kind, &meta)).child(body),
@@ -423,7 +425,7 @@ fn block_row<S: 'static>(source: &str, style: &MarkdownStyle, notes: &crate::doc
 /// L'aspetto dei link dei percorsi a file che esistono (mockup p-mix): monospaziato a 13,5 in
 /// `fg3`, sottolineato in `fg3` (il kit non ha la linea a puntini) e in hover fondo `sel`, linea
 /// `fg2` e "Apri in RuneMD". Quelli che non esistono non sono link (`doc::paths::shown`).
-fn path_links<S: 'static>(md: rune_kit::Markdown, meta: &Meta, fonts: super::markdown_style::Fonts, open: fn(&mut S, &str, &mut rune::Tx)) -> rune_kit::Markdown {
+fn path_links(md: rune_kit::Markdown, meta: &Meta, fonts: super::markdown_style::Fonts) -> rune_kit::Markdown {
     use crate::doc::paths::OPEN;
     let c = meta.path;
     let size = super::theme::CODE_TEXT * fonts.body.size / super::theme::BODY_TEXT;
@@ -436,7 +438,6 @@ fn path_links<S: 'static>(md: rune_kit::Markdown, meta: &Meta, fonts: super::mar
         }
     })
     .link_help(|url| url.starts_with(OPEN).then(|| OPEN_HELP.to_owned()))
-    .on_link_tx(move |s: &mut S, url, tx| open(s, url, tx))
 }
 
 /// Il suggerimento sui percorsi che si aprono (mockup p-mix).
@@ -1470,6 +1471,35 @@ mod tests {
             assert!(links.is_empty(), "{src:?}: {links:?}");
             let texts: Vec<String> = els.iter().filter_map(|e| e.text.clone()).map(|x| x.replace(['\u{200B}', '\u{2066}', '\u{2069}', '\u{202F}'], "")).collect();
             assert!(texts.iter().any(|x| x.contains("Vedi src/old/gone.rs")), "{texts:?}");
+        }
+    }
+
+    /// Il link `key` della vista: un clic al suo centro.
+    fn click_link(rt: &mut Runtime<Doc>, key: &str) {
+        let r = rt.elements().into_iter().find(|e| e.role == "link" && e.key.as_deref() == Some(key)).unwrap_or_else(|| panic!("manca il link {key}")).rect;
+        let (x, y) = (r[0] + r[2] / 2.0, r[1] + r[3] / 2.0);
+        rt.pointer_move(x, y);
+        rt.frame(1.0 / 120.0);
+        rt.pointer_down(x, y);
+        rt.pointer_up(x, y);
+        settle(rt);
+    }
+
+    /// In un paragrafo con un percorso, e fuori, gli altri link funzionano: un URL si apre nel
+    /// browser, `#titolo` porta al titolo.
+    #[test]
+    fn links_beside_a_path_still_open() {
+        let filler: String = (1..=40).map(|n| format!("Paragrafo {n}.\n\n")).collect();
+        for with_path in [true, false] {
+            let path = if with_path { " e src/old/gone.rs" } else { "" };
+            let src = format!("Vedi [il sito](https://example.com/a){path} o [la fine](#la-fine).\n\n{filler}## La fine\n\nUltimo.\n");
+            let mut rt = open_themed(&src, true);
+            click_link(&mut rt, "https://example.com/a");
+            assert_eq!(rt.take_url_requests(), ["https://example.com/a"], "con percorso: {with_path}");
+            click_link(&mut rt, "#la-fine");
+            let shown: Vec<String> = rt.elements().into_iter().filter(|e| e.visible[3] > 0.0).filter_map(|e| e.text).collect();
+            assert!(shown.iter().any(|x| x == "La fine"), "con percorso: {with_path}: {shown:?}");
+            assert!(!shown.iter().any(|x| x == "Paragrafo 1."), "il titolo in cima, con percorso: {with_path}");
         }
     }
 

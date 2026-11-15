@@ -1,5 +1,6 @@
 //! Modello del documento: i blocchi top-level del Markdown.
 
+pub mod anchors;
 pub mod blocks;
 pub mod breaks;
 pub mod callout;
