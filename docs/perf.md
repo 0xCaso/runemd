@@ -1,259 +1,259 @@
-# v1: tutte le soglie (task 28)
+# v1: all thresholds (task 28)
 
-14/11 15:56–15:59, `make app` a `7698fa5`, Mac sbloccato con un solo schermo attivo (esterno 3440×1440 a 100 Hz,
-lo stesso delle misure del 13/11; lo schermo Retina non era attivo), app di Matteo aperte (Spotify, browser, T3 Code).
-Il load average non è sceso sotto 3: dopo 20 minuti di attesa (minimo 6,9) si è misurato lo stesso. Ogni riga ha
-il load average a 1 minuto (`sysctl vm.loadavg`) prima e dopo la corsa. Compositor, sidebar e watcher attivi;
-l'app vera usa le cartelle osservate delle impostazioni (`~/Desktop/GitHub`, 6986 file nell'indice). WORKDIR
-`/tmp/runemd-bench` con `build/RuneMD.app`, `fixtures/normal.md`, `fixtures/big.md`. Spike: numeri di
-`rune-md-spike/docs/spike/2026-11-13-rune-vs-md-light.md`, macchina scarica.
+14/11 15:56–15:59, `make app` at `7698fa5`, Mac unlocked with only one screen on (external 3440×1440 at 100 Hz,
+the same as the 13/11 measurements; the Retina screen was off), Matteo's apps open (Spotify, browser, T3 Code).
+The load average did not go below 3: after waiting 20 minutes (minimum 6.9) we measured anyway. Each row has
+the 1-minute load average (`sysctl vm.loadavg`) before and after the run. Compositor, sidebar and watcher on;
+the real app uses the watched folders from the settings (`~/Desktop/GitHub`, 6986 files in the index). WORKDIR
+`/tmp/runemd-bench` with `build/RuneMD.app`, `fixtures/normal.md`, `fixtures/big.md`. Spike: numbers from
+`rune-md-spike/docs/spike/2026-11-13-rune-vs-md-light.md`, idle machine.
 
-| soglia | comando | load | v1 | spike | esito |
+| threshold | command | load | v1 | spike | met |
 |---|---|---|---|---|---|
-| avvio warm ≤ 350 ms (p50), normal | `bench/startup.sh /tmp/runemd-bench 5 warm` | 7,1 → 19,3 | p50 **293** [280–1394] | 302 [269–953] | sì |
-| avvio warm ≤ 350 ms (p50), big | idem | idem | p50 **297** [281–330] | 295 [279–320] | sì |
-| sidebar riempita ≤ 1 s dopo il primo frame | `RUNE_DIRS_ROOT=<tmp> MDSPIKE_LOG=… runemd normal.md`, 4 lanci, il primo senza cache | 17,6 → 18,0 | con la cache: 6986 voci lette prima del primo frame (3,0–3,4 ms), Recenti pieni **al primo frame**; scansione finita 1,0–1,9 s dopo. Senza cache: scansione 0,84 s dopo il primo frame | — (lo spike non aveva sidebar) | sì |
-| refresh persi in scroll ≤ 3 %, normal | `bench/scroll.sh /tmp/runemd-bench 3` | 17,3 → 18,6 | **8,6–11,5 %**; dt p95 19,2–19,4 ms | 2,4 % | **no** |
-| refresh persi in scroll ≤ 3 %, big | idem | idem | **12,5–14,3 %**; dt p95 19,5–19,7 ms | 2,6 % | **no** |
-| memoria a riposo su big ≤ 100 MB | `bench/memory.sh /tmp/runemd-bench 3` | 19,3 → 17,2 | **87–90 MB** (normal 68–89) | 78 [73–97] | sì |
-| scrittura → frame ≤ 150 ms | finestra vera, `MDSPIKE_LATENCY`, 25 append a una copia di big.md ogni 200 ms | 17,6 → 17,2 | p50 90,4, **p95 105,6**, max 110,1 (25 campioni) | — | sì |
-| modifica p95 ≤ 8 ms per frame su big | `bench/edit_big.sh` (headless) | 17,2 | p50 1,43, **p95 2,42**, max 4,15 | p95 5,6 (paragrafo di 6 KB) | sì |
+| warm startup ≤ 350 ms (p50), normal | `bench/startup.sh /tmp/runemd-bench 5 warm` | 7.1 → 19.3 | p50 **293** [280–1394] | 302 [269–953] | yes |
+| warm startup ≤ 350 ms (p50), big | same | same | p50 **297** [281–330] | 295 [279–320] | yes |
+| sidebar filled ≤ 1 s after the first frame | `RUNE_DIRS_ROOT=<tmp> MDSPIKE_LOG=… runemd normal.md`, 4 launches, the first without cache | 17.6 → 18.0 | with the cache: 6986 entries read before the first frame (3.0–3.4 ms), Recent full **at the first frame**; scan done 1.0–1.9 s later. Without cache: scan 0.84 s after the first frame | — (the spike had no sidebar) | yes |
+| dropped refreshes while scrolling ≤ 3 %, normal | `bench/scroll.sh /tmp/runemd-bench 3` | 17.3 → 18.6 | **8.6–11.5 %**; dt p95 19.2–19.4 ms | 2.4 % | **no** |
+| dropped refreshes while scrolling ≤ 3 %, big | same | same | **12.5–14.3 %**; dt p95 19.5–19.7 ms | 2.6 % | **no** |
+| idle memory on big ≤ 100 MB | `bench/memory.sh /tmp/runemd-bench 3` | 19.3 → 17.2 | **87–90 MB** (normal 68–89) | 78 [73–97] | yes |
+| write → frame ≤ 150 ms | real window, `MDSPIKE_LATENCY`, 25 appends to a copy of big.md every 200 ms | 17.6 → 17.2 | p50 90.4, **p95 105.6**, max 110.1 (25 samples) | — | yes |
+| edit p95 ≤ 8 ms per frame on big | `bench/edit_big.sh` (headless) | 17.2 | p50 1.43, **p95 2.42**, max 4.15 | p95 5.6 (6 KB paragraph) | yes |
 
-Percentuale dei refresh persi come nelle misure del 13/11: `missed_refreshes / (frames + missed_refreshes)` per
-corsa, dalle righe di `scroll_summary.log` (stessa formula: le corse del 13/11 danno 1,3–4,3 % e 4,0–6,5 %).
+Dropped refresh percentage as in the 13/11 measurements: `missed_refreshes / (frames + missed_refreshes)` per
+run, from the `scroll_summary.log` rows (same formula: the 13/11 runs give 1.3–4.3 % and 4.0–6.5 %).
 
-**Scroll: soglia mancata.** Il 13/11 (task 2), sullo stesso schermo a 100 Hz e con load average 72–79, le stesse
-corse davano 3,0 % e 5,3 %; oggi 9,8 % e 13,2 % (medie), con dt p95 di 19 ms contro 13–16. Il tempo CPU dei frame
-non lo spiega: `bench/outline_scroll.sh` (headless, big, 1280×800, stesso momento, load 17,2) dà p50 0,85, p95
-4,16, max 15,3 ms, sotto il periodo di 10 ms. Ipotesi, non verificata: il costo è nella presentazione (GPU e
-WindowServer, al 43 % di CPU nel campione di `ps` delle 15:35), per esempio il vetro di sistema (`El::system_material`, da `320df94`) o il
-carico degli altri processi. Nell'A/B qui sotto il binario di prima del vetro perde gli stessi refresh. Da rimisurare a macchina scarica.
+**Scroll: threshold missed.** On 13/11 (task 2), on the same 100 Hz screen and with load average 72–79, the same
+runs gave 3.0 % and 5.3 %; today 9.8 % and 13.2 % (averages), with dt p95 of 19 ms against 13–16. Frame CPU time
+does not explain it: `bench/outline_scroll.sh` (headless, big, 1280×800, same moment, load 17.2) gives p50 0.85, p95
+4.16, max 15.3 ms, under the 10 ms period. Hypothesis, not verified: the cost is in presentation (GPU and
+WindowServer, at 43 % CPU in the 15:35 `ps` sample), for example the system glass (`El::system_material`, since `320df94`) or the
+load of other processes. In the A/B below the binary from before the glass drops the same refreshes. To measure again on an idle machine.
 
-## Scroll: A/B con `c727ff7` (prima del vetro), stesso carico
+## Scroll: A/B with `c727ff7` (before the glass), same load
 
-14/11 16:06–16:09. Binario di `c727ff7` (l'ultimo commit senza `El::system_material`) compilato in un worktree
-temporaneo, impacchettato con gli asset del suo albero e firmato come `make app`. `bench/scroll.sh <dir> 1`
-alternato fra HEAD (l'app di `/tmp/runemd-bench`, codice di `7698fa5`: i commit dopo cambiano solo documenti) e `c727ff7`, 3 giri (ogni giro: normal poi big), così i due binari vedono lo
-stesso carico. Load average a 1 minuto prima di ogni corsa: 81 / 71, 63 / 56, 51 / 44 (HEAD / `c727ff7`), molto
-più alto delle misure delle 15:56 (in quel momento un processo GPU di Chrome era al 344 % di CPU).
+14/11 16:06–16:09. Binary of `c727ff7` (the last commit without `El::system_material`) built in a temporary
+worktree, bundled with the assets of its tree and signed like `make app`. `bench/scroll.sh <dir> 1`
+alternated between HEAD (the app in `/tmp/runemd-bench`, code of `7698fa5`: the commits after it only change documents) and `c727ff7`, 3 rounds (each round: normal then big), so the two binaries see the
+same load. 1-minute load average before each run: 81 / 71, 63 / 56, 51 / 44 (HEAD / `c727ff7`), much
+higher than the 15:56 measurements (at that moment a Chrome GPU process was at 344 % CPU).
 
-| file | build | refresh persi per corsa | media | dt p95 |
+| file | build | dropped refreshes per run | average | dt p95 |
 |---|---|---|---|---|
-| normal | HEAD | 6,8 / 8,6 / 9,0 % | 8,1 % | 15,9–17,0 ms |
-| normal | `c727ff7` | 7,3 / 14,0 / 7,5 % | 9,6 % | 16,1–18,0 ms |
-| big | HEAD | 13,6 / 21,4 / 7,6 % | 14,2 % | 16,2–20,9 ms |
-| big | `c727ff7` | 16,5 / 19,1 / 8,8 % | 14,8 % | 16,2–19,4 ms |
+| normal | HEAD | 6.8 / 8.6 / 9.0 % | 8.1 % | 15.9–17.0 ms |
+| normal | `c727ff7` | 7.3 / 14.0 / 7.5 % | 9.6 % | 16.1–18.0 ms |
+| big | HEAD | 13.6 / 21.4 / 7.6 % | 14.2 % | 16.2–20.9 ms |
+| big | `c727ff7` | 16.5 / 19.1 / 8.8 % | 14.8 % | 16.2–19.4 ms |
 
-Cosa dicono i numeri: a parità di carico i due binari si sovrappongono corsa per corsa; il vetro e il resto
-del lavoro dopo `c727ff7` non spiegano i refresh persi di oggi. Cosa non dicono: perché oggi le corse vanno
-peggio del 13/11 (3,0 % e 5,3 % con il binario del task 2). Il carico di oggi è diverso (processi GPU e audio
-invece di sole CPU), ma non è misurato da `load average`; la soglia resta da verificare a macchina scarica.
+What the numbers say: under the same load the two binaries overlap run by run; the glass and the rest
+of the work after `c727ff7` do not explain today's dropped refreshes. What they do not say: why today's runs are
+worse than on 13/11 (3.0 % and 5.3 % with the task 2 binary). Today's load is different (GPU and audio processes
+instead of CPU only), but `load average` does not measure it; the threshold is still to verify on an idle machine.
 
-# Perf: compositor rune-fx a riposo (task 2)
+# Perf: rune-fx compositor at idle (task 2)
 
-Build `make app` (profilo perf), WORKDIR `/tmp/runemd-bench` (fuori da Desktop: TCC), Mac con schermo bloccato.
+`make app` build (perf profile), WORKDIR `/tmp/runemd-bench` (outside Desktop: TCC), Mac with the screen locked.
 
-## Avvio, warm, 5 giri (`bench/startup.sh /tmp/runemd-bench 5 warm`)
+## Startup, warm, 5 runs (`bench/startup.sh /tmp/runemd-bench 5 warm`)
 
-| file | min | p50 | max | soglia | base task 1 (p50) |
+| file | min | p50 | max | threshold | task 1 baseline (p50) |
 |---|---|---|---|---|---|
 | normal | 225 | 236 | 251 | 350 | 244 |
 | big | 222 | 245 | 292 | 350 | 242 |
 
-Soglia rispettata: nessun costo misurabile (il renderer rune-fx è creato al primo frame, nessuna pipeline è compilata senza layer).
+Threshold met: no measurable cost (the rune-fx renderer is created on the first frame, no pipeline is compiled without layers).
 
 ## Scroll
 
-| prova | stato |
+| test | status |
 |---|---|
-| scroll, 13/11 23:50, load average 72–79 (altre sessioni attive) | refresh persi: normal 3,0 % [1,3–4,3], big 5,3 % [4,0–6,5]; dt p95 normal 12,9–14,6 ms, big 14,2–16,1 ms (6 run per file, `bench/results/scroll-2026-11-13-sotto-carico.log`) |
-| scroll, soglia | **non valida**: misura sotto carico; lo spike dava 2,4 % / 2,6 % a macchina scarica. Da ripetere a load average basso prima della fine della fase 2 (stesso comando: `make app && mkdir -p /tmp/runemd-bench && cp -R build/RuneMD.app fixtures/normal.md fixtures/big.md /tmp/runemd-bench/ && bench/scroll.sh /tmp/runemd-bench 3`) |
+| scroll, 13/11 23:50, load average 72–79 (other sessions active) | dropped refreshes: normal 3.0 % [1.3–4.3], big 5.3 % [4.0–6.5]; dt p95 normal 12.9–14.6 ms, big 14.2–16.1 ms (6 runs per file, `bench/results/scroll-2026-11-13-sotto-carico.log`) |
+| scroll, threshold | **not valid**: measured under load; the spike gave 2.4 % / 2.6 % on an idle machine. To repeat at low load average before the end of phase 2 (same command: `make app && mkdir -p /tmp/runemd-bench && cp -R build/RuneMD.app fixtures/normal.md fixtures/big.md /tmp/runemd-bench/ && bench/scroll.sh /tmp/runemd-bench 3`) |
 
-Con lo schermo bloccato (`CGSSessionScreenIsLocked = true`) la finestra e' occlusa e ogni frame e' `Skipped`
-(`frames=0`), anche senza compositor. A riposo `FxCompositor::render` senza layer chiama `Frame::draw_ui`
-(frame di default di Rune); `animating()` e `draws_own()` sono falsi.
+With the screen locked (`CGSSessionScreenIsLocked = true`) the window is occluded and every frame is `Skipped`
+(`frames=0`), even without the compositor. At idle `FxCompositor::render` with no layers calls `Frame::draw_ui`
+(Rune's default frame); `animating()` and `draws_own()` are false.
 
-## Scelte
+## Choices
 
-- Anelli delle schede da 100 (non da 1): gli id 1 e 2 sono di fuoco e caret (prima dither).
-- Nessun thread di warm-up: rune-fx non espone un warm per tipo; senza layer nessuna pipeline viene compilata.
-  I task 11-13 decidono se scaldare al primo `set(Some)`.
+- Tab rings start at 100 (not 1): ids 1 and 2 belong to the fire and the caret (formerly the dither).
+- No warm-up thread: rune-fx does not expose a warm-up per kind; with no layers no pipeline is compiled.
+  Tasks 11-13 decide whether to warm up on the first `set(Some)`.
 
-# Ricarica del file aperto (task 10)
+# Reload of the open file (task 10)
 
-## Costo di una ricarica di `fixtures/big.md` (1 MB)
+## Cost of a reload of `fixtures/big.md` (1 MB)
 
-`cargo test --profile perf reload_cost -- --ignored --nocapture` (`src/live/reload.rs`, 40 giri per caso, Mac con
-altri processi attivi: i p95 oscillano fra le corse; qui la corsa più quieta di tre).
+`cargo test --profile perf reload_cost -- --ignored --nocapture` (`src/live/reload.rs`, 40 rounds per case, Mac with
+other processes active: the p95 values swing between runs; here the quietest of three runs).
 
-| caso | tutto sul thread UI p50 / p95 | thread UI dopo il fix (snapshot + commit) p50 / p95 | thread a parte (`read`) p50 / p95 |
+| case | all on the UI thread p50 / p95 | UI thread after the fix (snapshot + commit) p50 / p95 | separate thread (`read`) p50 / p95 |
 |---|---|---|---|
-| append di un paragrafo | 4,96 / 19,23 ms | 0,03 / 0,17 ms | 6,12 / 13,04 ms |
-| ogni blocco cambiato (Myers peggiore) | 13,42 / 26,15 ms | 0,03 / 0,24 ms | 13,96 / 25,82 ms |
+| append of one paragraph | 4.96 / 19.23 ms | 0.03 / 0.17 ms | 6.12 / 13.04 ms |
+| every block changed (worst Myers) | 13.42 / 26.15 ms | 0.03 / 0.24 ms | 13.96 / 25.82 ms |
 
-Soglia 8 ms di p95 superata in tutte le corse: lettura, UTF-8, hash, divisione in blocchi e diff (`ids::assign`)
-girano su un thread a parte (`live::reload::read`); sul thread della UI resta `Document::commit`, che sostituisce i
-blocchi se la revisione è ancora quella dello snapshot (altrimenti si rilegge). Il thread sveglia l'app con il `Waker`.
+The 8 ms p95 threshold was exceeded in all runs: reading, UTF-8, hashing, block splitting and diff (`ids::assign`)
+run on a separate thread (`live::reload::read`); on the UI thread only `Document::commit` remains, which replaces the
+blocks if the revision is still the snapshot's (otherwise it reads again). The thread wakes the app with the `Waker`.
 
-## Scrittura → frame (finestra vera)
+## Write → frame (real window)
 
-13/11 23:48, schermo sbloccato, `MDSPIKE_LATENCY`, 25 append a big.md ogni 200 ms (24 campioni): p50 **91,6 ms**,
-p95 106,7 ms, max 106,7 ms. Soglia ≤ 150 ms rispettata (stesso carico della misura scroll).
+13/11 23:48, screen unlocked, `MDSPIKE_LATENCY`, 25 appends to big.md every 200 ms (24 samples): p50 **91.6 ms**,
+p95 106.7 ms, max 106.7 ms. Threshold ≤ 150 ms met (same load as the scroll measurement).
 
-# Indice dei Markdown (task 14)
+# Markdown index (task 14)
 
-14/11 01:05, Mac con altre sessioni attive: **load average 95–110** (`uptime` prima e dopo). `~/Desktop/GitHub`:
-37 voci, 29 con `.git`.
+14/11 01:05, Mac with other sessions active: **load average 95–110** (`uptime` before and after). `~/Desktop/GitHub`:
+37 entries, 29 with `.git`.
 
-## Scansione e cache
+## Scan and cache
 
-`cargo test --profile perf scan_cost -- --ignored --nocapture` (`src/index/mod.rs`, 5 giri, cache in una cartella
-temporanea).
+`cargo test --profile perf scan_cost -- --ignored --nocapture` (`src/index/mod.rs`, 5 rounds, cache in a temporary
+folder).
 
-| giro | voci | scansione | salvataggio cache | ricarica cache | `recent(20)` |
+| round | entries | scan | cache save | cache reload | `recent(20)` |
 |---|---|---|---|---|---|
-| 1 (il più vicino a freddo: page cache del disco non tutta calda) | 6916 | 2801 ms | 11,2 ms | 4,4 ms | 0,04 ms |
-| 2–5 | 6916 | 574–624 ms | 6,0–9,8 ms | 2,2–3,1 ms | 0,02 ms |
+| 1 (closest to cold: disk page cache not fully warm) | 6916 | 2801 ms | 11.2 ms | 4.4 ms | 0.04 ms |
+| 2–5 | 6916 | 574–624 ms | 6.0–9.8 ms | 2.2–3.1 ms | 0.02 ms |
 
-Cache: 1059 KB di JSON. "Fredda" qui vuol dire senza cache dell'indice; la cache del disco non si svuota senza
-`sudo purge`. Le voci in cartelle nascoste (entrano, spec "Osservare i file"): `.worktrees` 1299, `.claude` 587,
-`.superpowers` 483, `.repos` 388, `.agents` 27, `.build` 26, `.venv` 16, altre ≤ 4.
+Cache: 1059 KB of JSON. "Cold" here means without the index cache; the disk cache does not empty without
+`sudo purge`. Entries in hidden folders (they are included, spec "Watching files"): `.worktrees` 1299, `.claude` 587,
+`.superpowers` 483, `.repos` 388, `.agents` 27, `.build` 26, `.venv` 16, others ≤ 4.
 
-## Indice pronto rispetto al primo frame (app vera)
+## Index ready compared with the first frame (real app)
 
 `RUNE_DIRS_ROOT=<tmp>/dirs MDSPIKE_LOG=<tmp>/runN.log build/RuneMD.app/Contents/MacOS/runemd fixtures/normal.md`
-lanciato da terminale (stessi permessi TCC), ucciso dopo 5 s; 4 giri, il primo senza cache.
+launched from the terminal (same TCC permissions), killed after 5 s; 4 rounds, the first without cache.
 
-| giro | cache letta prima del primo frame | voci dalla cache | scansione finita dopo il primo frame |
+| round | cache read before the first frame | entries from the cache | scan done after the first frame |
 |---|---|---|---|
-| 1 (senza cache) | 0,14 ms | 0 | 1710 ms |
-| 2 | 3,13 ms | 6916 | 1668 ms |
-| 3 | 3,22 ms | 6916 | 1548 ms |
-| 4 | 3,01 ms | 6916 | 1579 ms |
+| 1 (without cache) | 0.14 ms | 0 | 1710 ms |
+| 2 | 3.13 ms | 6916 | 1668 ms |
+| 3 | 3.22 ms | 6916 | 1548 ms |
+| 4 | 3.01 ms | 6916 | 1579 ms |
 
-Con la cache l'indice è pieno già al primo frame (la cache si legge in `init`, 3 ms): soglia "sidebar riempita ≤ 1 s
-dopo il primo frame con l'indice salvato" rispettata per i dati; la sidebar che li mostra arriva col task 16. Senza
-cache l'indice arriva con la scansione, 1,5–1,7 s dopo il primo frame a questo carico (non è la soglia, che vale con
-l'indice salvato). Avvio al primo frame (`bench/startup.sh`) non rimisurato: a load average 100 il numero non vale.
+With the cache the index is already full at the first frame (the cache is read in `init`, 3 ms): the threshold "sidebar filled ≤ 1 s
+after the first frame with the saved index" is met for the data; the sidebar that shows them comes with task 16. Without
+cache the index arrives with the scan, 1.5–1.7 s after the first frame at this load (that is not the threshold, which applies with
+the saved index). Startup to the first frame (`bench/startup.sh`) not measured again: at load average 100 the number is not valid.
 
-## Thread della UI dopo il fix round 1 (rescan e cartelle spostate)
+## UI thread after fix round 1 (rescan and moved folders)
 
-14/11 01:18, **load average 92** (`uptime`), `~/Desktop/GitHub`, 6918 voci.
+14/11 01:18, **load average 92** (`uptime`), `~/Desktop/GitHub`, 6918 entries.
 
-| misura | comando | p50 | p95 | max |
+| measurement | command | p50 | p95 | max |
 |---|---|---|---|---|
-| un rescan del watcher (`Core::rescan` + `drain`, radice ricorsiva) | `cargo test --profile perf rescan_ui_cost -- --ignored --nocapture` (40 giri) | 0,000 ms | 0,001 ms | 0,014 ms |
-| raccolta della scansione intera (`Index::finish_scan`) | `cargo test --profile perf scan_pickup_cost -- --ignored --nocapture` (40 giri) | 1,40 ms | 1,63 ms | 1,73 ms |
-| copia delle voci per il salvataggio (`Library::save`) | stesso comando | 0,14 ms | 0,32 ms | 0,56 ms |
+| one watcher rescan (`Core::rescan` + `drain`, recursive root) | `cargo test --profile perf rescan_ui_cost -- --ignored --nocapture` (40 rounds) | 0.000 ms | 0.001 ms | 0.014 ms |
+| pickup of the whole scan (`Index::finish_scan`) | `cargo test --profile perf scan_pickup_cost -- --ignored --nocapture` (40 rounds) | 1.40 ms | 1.63 ms | 1.73 ms |
+| copy of the entries for saving (`Library::save`) | same command | 0.14 ms | 0.32 ms | 0.56 ms |
 
-Prima del fix il rescan percorreva `~/Desktop/GitHub` sul thread della UI (≈ 0,6 s a caldo, 2,8 s a freddo, più
-≈ 6900 stat nel watcher e altrettante nell'indice). Ora una radice ricorsiva diventa un `FsEvent::Rescan` e la
-scansione gira sul thread `runemd-index`; ordinamento e dedup stanno lì, il thread della UI fonde soltanto. App
-vera dopo il fix (stesso comando di sopra, 2 giri): cache 3,08 ms prima del primo frame con 6919 voci; scansione
-finita 1,1–1,2 s dopo il primo frame.
+Before the fix the rescan walked `~/Desktop/GitHub` on the UI thread (≈ 0.6 s warm, 2.8 s cold, plus
+≈ 6900 stats in the watcher and as many in the index). Now a recursive root becomes an `FsEvent::Rescan` and the
+scan runs on the `runemd-index` thread; sorting and dedup happen there, the UI thread only merges. Real
+app after the fix (same command as above, 2 rounds): cache 3.08 ms before the first frame with 6919 entries; scan
+done 1.1–1.2 s after the first frame.
 
-# Modifica del sorgente (task 22)
+# Source editing (task 22)
 
-`bench/edit_big.sh` (headless, `bench/edit_big.json`): Cmd+E, scroll a metà del sorgente, un clic per il cursore,
-200 caratteri uno per frame a 20 fps; p95 del tempo CPU per frame (`quality.cpu_ms` del `--trace`) fra i mark
-`typing` e `typed`. Mac con altre sessioni attive; il load average è quello di `uptime` all'avvio di ogni corsa.
+`bench/edit_big.sh` (headless, `bench/edit_big.json`): Cmd+E, scroll to the middle of the source, one click for the cursor,
+200 characters one per frame at 20 fps; p95 of CPU time per frame (`quality.cpu_ms` from `--trace`) between the
+`typing` and `typed` marks. Mac with other sessions active; the load average is the one from `uptime` at the start of each run.
 
-| sorgente | file | load average | p50 | p95 | max | soglia |
+| source | file | load average | p50 | p95 | max | threshold |
 |---|---|---|---|---|---|---|
-| un `text_input` per tutto il file (task 20) | big | 14,9 | 147,0 | **149,4** | 181,4 | 8 ms: no |
-| un `text_input` per pezzo in `virtual_rows` (piano B) | big | 16,5 (la più bassa avuta) | 1,26 | **1,57** | 1,79 | 8 ms: sì |
-| piano B, altre 3 corse | big | 36–37 | 1,20–1,24 | 1,47–1,53 | 1,74–4,07 | 8 ms: sì |
-| piano B | normal | 36,1 | 0,89 | 1,10 | 2,97 | — |
+| one `text_input` for the whole file (task 20) | big | 14.9 | 147.0 | **149.4** | 181.4 | 8 ms: no |
+| one `text_input` per piece in `virtual_rows` (plan B) | big | 16.5 (the lowest we had) | 1.26 | **1.57** | 1.79 | 8 ms: yes |
+| plan B, 3 more runs | big | 36–37 | 1.20–1.24 | 1.47–1.53 | 1.74–4.07 | 8 ms: yes |
+| plan B | normal | 36.1 | 0.89 | 1.10 | 2.97 | — |
 
-Senza GPU né encode (`cargo test --profile perf source_typing_cost -- --ignored --nocapture`, un tasto e un
-`Runtime::frame`, load average 21): big p50 0,56 / p95 0,87 ms (task 20: 148,9 / 164,3 ms), normal 0,57 / 0,80 ms.
+Without GPU or encode (`cargo test --profile perf source_typing_cost -- --ignored --nocapture`, one key and one
+`Runtime::frame`, load average 21): big p50 0.56 / p95 0.87 ms (task 20: 148.9 / 164.3 ms), normal 0.57 / 0.80 ms.
 
-Scroll nel sorgente di big con il campo a fuoco (la vista legge `Cx::caret` e rigira a ogni frame di scroll): 240
-frame a 60 fps, p50 0,39 / p95 1,22 / max 2,35 ms (load average ~20, script ad hoc, non nel repo).
+Scrolling in the source of big with the field focused (the view reads `Cx::caret` and runs again on every scroll frame): 240
+frames at 60 fps, p50 0.39 / p95 1.22 / max 2.35 ms (load average ~20, ad hoc script, not in the repo).
 
-# Cerca nel file, Cmd+F (task 24)
+# Find in file, Cmd+F (task 24)
 
 `cargo test --profile perf find_cost -- --ignored --nocapture` (`src/ui/find.rs`): `fixtures/big.md` (1 MB, 3041
-blocchi) sul runtime headless con la vista dell'app; 10 ricerche digitate lettera per lettera, 3 giri (164 tasti,
-il primo tasto escluso). 14/11, tre corse, load average 19–26.
+blocks) on the headless runtime with the app's view; 10 searches typed letter by letter, 3 rounds (164 keys,
+the first key excluded). 14/11, three runs, load average 19–26.
 
-Prima, con la ricerca sul thread della UI: `markdown::find` su tutti i blocchi costa ~5 ms per MB anche senza
-risultati ("zzzq": 5,3 ms), ~10 ms per "e" (97.692 risultati); `Find::search` da solo p50 6,2 / p95 8,7 ms,
-tasto + frame p95 12,5 ms. Soglia (8 ms) superata. Per questo la ricerca gira su un thread a parte.
+Before, with the search on the UI thread: `markdown::find` over all blocks costs ~5 ms per MB even with no
+results ("zzzq": 5.3 ms), ~10 ms for "e" (97,692 results); `Find::search` alone p50 6.2 / p95 8.7 ms,
+key + frame p95 12.5 ms. Threshold (8 ms) exceeded. That is why the search runs on a separate thread.
 
-| misura | p50 | p95 | max |
+| measurement | p50 | p95 | max |
 |---|---|---|---|
-| tasto + frame (campo, richiesta al thread) | 0,68–0,72 | 1,27–1,30 | 1,7–2,2 |
-| risultati arrivati + frame (segni, vista all'attivo) | 1,32–1,35 | 2,69–2,98 | 13,3–13,5 |
-| thread della UI per tasto, il peggiore dei due | 1,32–1,35 | **2,69–2,98** | 13,3–13,5 |
-| risposta del thread della ricerca | 5,6 | 8,2–8,6 | 10–12,4 |
-| riferimento: salto della vista su una riga non montata, senza Cerca | 6,6–6,9 | 10,6–11,1 | 11,6–25,3 |
+| key + frame (field, request to the thread) | 0.68–0.72 | 1.27–1.30 | 1.7–2.2 |
+| results arrived + frame (marks, view to the active one) | 1.32–1.35 | 2.69–2.98 | 13.3–13.5 |
+| UI thread per key, the worse of the two | 1.32–1.35 | **2.69–2.98** | 13.3–13.5 |
+| search thread response | 5.6 | 8.2–8.6 | 10–12.4 |
+| reference: view jump to an unmounted row, without Find | 6.6–6.9 | 10.6–11.1 | 11.6–25.3 |
 
-Il primo tasto parsa tutti i blocchi sul thread della ricerca (15–17 ms, fuori dal thread della UI). I massimi
-oltre 8 ms sono i salti della vista a un risultato lontano: costano come un salto qualsiasi su big.md (ultima riga).
+The first key parses all blocks on the search thread (15–17 ms, off the UI thread). The maximums
+above 8 ms are view jumps to a distant result: they cost as much as any jump on big.md (last row).
 
-Dopo il fix round 1 (anello `line` sui risultati, passi in coda, risultati legati al documento), 14/11 13:00, load
-average 34: tasto + frame p95 1,32 ms; risultati + frame p95 2,84 ms (max 13,4, un salto); thread della UI per tasto
-**p95 2,84 ms**; risposta del thread p95 8,4 ms.
+After fix round 1 (`line` ring on the results, queued steps, results tied to the document), 14/11 13:00, load
+average 34: key + frame p95 1.32 ms; results + frame p95 2.84 ms (max 13.4, one jump); UI thread per key
+**p95 2.84 ms**; thread response p95 8.4 ms.
 
-# Indice dei titoli (task 25)
+# Heading outline (task 25)
 
-14/11, Mac con altre sessioni attive, load average 8–12 (`uptime` stampato da ogni corsa).
+14/11, Mac with other sessions active, load average 8–12 (`uptime` printed by each run).
 
-## Scroll di big.md, prima e dopo
+## Scrolling big.md, before and after
 
-`bench/outline_scroll.sh` (headless, `tests/scripts/outline_scroll.json`): `fixtures/big.md` (1 MB, 3041 blocchi,
-435 titoli), finestra 1280×800 (l'indice si vede), 16 swipe da 4000 pt ogni 0,5 s su `doc`, 60 fps; tempo CPU
-per frame (`quality.cpu_ms` del `--trace`) fra i mark `scrolling` e `scrolled`, 504 frame per corsa. "Prima" è il
-binario di `247c1ce` (`bench/outline_scroll.sh DIR <binario>`), stessa finestra.
+`bench/outline_scroll.sh` (headless, `tests/scripts/outline_scroll.json`): `fixtures/big.md` (1 MB, 3041 blocks,
+435 headings), 1280×800 window (the outline is visible), 16 swipes of 4000 pt every 0.5 s on `doc`, 60 fps; CPU time
+per frame (`quality.cpu_ms` from `--trace`) between the `scrolling` and `scrolled` marks, 504 frames per run. "Before" is the
+binary of `247c1ce` (`bench/outline_scroll.sh DIR <binary>`), same window.
 
-| finestra | build | p50 | p95 | max |
+| window | build | p50 | p95 | max |
 |---|---|---|---|---|
-| 1280×800 | prima (3 corse) | 0,41–0,42 | 2,42–2,45 | 3,48–3,78 |
-| 1280×800 | dopo, indice visibile (3 corse) | 0,59 | **2,84–2,86** | 4,02–4,20 |
-| 900×800 | prima (2 corse) | 0,40 | 2,27–2,33 | 3,59–3,64 |
-| 900×800 | dopo, indice nascosto (2 corse) | 0,41–0,47 | 2,19–2,45 | 3,66–4,81 |
+| 1280×800 | before (3 runs) | 0.41–0.42 | 2.42–2.45 | 3.48–3.78 |
+| 1280×800 | after, outline visible (3 runs) | 0.59 | **2.84–2.86** | 4.02–4.20 |
+| 900×800 | before (2 runs) | 0.40 | 2.27–2.33 | 3.59–3.64 |
+| 900×800 | after, outline hidden (2 runs) | 0.41–0.47 | 2.19–2.45 | 3.66–4.81 |
 
-Con l'indice visibile lo scroll costa ~0,17 ms in più a frame (p50) e ~0,4 ms al p95: sono le ~120 righe che
-Rune tiene montate nella lista virtuale dell'indice (la vista più 2 viste di overscan per lato). Prove fatte: con
-la colonna senza righe il costo torna al "prima" (p50 0,43–0,45, p95 2,45–2,52); né una `memo` per riga né righe
-senza hover e pressione cambiano il numero, e nemmeno togliere il segnaposto che tiene in vista l'evidenziato.
-Il frame resta sotto 3 ms al p95 (budget 8,3 ms a 120 Hz). Con la finestra stretta non cambia niente.
+With the outline visible, scrolling costs ~0.17 ms more per frame (p50) and ~0.4 ms at p95: those are the ~120 rows that
+Rune keeps mounted in the outline's virtual list (the view plus 2 views of overscan per side). Tests done: with
+the column without rows the cost goes back to "before" (p50 0.43–0.45, p95 2.45–2.52); neither a `memo` per row nor rows
+without hover and press change the number, nor does removing the placeholder that keeps the highlighted one in view.
+The frame stays under 3 ms at p95 (8.3 ms budget at 120 Hz). With the narrow window nothing changes.
 
-Fix round 1 (albero stabile attraverso la soglia, "in fondo" da `on_layout` della pagina con `live_only`,
-titoli calcolati solo con l'indice visibile), stesso comando, load average 17–21:
+Fix round 1 (tree stable across the threshold, "at the bottom" from the page's `on_layout` with `live_only`,
+headings computed only with the outline visible), same command, load average 17–21:
 
-| finestra | build | p50 | p95 | max |
+| window | build | p50 | p95 | max |
 |---|---|---|---|---|
-| 1280×800 | prima (3 corse) | 0,43–0,44 | 2,39–2,51 | 3,38–3,57 |
-| 1280×800 | dopo il fix (3 corse) | 0,60–0,64 | 2,80–3,00 | 4,21–5,12 |
-| 900×800 | prima (2 corse) | 0,42 | 2,32–2,36 | 3,55–3,74 |
-| 900×800 | dopo il fix (2 corse) | 0,42–0,43 | 2,40–2,43 | 3,71–3,89 |
+| 1280×800 | before (3 runs) | 0.43–0.44 | 2.39–2.51 | 3.38–3.57 |
+| 1280×800 | after the fix (3 runs) | 0.60–0.64 | 2.80–3.00 | 4.21–5.12 |
+| 900×800 | before (2 runs) | 0.42 | 2.32–2.36 | 3.55–3.74 |
+| 900×800 | after the fix (2 runs) | 0.42–0.43 | 2.40–2.43 | 3.71–3.89 |
 
-Come prima del fix: il costo resta quello delle righe montate dell'indice; il gestore della pagina, chiamato a
-ogni frame di scroll, non si vede nei numeri.
+As before the fix: the cost is still the mounted outline rows; the page handler, called on
+every scroll frame, does not show in the numbers.
 
-## Titoli all'apertura e a ogni ricarica
+## Headings on open and on every reload
 
-`cargo test --profile perf outline_cost -- --ignored --nocapture` (`src/ui/outline.rs`, 20 giri): la scansione
-gira una volta per documento e per ricarica (`outline::Cache`, chiave `doc_view::rows_version`), sul thread della
-UI alla prima vista che la chiede.
+`cargo test --profile perf outline_cost -- --ignored --nocapture` (`src/ui/outline.rs`, 20 rounds): the scan
+runs once per document and per reload (`outline::Cache`, key `doc_view::rows_version`), on the UI
+thread on the first view that asks for it.
 
-| file | blocchi | titoli | p50 | max |
+| file | blocks | headings | p50 | max |
 |---|---|---|---|---|
-| big.md, 1 MB | 3041 | 435 | 0,10 ms | 0,13 ms |
-| big.md ripetuto, 16 MB | 48 656 | 6960 | 1,81 ms | 2,34 ms |
+| big.md, 1 MB | 3041 | 435 | 0.10 ms | 0.13 ms |
+| big.md repeated, 16 MB | 48,656 | 6960 | 1.81 ms | 2.34 ms |
 
-Prima del filtro setext dal fondo e del caso ATX senza parser la scansione dei 16 MB costava 4,7 ms (p50).
+Before the setext filter from the bottom and the ATX case without a parser, the 16 MB scan cost 4.7 ms (p50).
 
 ## Mermaid (task 26)
 
-La feature `mermaid` di rune-kit era già in `Cargo.toml` dal task 1 (binario `perf` 33,26 MB con e senza il task 26: 33 264 560 contro 33 264 032 byte). Il task cambia lo stile (colori dei diagrammi dai token) e non aggiunge codice di rune-mermaid al binario. `normal.md` e `big.md` non hanno blocchi mermaid: il diagramma costa solo dove c'è.
+The rune-kit `mermaid` feature was already in `Cargo.toml` since task 1 (`perf` binary 33.26 MB with and without task 26: 33,264,560 against 33,264,032 bytes). The task changes the style (diagram colors from the tokens) and adds no rune-mermaid code to the binary. `normal.md` and `big.md` have no mermaid blocks: the diagram only costs where there is one.
 
-| prova | risultato |
+| test | result |
 |---|---|
-| avvio warm, 5 giri, load average 25 (`bench/startup.sh /tmp/runemd-bench 5 warm`) | normal min 244, p50 266, max 958 (un giro fuori scala per il carico); big min 238, p50 249, max 266. Soglia 350 sul p50: rispettata |
-| memoria a riposo, 3 giri (`bench/memory.sh`) | normal 91 MB, big 96–97 MB. Soglia big 100 MB: rispettata, con 3 MB di margine |
-| refresh persi in scroll | non ripetuto: macchina sotto carico (vedi sopra, la misura non sarebbe valida) e i file di prova non hanno diagrammi |
-| un flowchart di 141 nodi e 140 archi (1934 byte) | disegnato in 15 ms al primo frame (`broken_and_huge_mermaid_never_panic`) |
-| oltre 400 elementi (rune-mermaid `MAX_ITEMS`) | resta il blocco di codice, 5–20 ms, anche con 3000 nodi (52 KB) |
+| warm startup, 5 runs, load average 25 (`bench/startup.sh /tmp/runemd-bench 5 warm`) | normal min 244, p50 266, max 958 (one run off the scale because of the load); big min 238, p50 249, max 266. Threshold 350 on p50: met |
+| idle memory, 3 runs (`bench/memory.sh`) | normal 91 MB, big 96–97 MB. Big threshold 100 MB: met, with a 3 MB margin |
+| dropped refreshes while scrolling | not repeated: machine under load (see above, the measurement would not be valid) and the test files have no diagrams |
+| a flowchart of 141 nodes and 140 edges (1934 bytes) | drawn in 15 ms on the first frame (`broken_and_huge_mermaid_never_panic`) |
+| over 400 items (rune-mermaid `MAX_ITEMS`) | the code block stays, 5–20 ms, even with 3000 nodes (52 KB) |
