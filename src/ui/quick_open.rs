@@ -488,7 +488,7 @@ mod tests {
             let doc_before = find(&rt, "main").unwrap().rect;
             rt.key(cmd_p());
             settle(&mut rt);
-            let p = find(&rt, "quick-panel").expect("pannello").rect;
+            let p = find(&rt, "quick-panel").expect("panel").rect;
             assert_eq!(p[2], super::super::QUICK_W);
             assert!((p[0] + p[2] / 2.0 - 600.0).abs() < 1.0, "centered: {p:?}");
             assert!(p[1] > 44.0, "below the tab bar: {p:?}");

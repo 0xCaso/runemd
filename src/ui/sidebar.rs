@@ -1031,7 +1031,7 @@ mod tests {
     #[test]
     fn long_lists_and_names_keep_their_bounds() {
         let long = "2026-11-14-architecture-of-the-offline-synchronization-system-v2-final";
-        let files: Vec<String> = (1..=60).map(|n| format!("docs/molti/{long}-{n:02}.md")).collect();
+        let files: Vec<String> = (1..=60).map(|n| format!("docs/many/{long}-{n:02}.md")).collect();
         let refs: Vec<&str> = files.iter().map(String::as_str).collect();
         let (_d, root) = repo_with(&refs);
         let open = root.join(&files[59]);
@@ -1051,7 +1051,7 @@ mod tests {
         let rect = |key: &str| els.iter().find(|e| e.key.as_deref() == Some(key) && !e.exiting).unwrap_or_else(|| panic!("{key} missing")).rect;
         let side = rect("sidebar");
         let recent = rect("recent");
-        assert!(recent[3] <= side[3] * RECENT_SHARE + 0.5, "Recenti alto {} su {}", recent[3], side[3]);
+        assert!(recent[3] <= side[3] * RECENT_SHARE + 0.5, "Recent height {} of {}", recent[3], side[3]);
         let mut rows: Vec<[f32; 4]> = els.iter().filter(|e| !e.exiting && e.key.as_deref().is_some_and(|k| k.starts_with("recent-"))).map(|e| e.rect).collect();
         rows.sort_by(|a, b| a[1].total_cmp(&b[1]));
         assert!(rows.len() >= 3);
@@ -1228,8 +1228,8 @@ mod tests {
         assert_eq!(rt.state.sidebar.folders.len(), 1, "no unsaved row");
         // The pointer is over the row: "Remove" in place of the branch.
         assert!(find(&rt, "folder-save-0").is_none());
-        let togli = find(&rt, "folder-remove-0").expect("\"Togli\" in hover").rect;
-        let (x, y) = (togli[0] + togli[2] / 2.0, togli[1] + togli[3] / 2.0);
+        let remove = find(&rt, "folder-remove-0").expect("\"Remove\" on hover").rect;
+        let (x, y) = (remove[0] + remove[2] / 2.0, remove[1] + remove[3] / 2.0);
         rt.pointer_move(x, y);
         rt.pointer_down(x, y);
         rt.pointer_up(x, y);
@@ -1252,7 +1252,7 @@ mod tests {
         let mut sb = Sidebar::default();
         sb.set_saved(vec![repo.clone()], &Index::default());
         assert!(sb.hover_folder(&repo, true));
-        assert!(!sb.hover_folder(&repo, true), "invariato");
+        assert!(!sb.hover_folder(&repo, true), "unchanged");
         assert!(!sb.hover_folder(Path::new("/other"), false), "another row does not turn this one off");
         assert!(sb.hover_folder(&repo, false));
         assert_eq!(sb.hover_folder, None);
@@ -1282,7 +1282,7 @@ mod tests {
         assert!(!sb.git_head(Path::new("/other")));
         assert!(sb.git_head(&root));
         assert_eq!(sb.repo.as_ref().unwrap().branch.as_deref(), Some("feat/x"));
-        assert!(!sb.git_head(&root), "invariato");
+        assert!(!sb.git_head(&root), "unchanged");
     }
 
     /// A folder that becomes unreadable mid-session: no panic, its rows go away
@@ -1370,7 +1370,7 @@ mod tests {
         sb.set_open(&root.join("a.md"), &Index::default());
         let v = sb.tree_version;
         let index = Index::from_entries(vec![entry(&root.join("a.md"), 1), entry(&root.join("new.md"), 2)]);
-        sb.refresh(&index, &[PathBuf::from("/altrove/x.md")], at(5));
+        sb.refresh(&index, &[PathBuf::from("/elsewhere/x.md")], at(5));
         assert_eq!(sb.tree_version, v);
         assert!(!sb.tree().contains("new.md"));
         sb.refresh(&index, &[root.join("new.md")], at(5));
@@ -1519,7 +1519,7 @@ mod tests {
             let pct = |q: f64| ms[((ms.len() - 1) as f64 * q).round() as usize];
             eprintln!("sidebar_refresh_cost {name}: n={} p50={:.3} ms p95={:.3} ms max={:.3} ms", ms.len(), pct(0.5), pct(0.95), pct(1.0));
         };
-        eprintln!("sidebar_refresh_cost indice {} voci, repo {} ({} voci)", base.len(), repo.display(), in_repo.len());
+        eprintln!("sidebar_refresh_cost index {} entries, repo {} ({} entries)", base.len(), repo.display(), in_repo.len());
         case("write to a file already in Recent", &in_recent, false);
         case("write to a file of the open repo", &in_repo, false);
         case("write outside the open repo", &elsewhere, false);
@@ -1538,7 +1538,7 @@ mod tests {
         let index = &Index::from_entries(crate::index::scan::scan(&crate::index::roots_from(
             &crate::settings::default_roots(),
         )));
-        eprintln!("quick_open_cost indice {} voci", index.len());
+        eprintln!("quick_open_cost index {} entries", index.len());
         let mut sb = Sidebar::default();
         let mut ms = Vec::new();
         let mut rank_ms = Vec::new();

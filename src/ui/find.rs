@@ -262,7 +262,7 @@ impl Find {
 
     /// What to ask so the results follow `doc`: nothing if the ones shown or asked for
     /// already come from there; the first result for another document; the closest for the same
-    /// documento cambiato.
+    /// changed document.
     pub fn stale(&self, doc: &Document) -> Option<Goal> {
         let target = source_of(doc, &self.edit.text);
         // A reload while a new search is on the thread: ask again with the same target.
@@ -669,7 +669,7 @@ mod tests {
             .map(|n| match n {
                 3 | 120 => format!("Paragraph {n} with a zebra in the middle of the text that goes on."),
                 190 => format!("Paragraph {n}: zebra and Zebra again."),
-                _ if n % 10 == 0 => format!("## Sezione {n}"),
+                _ if n % 10 == 0 => format!("## Section {n}"),
                 _ => format!("Test paragraph {n}, long enough to wrap in the reader column, with more words."),
             })
             .collect::<Vec<_>>()
@@ -878,9 +878,9 @@ mod tests {
             !rt.elements()
                 .iter()
                 .any(|e| e.key.as_deref() == Some("find")),
-            "barra chiusa"
+            "bar closed"
         );
-        assert!(marks(&rt).is_empty(), "segni tolti");
+        assert!(marks(&rt).is_empty(), "marks removed");
         cmd(&mut rt, 'a');
         assert_ne!(
             rt.state.active_document().select_all.get(),
@@ -1010,9 +1010,9 @@ mod tests {
         assert_eq!(current.len(), 1, "{current:?}");
         assert_eq!(current[0].0.as_deref(), Some("footnotes/find-current"));
         let els = rt.elements();
-        let notes = els.iter().find(|e| e.key.as_deref() == Some("footnotes")).expect("note in fondo").rect;
+        let notes = els.iter().find(|e| e.key.as_deref() == Some("footnotes")).expect("notes at the end").rect;
         let r = current[0].1;
-        assert!(r[1] >= notes[1] && r[1] + r[3] <= notes[1] + notes[3] + 0.5, "segno {r:?} fuori dalle note {notes:?}");
+        assert!(r[1] >= notes[1] && r[1] + r[3] <= notes[1] + notes[3] + 0.5, "mark {r:?} outside the notes {notes:?}");
     }
 
     /// Types without waiting for the results (the search thread answers later).
@@ -1238,8 +1238,8 @@ mod tests {
             first.unwrap()
         );
         for (name, ms) in [
-            ("tasto + frame", &mut keyed),
-            ("risultati + frame", &mut applied),
+            ("key + frame", &mut keyed),
+            ("results + frame", &mut applied),
             ("UI thread, the worse of the two", &mut ui),
             ("search thread answer", &mut worker),
             ("reference: view jump without Find", &mut jump),

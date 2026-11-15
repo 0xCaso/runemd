@@ -805,7 +805,7 @@ mod tests {
         let top = rows.iter().find(|e| e.key.as_deref() == Some("doc")).unwrap().rect[1];
         let next_key = row_key(i + 1, rt.state.active_document());
         let next_y = rows.iter().find(|e| e.key.as_deref() == Some(next_key.as_str())).unwrap().rect[1] - top;
-        blocks.splice(i..=i, [format!("Diviso A {}", paragraph(5)), format!("Diviso B {}", paragraph(6))]);
+        blocks.splice(i..=i, [format!("Split A {}", paragraph(5)), format!("Split B {}", paragraph(6))]);
         edit(&mut rt, &blocks);
         let doc = rt.state.active_document();
         assert!(doc.blocks.iter().all(|b| b.id != before.0), "the top block is gone");
@@ -840,7 +840,7 @@ mod tests {
         assert!(before.1 < -1000.0, "inside the block: {before:?}");
         let blocks: Vec<String> = (0..5).map(|n| format!("New {n}: {}", paragraph(n))).chain([big.trim_end().to_owned()]).collect();
         edit(&mut rt, &blocks);
-        assert_still("500 KB, inserisci in testa", before, anchor(&rt));
+        assert_still("500 KB, insert at the top", before, anchor(&rt));
     }
 
     /// The fire on the runtime: 3 blocks added at the end while reading at the top turn it on
@@ -863,7 +863,7 @@ mod tests {
         scroll_to(&mut rt, 1.0e9);
         assert_eq!(rt.state.tab().unwrap().below.count(), 0);
         assert_eq!(rt.state.tab().unwrap().fire_since, None);
-        assert!(!fire_drawn(&rt), "etichetta spenta");
+        assert!(!fire_drawn(&rt), "label off");
         assert!(rt.elements().iter().any(|e| e.key.as_deref() == Some("fire") && !e.exiting), "the fire stays, at rest");
     }
 
@@ -900,7 +900,7 @@ mod tests {
             s.motion_env = Some(true);
         });
         settle(&mut rt);
-        assert!(!rt.state.fire_rests(), "riduci movimento: ferme");
+        assert!(!rt.state.fire_rests(), "reduce motion: still");
         rt.update(|s, _| {
             s.motion_env = Some(false);
             s.tabs[0].fire_since = Some(0.0);
@@ -938,7 +938,7 @@ mod tests {
         let mut rt = open(&join(&sample()));
         let mut blocks = sample();
         let last = blocks.len() - 1;
-        blocks[last] = format!("{} cambiato", blocks[last]);
+        blocks[last] = format!("{} changed", blocks[last]);
         let src = join(&blocks);
         rt.update(|s, _| {
             let change = s.tab_mut().unwrap().doc.update(&src);
@@ -1036,7 +1036,7 @@ mod tests {
         let theme = crate::ui::theme::Theme::for_mode(true);
         let text = els.iter().find(|e| e.text.as_deref() == Some("name: RuneMD\ndescription: Reader")).expect("the YAML as it is, without the ---");
         assert_eq!(text.text_color, Some(theme.fg2));
-        let rt = open("---\nname: RuneMD\n\nTesto.\n");
+        let rt = open("---\nname: RuneMD\n\nText.\n");
         assert!(!rt.elements().iter().any(|e| e.key.as_deref() == Some("frontmatter")), "no closing line: Markdown");
     }
 
@@ -1046,7 +1046,7 @@ mod tests {
         assert_eq!(super::fire_label(4), "4 new paragraphs below");
     }
 
-    // --- selezione e copia ---
+    // --- selection and copy ---
 
     use rune::{Key, KeyEvent, Mods};
 
@@ -1139,13 +1139,13 @@ mod tests {
         let close = el(&rt, &key(1, "-close"));
         assert_eq!((close.role, close.label.as_deref()), ("button", Some("Close b.md")));
         assert!(close.rect[2] >= 16.0 && close.rect[3] >= 16.0, "16 pt area: {:?}", close.rect);
-        assert!(el(&rt, &key(1, "-close")).opacity > 0.99, "davanti: visibile");
-        assert!(el(&rt, &key(0, "-close")).opacity < 0.01, "dietro: nascosta");
+        assert!(el(&rt, &key(1, "-close")).opacity > 0.99, "front: visible");
+        assert!(el(&rt, &key(0, "-close")).opacity < 0.01, "behind: hidden");
         let label = el(&rt, &key(0, "-label")).rect;
         let tab = el(&rt, &key(0, "")).rect;
         rt.pointer_move(tab[0] + 8.0, tab[1] + tab[3] / 2.0);
         settle(&mut rt);
-        assert!(el(&rt, &key(0, "-close")).opacity > 0.99, "in hover: visibile");
+        assert!(el(&rt, &key(0, "-close")).opacity > 0.99, "on hover: visible");
         assert_eq!(el(&rt, &key(0, "-label")).rect, label, "the name does not move");
         let c = el(&rt, &key(0, "-close")).rect;
         assert!(c[0] + c[2] <= tab[0] + tab[2] + 0.5 && c[0] > label[0] + label[2] - 0.5, "at the end of the tab");
@@ -1154,7 +1154,7 @@ mod tests {
         rt.pointer_down(x, y);
         rt.pointer_up(x, y);
         settle(&mut rt);
-        assert_eq!(rt.state.tabs.len(), 1, "chiusa");
+        assert_eq!(rt.state.tabs.len(), 1, "closed");
         assert_eq!(rt.state.tab().unwrap().doc.id, ids[1], "b.md stays");
     }
 
@@ -1170,7 +1170,7 @@ mod tests {
         for id in &ids {
             assert!(els.iter().any(|e| e.key.as_deref() == Some(id.as_str())), "tab {id}");
         }
-        assert!(els.iter().any(|e| e.key.as_deref() == Some("source-key")), "⌘E sorgente");
+        assert!(els.iter().any(|e| e.key.as_deref() == Some("source-key")), "⌘E source");
         assert!(els.iter().any(|e| e.text.as_deref() == Some(crate::ui::tabs::SOURCE_KEY)));
         cmd(&mut rt, 'w');
         settle(&mut rt);
@@ -1241,7 +1241,7 @@ mod tests {
         let mut rt = open_doc(document);
         let copied = copy_all(&mut rt);
         std::fs::remove_dir_all(&dir).ok();
-        eprintln!("huge: {} byte copiati su {}", copied.len(), src.len());
+        eprintln!("huge: {} bytes copied of {}", copied.len(), src.len());
         assert_eq!(copied.trim_end(), src.trim_end());
     }
 
@@ -1303,7 +1303,7 @@ mod tests {
         let mut rt = open_doc(Document::load(&path).unwrap());
         let copied = copy_all(&mut rt);
         std::fs::remove_dir_all(&dir).ok();
-        eprintln!("cjk: {} byte copiati su {}", copied.len(), src.len());
+        eprintln!("cjk: {} bytes copied of {}", copied.len(), src.len());
         assert_eq!(copied.trim_end(), src.trim_end());
     }
 
@@ -1498,7 +1498,7 @@ mod tests {
             let texts: Vec<String> = rt.elements().into_iter().filter_map(|e| e.text).collect();
             assert!(!texts.iter().any(|t| t.contains("[!")), "the marker shows: {texts:?}");
             for label in ["Note", "Tip", "Important", "Warning", "Caution"] {
-                assert!(texts.iter().any(|t| t == label), "manca {label}: {texts:?}");
+                assert!(texts.iter().any(|t| t == label), "missing {label}: {texts:?}");
             }
             assert!(texts.iter().any(|t| t.contains("A warning.")), "{texts:?}");
         }
@@ -1514,7 +1514,7 @@ mod tests {
         let texts: Vec<String> = els.iter().filter_map(|e| e.text.as_deref()).map(|t| t.replace(['\u{2066}', '\u{2069}'], "")).collect();
         assert!(!texts.iter().any(|t| t.contains("[^")), "{texts:?}");
         assert!(texts.iter().any(|t| t.contains("A note¹ here.")), "{texts:?}");
-        let y = |needle: &str| els.iter().find(|e| e.text.as_deref().is_some_and(|t| t.replace(['\u{2066}', '\u{2069}'], "").contains(needle))).map(|e| e.rect[1]).unwrap_or_else(|| panic!("manca {needle}: {texts:?}"));
+        let y = |needle: &str| els.iter().find(|e| e.text.as_deref().is_some_and(|t| t.replace(['\u{2066}', '\u{2069}'], "").contains(needle))).map(|e| e.rect[1]).unwrap_or_else(|| panic!("missing {needle}: {texts:?}"));
         assert!(y("The note text.") > y("After the note."), "the note goes to the end");
         assert!(els.iter().any(|e| e.key.as_deref() == Some("footnotes")));
     }
@@ -1526,9 +1526,9 @@ mod tests {
         let t = crate::ui::theme::Theme::for_mode(true);
         let rt = open_themed("### T3\n\n#### T4\n\n##### T5\n\n###### T6\n", true);
         let els = rt.elements();
-        let h = |n: &str| els.iter().find(|e| e.text.as_deref() == Some(n)).map(|e| (e.rect[3], e.text_color)).unwrap_or_else(|| panic!("manca {n}"));
+        let h = |n: &str| els.iter().find(|e| e.text.as_deref() == Some(n)).map(|e| (e.rect[3], e.text_color)).unwrap_or_else(|| panic!("missing {n}"));
         let [h3, h4, h5, h6] = ["T3", "T4", "T5", "T6"].map(h);
-        assert!(h3.0 > h4.0 && h4.0 > h5.0 && h5.0 > h6.0, "altezze {h3:?} {h4:?} {h5:?} {h6:?}");
+        assert!(h3.0 > h4.0 && h4.0 > h5.0 && h5.0 > h6.0, "heights {h3:?} {h4:?} {h5:?} {h6:?}");
         assert_eq!([h3.1, h4.1, h5.1, h6.1], [Some(t.body), Some(t.body), Some(t.fg2), Some(t.fg3)]);
     }
 
@@ -1604,8 +1604,8 @@ mod tests {
         let rt = open_themed(source, false);
         let els = rt.elements();
         let rows = els.iter().find(|e| e.key.as_deref() == Some("rows")).unwrap().rect;
-        assert!(rows[2] - 2.0 * crate::ui::theme::ROW_PAD_X >= super::TWO_COLUMNS, "colonna {rows:?}");
-        let at = |s: &str| els.iter().find(|e| e.text.as_deref().map(|t| t.replace(['\u{2066}', '\u{2069}'], "")).as_deref() == Some(s)).unwrap_or_else(|| panic!("manca {s:?}: {:?}", els.iter().filter_map(|e| e.text.clone()).collect::<Vec<_>>())).rect;
+        assert!(rows[2] - 2.0 * crate::ui::theme::ROW_PAD_X >= super::TWO_COLUMNS, "column {rows:?}");
+        let at = |s: &str| els.iter().find(|e| e.text.as_deref().map(|t| t.replace(['\u{2066}', '\u{2069}'], "")).as_deref() == Some(s)).unwrap_or_else(|| panic!("missing {s:?}: {:?}", els.iter().filter_map(|e| e.text.clone()).collect::<Vec<_>>())).rect;
         let labels = ["Task 2", "Ruling", "Task 2: minor (deferred)"].map(at);
         let texts = ["BASE 0095282. Implementer abd1.", "task 2 commit.", "measured again after the screen was unlocked: 118 fps.", "TreeRing."].map(at);
         assert!(labels.iter().all(|l| l[0] == labels[0][0]), "labels at the same x: {labels:?}");
@@ -1641,7 +1641,7 @@ mod tests {
             seen
         };
         let before = layout(true);
-        assert!(before.len() > 100, "testi: {}", before.len());
+        assert!(before.len() > 100, "texts: {}", before.len());
         assert_eq!(layout(false), before);
     }
 
@@ -1708,7 +1708,7 @@ mod tests {
     }
 
     /// Task list checkboxes are the ones from Settings: off is empty (`fg3` border),
-    /// accesa piena in `fg2`.
+    /// lit, full in `fg2`.
     #[test]
     fn task_checkboxes_look_like_the_settings_one() {
         for dark in [true, false] {
@@ -1716,11 +1716,11 @@ mod tests {
             let rt = open_themed("- [ ] to do\n- [x] done\n", dark);
             let els = rt.elements();
             let control = |label: &str| {
-                let row = els.iter().position(|e| e.role == "checkbox" && e.label.as_deref() == Some(label)).unwrap_or_else(|| panic!("manca {label}"));
+                let row = els.iter().position(|e| e.role == "checkbox" && e.label.as_deref() == Some(label)).unwrap_or_else(|| panic!("missing {label}"));
                 els.iter().find(|e| e.parent == Some(row) && e.key.as_deref() == Some("control")).unwrap().clone()
             };
             let (off, on) = (control("to do"), control("done"));
-            assert_eq!(on.fill, t.fg2, "accesa, dark={dark}");
+            assert_eq!(on.fill, t.fg2, "lit, dark={dark}");
             assert_eq!(off.fill.a, 0.0, "off is empty, dark={dark}");
             assert_eq!(on.rect[2], crate::ui::theme::ICON);
         }
@@ -1750,7 +1750,7 @@ mod tests {
                 continue;
             }
             seen += 1;
-            assert!(e.rect[0] + e.rect[2] <= right + 0.5, "{t:?} esce: {:?} oltre {right}", e.rect);
+            assert!(e.rect[0] + e.rect[2] <= right + 0.5, "{t:?} overflows: {:?} past {right}", e.rect);
             let font = match (e.role, e.level) {
                 ("heading", Some(n @ 1..=6)) => fonts.headings[n as usize - 1],
                 _ => fonts.body,
@@ -1758,7 +1758,7 @@ mod tests {
             let widest = rune::text::measure(t, &[], font, Some(0.0)).0;
             assert!(e.rect[0] + widest <= right + 0.5, "{t:?}: the widest part ({widest} pt) goes past {right}");
         }
-        assert!(seen >= 6, "testi controllati: {seen}");
+        assert!(seen >= 6, "texts checked: {seen}");
         let _ = &mut rt;
     }
 }

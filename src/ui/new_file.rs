@@ -107,7 +107,7 @@ mod tests {
 
     #[test]
     fn show_focuses_an_empty_field_and_close_resets_it() {
-        let mut n = typed("prova");
+        let mut n = typed("draft");
         assert!(n.open && n.edit.focused);
         n.show();
         assert!(n.edit.text.is_empty(), "reopens empty");
@@ -117,8 +117,8 @@ mod tests {
 
     #[test]
     fn enter_only_names_valid_input_and_trims() {
-        assert_eq!(typed("  prova ").name().as_deref(), Some("prova"));
-        for bad in ["", "   ", "a/b", ".nascosto"] {
+        assert_eq!(typed("  draft ").name().as_deref(), Some("draft"));
+        for bad in ["", "   ", "a/b", ".hidden"] {
             assert_eq!(typed(bad).name(), None, "{bad:?}");
         }
     }
