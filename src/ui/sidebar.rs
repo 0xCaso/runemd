@@ -748,7 +748,7 @@ fn ring_host(row: El, mark: Mark, since: Option<f64>, reduced: bool, dark: bool)
     }
 }
 
-/// The colour of small text inside a pressable row (Recent time, repeated name, link):
+/// The color of small text inside a pressable row (Recent time, repeated name, link):
 /// the hover `sel` on the glass would bring `fg3` below 4.5:1 (DESIGN.md, "Contrast").
 pub fn row_meta(theme: &Theme) -> Color {
     theme.fg2

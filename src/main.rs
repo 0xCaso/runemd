@@ -177,7 +177,7 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
     // The glass: the window is transparent and the system glass is below. Rune does not paint the
     // fill of a material when native glass is there, so the `glass` tint (60 %) sits in
     // a layer above. Without native glass (headless, material off) the root's fill
-    // is the solid tint (`glass_fallback`) and the layer, of the same colour, changes nothing.
+    // is the solid tint (`glass_fallback`) and the layer, of the same color, changes nothing.
     let tint = el().key("glass-tint").pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0)).fill(theme.glass);
     rune::row().key("app").on_layout_tx(width).w_full().h_full().system_material(rune::SystemMaterial::Glass).fill(theme.glass_fallback()).child(tint).child(sidebar).child(main).child(sidebar_edge)
         .children(ui::tabs::width_popover(s, &theme))

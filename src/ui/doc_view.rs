@@ -1519,7 +1519,7 @@ mod tests {
         assert!(els.iter().any(|e| e.key.as_deref() == Some("footnotes")));
     }
 
-    /// Headings 3–6: 17 / 15.5 / 14 / 13, the colour steps down (`body`, `body`, `fg2`, `fg3`); 4–6 are not
+    /// Headings 3–6: 17 / 15.5 / 14 / 13, the color steps down (`body`, `body`, `fg2`, `fg3`); 4–6 are not
     /// the same as 3.
     #[test]
     fn headings_three_to_six_step_down() {

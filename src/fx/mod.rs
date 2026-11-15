@@ -1,4 +1,4 @@
-//! Effetti GPU di RuneMD: un solo compositor rune-fx per tutta la finestra.
+//! RuneMD's GPU effects: a single rune-fx compositor for the whole window.
 
 mod compositor;
 pub mod caret;
@@ -8,12 +8,12 @@ pub mod ring;
 
 pub use compositor::FxCompositor;
 pub use marks::Mark;
-// `FxLayer` è il layer disegnabile di rune-fx, usato così com'è.
+// `FxLayer` is rune-fx's drawable layer, used as it is.
 #[allow(unused_imports)]
 pub use rune_fx::FxLayer;
 
-/// `RUNEMD_REDUCE_MOTION` letto: `1` accende "riduci movimento", `0` lo spegne, altro o assente
-/// lascia decidere il sistema.
+/// `RUNEMD_REDUCE_MOTION` as read: `1` turns "reduce motion" on, `0` turns it off, anything else or missing
+/// lets the system decide.
 pub fn reduce_motion_env(value: Option<&str>) -> Option<bool> {
     match value {
         Some("1") => Some(true),
@@ -22,10 +22,10 @@ pub fn reduce_motion_env(value: Option<&str>) -> Option<bool> {
     }
 }
 
-/// "Riduci movimento" di adesso: l'override di `RUNEMD_REDUCE_MOTION` (foto e prove headless,
-/// dove Rune non legge la preferenza di sistema) vince su quella di macOS
-/// (`accessibilityDisplayShouldReduceMotion`, che Rune legge all'avvio e quando la finestra
-/// prende il fuoco).
+/// "Reduce motion" right now: the `RUNEMD_REDUCE_MOTION` override (photos and headless tests,
+/// where Rune does not read the system preference) wins over the macOS one
+/// (`accessibilityDisplayShouldReduceMotion`, which Rune reads at startup and when the window
+/// takes focus).
 pub fn reduce_motion(env: Option<bool>, system: bool) -> bool {
     env.unwrap_or(system)
 }
@@ -45,9 +45,9 @@ mod tests {
 
     #[test]
     fn the_env_override_wins_over_the_system() {
-        assert!(reduce_motion(Some(true), false), "RUNEMD_REDUCE_MOTION=1 senza la preferenza");
-        assert!(!reduce_motion(Some(false), true), "RUNEMD_REDUCE_MOTION=0 con la preferenza");
-        assert!(reduce_motion(None, true), "senza override decide il sistema");
+        assert!(reduce_motion(Some(true), false), "RUNEMD_REDUCE_MOTION=1 without the preference");
+        assert!(!reduce_motion(Some(false), true), "RUNEMD_REDUCE_MOTION=0 with the preference");
+        assert!(reduce_motion(None, true), "without an override the system decides");
         assert!(!reduce_motion(None, false));
     }
 }

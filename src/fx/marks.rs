@@ -1,4 +1,4 @@
-//! Id degli slot `El::effect`: un intervallo per tipo, così due tipi non si scontrano mai.
+//! Ids of the `El::effect` slots: one range per kind, so two kinds never clash.
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Mark {
@@ -11,13 +11,13 @@ pub enum Mark {
 
 const FIRE: u32 = 1;
 const CARET: u32 = 2;
-// Gli anelli delle schede partono da 100: sotto ci sono gli id fissi (fuoco 1, caret 2).
+// Tab rings start at 100: below are the fixed ids (fire 1, caret 2).
 const TAB: (u32, u32) = (100, 9999);
 const RECENT: u32 = 10_000;
 const TREE: u32 = 20_000;
 
 impl Mark {
-    // Tab da 100, non da 1: 1 e 2 sono fuoco e caret. Nessun warm-up delle pipeline: vedi docs/perf.md.
+    // Tabs from 100, not from 1: 1 and 2 are fire and caret. No pipeline warm-up: see docs/perf.md.
     pub fn id(self) -> u32 {
         match self {
             Mark::TabRing(n) => TAB.0 + n.min(TAB.1 - TAB.0),
@@ -28,7 +28,7 @@ impl Mark {
         }
     }
 
-    /// Se l'id di uno slot è un anello (scheda, riga in Recenti, riga nell'albero).
+    /// Whether a slot id is a ring (tab, row in Recent, row in the tree).
     pub fn is_ring(id: u32) -> bool {
         id >= TAB.0
     }
@@ -45,7 +45,7 @@ mod tests {
         assert_ne!(Mark::Fire.id(), Mark::Caret.id());
         assert_eq!(Mark::Fire.id(), Mark::Fire.id());
         assert_eq!(Mark::Caret.id(), 2);
-        // Nessun anello collide con gli id fissi, ai bordi dei range.
+        // No ring collides with the fixed ids, at the edges of the ranges.
         for n in [0, 1, 9_899, 50_000] {
             assert!(![1, 2].contains(&Mark::TabRing(n).id()));
             assert!(Mark::TabRing(n).id() <= 9_999);
@@ -59,6 +59,6 @@ mod tests {
         }
         assert!(!Mark::is_ring(Mark::Fire.id()));
         assert!(!Mark::is_ring(Mark::Caret.id()));
-        assert!(!Mark::is_ring(0), "slot senza mark");
+        assert!(!Mark::is_ring(0), "slot without mark");
     }
 }

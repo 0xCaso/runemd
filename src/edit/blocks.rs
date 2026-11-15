@@ -16,7 +16,7 @@ use rune::TextEdit;
 
 /// Beyond this length a piece is cut at the first line (outside fences).
 pub const MAX_PIECE: usize = 4 * 1024;
-/// Inside a fenced code block it cuts only beyond this length: the colours of the
+/// Inside a fenced code block it cuts only beyond this length: the colors of the
 /// code that follows are the Markdown ones, but a fence opened and never closed does not make the rest
 /// of the file a single field.
 pub const MAX_FENCED_PIECE: usize = 64 * 1024;

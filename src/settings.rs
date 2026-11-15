@@ -97,7 +97,7 @@ pub struct Settings {
     pub fire_strength: f32,
     pub fire_height: f32,
     pub fire_speed: f32,
-    /// The colour of the flames.
+    /// The color of the flames.
     pub fire_color: FireColor,
     /// The text column width, pt, one of `COLUMNS` (`COLUMN_FULL` is "Full").
     pub column: f32,
@@ -470,8 +470,8 @@ mod tests {
         assert_eq!(back.outline, Pane::new(panes::OUTLINE));
     }
 
-    /// The default fire is today's; strength, height, speed and colour come back after a
-    /// restart; a value that is not a step (or a colour that cannot be read) goes back to the default, the
+    /// The default fire is today's; strength, height, speed and color come back after a
+    /// restart; a value that is not a step (or a color that cannot be read) goes back to the default, the
     /// others stay.
     #[test]
     fn fire_look_persists_and_bad_values_fall_back() {

@@ -518,7 +518,7 @@ impl App {
         }
     }
 
-    /// The fire colour.
+    /// The fire color.
     pub fn set_fire_color(&mut self, color: crate::fx::fire::FireColor) {
         self.settings_panel.clear_notice();
         if self.settings.fire_color != color {

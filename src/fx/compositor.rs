@@ -8,43 +8,43 @@ use super::marks::Mark;
 use super::{caret, fire, ring};
 use crate::App;
 
-/// Un solo compositor per la finestra. Senza effetti (nessun layer, nessuno slot) il frame è
-/// quello di default di Rune e `animating()` è falso: niente frame, niente costo. Il fuoco a
-/// riposo non tiene il display link: lo ridisegnano i risvegli di `fire::REST_FRAME`.
+/// A single compositor for the window. Without effects (no layer, no slot) the frame is
+/// Rune's default one and `animating()` is false: no frames, no cost. The fire at
+/// rest does not hold the display link: the `fire::REST_FRAME` wake-ups redraw it.
 ///
-/// Anelli, fuoco e caret non passano da `set`: la vista mette uno slot `ring::slot` solo mentre
-/// il file è "sta scrivendo", uno `fire::slot` sempre in lettura (a riposo o acceso) e uno
-/// `caret::slot` solo mentre il file sta scrivendo e si sa il punto dell'ultima modifica; qui ogni slot diventa il layer del
-/// suo rect.
+/// Rings, fire and caret do not go through `set`: the view puts a `ring::slot` slot only while
+/// the file "is writing", a `fire::slot` always in reading mode (at rest or lit) and a
+/// `caret::slot` only while the file is being written and the point of the last edit is known; here every slot becomes the layer of
+/// its rect.
 #[derive(Default)]
 pub struct FxCompositor {
     layers: HashMap<u32, FxLayer>,
     fx: Option<FxRenderer>,
-    /// L'ultimo frame aveva un layer che si muove da solo: la finestra tiene il display link.
+    /// The last frame had a layer that moves on its own: the window holds the display link.
     moving: bool,
-    /// L'ultimo frame ha disegnato almeno un layer.
+    /// The last frame drew at least one layer.
     drew: bool,
-    /// Il fuoco dell'ultimo frame era acceso (testo nuovo sotto la vista).
+    /// The fire of the last frame was lit (new text below the view).
     fire_lit: bool,
-    /// L'orologio a cui il fuoco si è spento: da lì torna a riposo (`fire::Phase::Falling`).
+    /// The clock at which the fire went out: from there it goes back to rest (`fire::Phase::Falling`).
     fire_out: Option<f64>,
 }
 
-/// Il rect di uno slot in pt.
+/// A slot's rect in pt.
 fn rect_pt(i: &Instance) -> Rect {
     let k = i.params[3].max(f32::EPSILON);
     let [x, y, w, h] = i.rect.map(|v| v / k);
     Rect::new(x, y, w, h)
 }
 
-/// Il layer dell'anello per uno slot `ring::slot`, al tempo `clock` di Rune.
+/// The ring layer for a `ring::slot` slot, at Rune's time `clock`.
 fn ring_layer(i: &Instance, clock: f64) -> FxLayer {
     let radius = i.radii.iter().fold(0.0f32, |a, v| a.max(v.abs())) / i.params[3].max(f32::EPSILON);
     let (t, reduced) = ring::slot_time(i.uv, clock);
     ring::layer_rounded(rect_pt(i), radius, t, reduced, ring::slot_dark(i.uv))
 }
 
-/// La fase del fuoco di uno slot `fire::slot`, dato quando si è spento l'ultima volta (`out`).
+/// The fire phase of a `fire::slot` slot, given when it last went out (`out`).
 fn fire_phase(s: fire::SlotState, out: Option<f64>, clock: f64) -> fire::Phase {
     match (s.lit, out) {
         (true, _) => fire::Phase::Rising(s.t),
@@ -53,8 +53,8 @@ fn fire_phase(s: fire::SlotState, out: Option<f64>, clock: f64) -> fire::Phase {
     }
 }
 
-/// Il layer del caret per uno slot `caret::slot` e se pulsa (rune-fx non lo conta come
-/// animato: l'opacità è ferma dentro un passo).
+/// The caret layer for a `caret::slot` slot and whether it pulses (rune-fx does not count it as
+/// animated: the opacity is still within a step).
 fn caret_layer(i: &Instance, clock: f64) -> (FxLayer, bool) {
     let s = caret::slot_state(i.uv, clock);
     (caret::layer(rect_pt(i), s.t, s.dark, s.reduced), s.moving())
@@ -71,9 +71,9 @@ impl Compositor<App> for FxCompositor {
 
     fn render(&mut self, f: &mut Frame<'_, App>) {
         let (device, queue, size) = (f.device, f.queue, f.size);
-        // Il renderer nasce al primo frame; le pipeline si compilano solo quando un layer le usa.
+        // The renderer is born at the first frame; the pipelines compile only when a layer uses them.
         let fx = self.fx.get_or_insert_with(|| FxRenderer::new(device, f.format, FxOptions { dither: true }));
-        // A riposo il frame resta quello di Rune, senza nemmeno scorrere le istanze.
+        // At rest the frame stays Rune's, without even walking the instances.
         if self.layers.is_empty() && !f.rt.state.effects_lit() {
             (self.moving, self.drew) = (false, false);
             f.draw_ui();
@@ -94,7 +94,7 @@ impl Compositor<App> for FxCompositor {
             let layer = if Mark::is_ring(mark) {
                 ring_layer(i, clock)
             } else if mark == Mark::Fire.id() {
-                // Il rect dello slot tocca il fondo del pannello e ne ha la larghezza.
+                // The slot rect touches the bottom of the panel and has its width.
                 let s = fire::slot_state(i.uv, clock);
                 if self.fire_lit && !s.lit {
                     self.fire_out = Some(clock);
@@ -104,8 +104,8 @@ impl Compositor<App> for FxCompositor {
                 self.fire_lit = s.lit;
                 let phase = fire_phase(s, self.fire_out, clock);
                 let layer = fire::layer(rect_pt(i), phase, clock as f32, s.dark, s.reduced, s.active_window, s.look);
-                // A riposo le fiamme si muovono coi risvegli di `fire::REST_FRAME` (`App::fire_rests`),
-                // non col display link.
+                // At rest the flames move with the `fire::REST_FRAME` wake-ups (`App::fire_rests`),
+                // not with the display link.
                 if fire::paced(phase) {
                     self.fire_out = None;
                     paced_fire = Some(layers.len());
@@ -125,12 +125,12 @@ impl Compositor<App> for FxCompositor {
             layers.push(layer);
             slots.push(FxSlot::default().scale(i.params[3]).clip(i.clip, i.fade));
         }
-        // Senza fuoco (sorgente, fuoco spento) il prossimo riparte da riposo, senza discesa.
+        // Without fire (source, fire off) the next one starts again from rest, without descent.
         if !saw_fire {
             (self.fire_lit, self.fire_out) = (false, None);
         }
-        // Fermo appena nessun layer si muove: un anello con "riduci movimento" non tiene il
-        // display link, e uno spento non c'è più fra le istanze. Il caret che pulsa sì.
+        // Still as soon as no layer moves: a ring with "reduce motion" does not hold the
+        // display link, and one that went out is no longer among the instances. The pulsing caret does.
         self.moving = pulsing || layers.iter().enumerate().any(|(k, l)| Some(k) != paced_fire && l.is_animating());
         self.drew = !layers.is_empty();
         fx.set_srgb_blend(f.srgb_blend());
