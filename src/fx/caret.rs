@@ -1,5 +1,5 @@
 //! Caret "sta scrivendo" (record docs/decisions/2026-11-15-caret-al-punto-modificato.md): una
-//! barra di [`WIDTH`] pt in `fg2` nel punto dell'ultima modifica (`live::caret`), che pulsa a
+//! barra di [`WIDTH`] pt in `fg` nel punto dell'ultima modifica (`live::caret`), che pulsa a
 //! `STEPS` passi in `PERIOD` cambiando opacità. Prende il posto della riga a dither in fondo.
 //!
 //! `layer` è una funzione pura del rect del caret e del tempo. Il riempimento è un dither con i
@@ -18,15 +18,18 @@ pub const WIDTH: f32 = 2.0;
 /// Un ciclo del battito, s (come il dither di prima: 4 passi in 1,6 s).
 pub const PERIOD: f32 = 1.6;
 pub const STEPS: usize = 4;
-/// L'opacità a ogni passo: scende e risale. Il passo più chiaro tiene il contrasto ≥ 4,5:1
+/// L'opacità a ogni passo: scende e risale (record caret-piu-forte, vincolo 2: da 100 a circa
+/// 50 %). Il minimo è 62 %, non 50: al 50 % il caret scende a 3,32:1 nel chiaro e a 4,30:1 nello
+/// scuro su `sel`, e il 62 % è il primo che tiene ≥ 4,5:1 in tutti e due i temi (vincolo 3, DESIGN.md). Il passo più chiaro tiene il contrasto ≥ 4,5:1
 /// (test in `ui::contrast`).
-pub const OPACITY: [f32; STEPS] = [1.0, 0.9, 0.8, 0.9];
+pub const OPACITY: [f32; STEPS] = [1.0, 0.81, 0.62, 0.81];
 /// Il passo fermo con "riduci movimento": pieno.
 const STILL_STEP: usize = 0;
 
-/// Il colore del caret nel tema `t` (`fg2`, come nel mockup).
+/// Il colore del caret nel tema `t`: `fg`, il colore del testo (record
+/// docs/decisions/2026-11-15-caret-piu-forte.md, vincolo 1).
 pub fn color(t: &Theme) -> rune::Color {
-    t.fg2
+    t.fg
 }
 
 /// Il caret più tenue del battito, per il test di contrasto.
@@ -102,11 +105,12 @@ mod tests {
     }
 
     #[test]
-    fn a_2pt_bar_in_fg2_on_the_slot_rect() {
+    fn a_2pt_bar_in_fg_on_the_slot_rect() {
         let l = layer(caret(), 0.0, true, false);
         let r = l.shape.rect;
         assert_eq!((r.x, r.y, r.w, r.h), (300.0, 400.0, 2.0, 18.0));
-        assert_eq!(color(&Theme::for_mode(true)), Theme::for_mode(true).fg2);
+        assert_eq!(color(&Theme::for_mode(true)), Theme::for_mode(true).fg);
+        assert_eq!(color(&Theme::for_mode(false)), Theme::for_mode(false).fg);
     }
 
     #[test]

@@ -485,10 +485,12 @@ Doppio clic: il default. Esc durante il trascinamento: com'era. Le larghezze res
 |---|---|---|---|---|
 | Metallo liquido (anello su 4 lati, 2,5 px, giro di 3 s) | Un agente sta scrivendo questo file | Scheda del file, sua riga in "Recenti", sua riga nell'albero | Appare in 220 ms ease-out alla prima modifica | Si ferma quando il file non cambia più (ipotesi: 3 s senza scritture) |
 | Fuoco di Rune (fiamme e braci) | A riposo, basso (26 px): è il fondo del pannello. Alto 110 px: c'è testo nuovo sotto la parte che stai leggendo | Fondo del pannello, sempre in lettura; alto, con l'etichetta "N paragrafi nuovi più in basso" | Da riposo sale a 110 in 420 ms ease-out | Torna a riposo in 300 ms ease-out quando scorri fino al testo nuovo |
-| Caret (2 px, `fg-2`, pulsa a 4 passi in 1,6 s: opacità 100/90/80/90 %) | Qui un agente ha appena scritto | Nel punto dell'ultima modifica, anche a metà file: dopo l'ultima parola cambiata (o aggiunta in fondo), alto quanto la lettera; fuori dal flusso, il testo non si sposta | Alla prima ricarica da fuori | Con l'anello (il file non cambia più); se è fuori vista la vista non salta |
+| Caret (2 px, `fg`, pulsa a 4 passi in 1,6 s: opacità 100/81/62/81 %) | Qui un agente ha appena scritto | Nel punto dell'ultima modifica, anche a metà file: dopo l'ultima parola cambiata (o aggiunta in fondo), alto quanto la lettera; fuori dal flusso, il testo non si sposta | Alla prima ricarica da fuori | Con l'anello (il file non cambia più); se è fuori vista la vista non salta |
 
 Nel tema chiaro il fuoco usa la luminanza come maschera (sul bianco lo screen sparirebbe). Il caret al passo
-più tenue resta ≥ 4,5:1 sul pannello e sul `sel` (`ui::contrast`). Con "riduci movimento" l'anello e il caret
+più tenue resta ≥ 4,5:1 sul pannello e sul `sel` (`ui::contrast`): il minimo è 62 % e non il 50 % del
+record `caret-piu-forte`, perché al 50 % fa 3,32:1 nel chiaro (4,30:1 nello scuro su `sel`); al 62 %, pannello e `sel`: chiaro
+4,83/4,60, scuro 6,80/5,78 (minimo). Con "riduci movimento" l'anello e il caret
 non si animano (restano fermi e visibili, il caret pieno) e il fuoco
 è fermo, a riposo o alto, senza salire né scendere; con la finestra non attiva è fermo allo stesso modo. A riposo
 le fiamme non tengono il display link: si ridisegnano 12 volte al secondo (CPU a riposo ~3,5 % contro ~11 % a
