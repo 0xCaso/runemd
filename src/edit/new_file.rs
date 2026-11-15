@@ -1,11 +1,11 @@
-//! Nuovo file (Cmd+N): il file nasce vuoto nella cartella data. Un nome già usato non si tocca.
+//! New file (Cmd+N): the file is born empty in the given folder. A name already in use is not touched.
 
 use std::fs::OpenOptions;
 use std::io::{self, ErrorKind};
 use std::path::{Path, PathBuf};
 
-/// Il nome da creare: senza spazi ai capi, `.md` in coda se manca. `None` se non è un nome
-/// valido: vuoto, con "/" o che inizia con "." (niente sottocartelle, niente file nascosti).
+/// The name to create: no spaces at the ends, `.md` appended if missing. `None` if it is not a
+/// valid name: empty, with "/" or starting with "." (no subfolders, no hidden files).
 pub fn normalize(name: &str) -> Option<String> {
     let name = name.trim();
     if name.is_empty() || name.contains('/') || name.starts_with('.') {
@@ -21,11 +21,11 @@ pub fn normalize(name: &str) -> Option<String> {
     })
 }
 
-/// Crea `dir/name` vuoto e ne dà il percorso. Con `create_new` (O_EXCL) un file già lì non si
-/// tronca mai, nemmeno in una corsa: `AlreadyExists` dà quel percorso, contenuto invariato.
+/// Creates `dir/name` empty and gives its path. With `create_new` (O_EXCL) a file already there is never
+/// truncated, not even in a race: `AlreadyExists` gives that path, content unchanged.
 pub fn create(dir: &Path, name: &str) -> io::Result<PathBuf> {
     let name = normalize(name)
-        .ok_or_else(|| io::Error::new(ErrorKind::InvalidInput, "nome non valido"))?;
+        .ok_or_else(|| io::Error::new(ErrorKind::InvalidInput, "invalid name"))?;
     let path = dir.join(name);
     match OpenOptions::new().write(true).create_new(true).open(&path) {
         Ok(_) => Ok(path),
@@ -58,12 +58,12 @@ mod tests {
     #[test]
     fn an_existing_name_is_returned_untouched() {
         let d = tempfile::tempdir().unwrap();
-        fs::write(d.path().join("a.md"), "# mio\n").unwrap();
+        fs::write(d.path().join("a.md"), "# mine\n").unwrap();
         assert_eq!(create(d.path(), "a").unwrap(), d.path().join("a.md"));
         assert_eq!(create(d.path(), "a.md").unwrap(), d.path().join("a.md"));
         assert_eq!(
             fs::read_to_string(d.path().join("a.md")).unwrap(),
-            "# mio\n"
+            "# mine\n"
         );
     }
 
@@ -71,8 +71,8 @@ mod tests {
     fn trims_the_name() {
         let d = tempfile::tempdir().unwrap();
         assert_eq!(
-            create(d.path(), "  prova \n").unwrap(),
-            d.path().join("prova.md")
+            create(d.path(), "  test \n").unwrap(),
+            d.path().join("test.md")
         );
     }
 

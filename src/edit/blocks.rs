@@ -1,27 +1,27 @@
-//! Il sorgente diviso in pezzi, un `TextEdit` per pezzo: un solo campo da
-//! 1 MB costa a Rune ~150 ms per tasto, un campo per pezzo dentro `virtual_rows` costa solo le
-//! righe montate.
+//! The source split into pieces, one `TextEdit` per piece: a single field of
+//! 1 MB costs Rune ~150 ms per key, one field per piece inside `virtual_rows` costs only the
+//! mounted rows.
 //!
-//! I pezzi sono il testo del file tagliato a certi `\n`, che si tolgono: riuniti con `"\n"`
-//! ridanno il file identico, byte per byte (righe vuote in più, file senza `\n` finale, CRLF,
-//! righe vuote in testa, file vuoto). Si taglia prima di una riga piena che segue una riga vuota,
-//! fuori dai blocchi di codice recintati; un pezzo più lungo di [`MAX_PIECE`] si taglia anche a
-//! una riga qualsiasi (dentro un recinto solo oltre [`MAX_FENCED_PIECE`]).
+//! The pieces are the file text cut at some `\n`, which are removed: joined with `"\n"`
+//! they give back the identical file, byte for byte (extra blank lines, file without a final `\n`, CRLF,
+//! blank lines at the top, empty file). It cuts before a full line that follows a blank line,
+//! outside fenced code blocks; a piece longer than [`MAX_PIECE`] is also cut at
+//! any line (inside a fence only beyond [`MAX_FENCED_PIECE`]).
 //!
-//! Il tasto ai bordi di un pezzo fa quello che farebbe in un campo unico: Backspace all'inizio
-//! toglie il `\n` che lo separa dal precedente (i due si uniscono), Canc alla fine lo stesso con
-//! il seguente, le frecce passano al pezzo vicino.
+//! The key at the edges of a piece does what it would do in a single field: Backspace at the start
+//! removes the `\n` that separates it from the previous one (the two join), Delete at the end does the same with
+//! the next one, the arrows move to the neighbouring piece.
 
 use rune::TextEdit;
 
-/// Oltre questa lunghezza un pezzo si taglia alla prima riga (fuori dai recinti).
+/// Beyond this length a piece is cut at the first line (outside fences).
 pub const MAX_PIECE: usize = 4 * 1024;
-/// Dentro un blocco di codice recintato si taglia solo oltre questa lunghezza: i colori del
-/// codice che segue sono quelli del Markdown, ma un recinto aperto e mai chiuso non fa del resto
-/// del file un campo solo.
+/// Inside a fenced code block it cuts only beyond this length: the colours of the
+/// code that follows are the Markdown ones, but a fence opened and never closed does not make the rest
+/// of the file a single field.
 pub const MAX_FENCED_PIECE: usize = 64 * 1024;
 
-/// Il testo diviso in pezzi: `split(t).join("\n") == t`.
+/// The text split into pieces: `split(t).join("\n") == t`.
 pub fn split(text: &str) -> Vec<&str> {
     let mut out = Vec::new();
     let (mut start, mut line_start) = (0, 0);
@@ -50,8 +50,8 @@ pub fn split(text: &str) -> Vec<&str> {
     out
 }
 
-/// Il recinto aperto dopo la riga `line`: ``` o ~~~ (tre o più, al massimo tre spazi prima) lo
-/// aprono, una riga di soli segni uguali e almeno altrettanti lo chiude.
+/// The fence open after line `line`: ``` or ~~~ (three or more, at most three spaces before) open
+/// it, a line of only the same marks and at least as many closes it.
 fn fence_after(open: Option<(u8, usize)>, line: &str) -> Option<(u8, usize)> {
     let indent = line.len() - line.trim_start_matches(' ').len();
     if indent > 3 {
@@ -70,49 +70,49 @@ fn fence_after(open: Option<(u8, usize)>, line: &str) -> Option<(u8, usize)> {
     }
 }
 
-/// Un pezzo del sorgente: il suo id (chiave della riga, stabile mentre si scrive) e il suo campo.
+/// A piece of the source: its id (row key, stable while typing) and its field.
 #[derive(Debug)]
 pub struct Piece {
     pub id: u64,
     pub edit: TextEdit,
 }
 
-/// I pezzi del sorgente in modifica; uno ha il fuoco (o nessuno, se il campo l'ha perso).
+/// The pieces of the source being edited; one has focus (or none, if the field lost it).
 #[derive(Debug, Default)]
 pub struct Pieces {
     pieces: Vec<Piece>,
     next_id: u64,
-    /// Cambia quando i pezzi si uniscono o si ridividono: le chiavi delle righe cambiano.
+    /// Changes when pieces join or split again: the row keys change.
     pub version: u64,
-    /// L'ultimo pezzo che ha avuto il fuoco o una modifica: il suo cursore vale anche quando il
-    /// fuoco è altrove (un clic su "Ricarica").
+    /// The last piece that had focus or an edit: its cursor holds even when
+    /// focus is elsewhere (a click on "Reload").
     last: u64,
 }
 
-/// Cosa fa un tasto ai bordi di un pezzo.
+/// What a key does at the edges of a piece.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Edge {
-    /// Backspace all'inizio: unisce il pezzo al precedente.
+    /// Backspace at the start: joins the piece to the previous one.
     JoinBack,
-    /// Canc alla fine: unisce il seguente.
+    /// Delete at the end: joins the next one.
     JoinForward,
-    /// Freccia su (prima riga) o sinistra (inizio): al pezzo prima.
+    /// Up arrow (first line) or left (start): to the piece before.
     Up,
     Left,
-    /// Freccia giù (ultima riga) o destra (fine): al pezzo dopo.
+    /// Down arrow (last line) or right (end): to the piece after.
     Down,
     Right,
 }
 
 impl Pieces {
-    /// I pezzi di `text`, con il cursore all'inizio e il fuoco nel primo.
+    /// The pieces of `text`, with the cursor at the start and focus in the first.
     pub fn new(text: &str) -> Pieces {
         let mut p = Pieces::default();
         p.set_text(text);
         p
     }
 
-    /// Ridivide tutto da `text`: id nuovi, cronologia persa, cursore all'inizio e fuoco nel primo.
+    /// Splits everything again from `text`: new ids, history lost, cursor at the start and focus in the first.
     pub fn set_text(&mut self, text: &str) {
         self.pieces = split(text)
             .into_iter()
@@ -125,7 +125,7 @@ impl Pieces {
         self.set_caret(0);
     }
 
-    /// Il testo intero: i pezzi riuniti con `"\n"`.
+    /// The whole text: the pieces joined with `"\n"`.
     pub fn text(&self) -> String {
         let len = self.pieces.iter().map(|p| p.edit.text.len() + 1).sum::<usize>();
         let mut out = String::with_capacity(len);
@@ -150,9 +150,9 @@ impl Pieces {
         self.pieces.iter()
     }
 
-    /// Il campo del pezzo `id`, se c'è ancora (`on_edit`). Rune passa da qui per ogni tasto, clic
-    /// e perdita di fuoco del campo: se il pezzo ha il fuoco diventa l'ultimo usato (Rune lo
-    /// chiede anche per pezzi senza fuoco, che non contano).
+    /// The field of piece `id`, if it still exists (`on_edit`). Rune goes through here for each key, click
+    /// and focus loss of the field: if the piece has focus it becomes the last used (Rune
+    /// also asks for pieces without focus, which do not count).
     pub fn edit_mut(&mut self, id: u64) -> Option<&mut TextEdit> {
         let p = self.pieces.iter_mut().find(|p| p.id == id)?;
         if p.edit.focused {
@@ -165,25 +165,25 @@ impl Pieces {
         self.pieces.iter().position(|p| p.id == id)
     }
 
-    /// L'indice del pezzo con il fuoco.
+    /// The index of the piece with focus.
     pub fn focused(&self) -> Option<usize> {
         self.pieces.iter().position(|p| p.edit.focused)
     }
 
-    /// Il campo con il fuoco (il primo se nessuno ce l'ha).
+    /// The field with focus (the first if none has it).
     pub fn current(&mut self) -> &mut TextEdit {
         let i = self.focused().unwrap_or(0);
         &mut self.pieces[i].edit
     }
 
-    /// Il cursore nel testo intero (byte): nel pezzo con il fuoco, o nell'ultimo che l'ha avuto.
+    /// The cursor in the whole text (bytes): in the piece with focus, or in the last one that had it.
     pub fn caret(&self) -> usize {
         let Some(i) = self.focused().or_else(|| self.index(self.last)) else { return 0 };
         self.pieces[..i].iter().map(|p| p.edit.text.len() + 1).sum::<usize>() + self.pieces[i].edit.focus
     }
 
-    /// Mette il cursore a `at` del testo intero (un `\n` fra due pezzi è la fine del primo) e il
-    /// fuoco nel suo pezzo.
+    /// Puts the cursor at `at` of the whole text (a `\n` between two pieces is the end of the first) and
+    /// focus in its piece.
     pub fn set_caret(&mut self, at: usize) {
         let mut acc = 0;
         let last = self.pieces.len() - 1;
@@ -198,7 +198,7 @@ impl Pieces {
         self.focus(target.0, target.1);
     }
 
-    /// Il fuoco nel pezzo `i`, con il cursore a `at` (portato a un confine di carattere).
+    /// Focus in piece `i`, with the cursor at `at` (moved to a character boundary).
     fn focus(&mut self, i: usize, at: usize) {
         for (j, p) in self.pieces.iter_mut().enumerate() {
             p.edit.focused = j == i;
@@ -209,10 +209,10 @@ impl Pieces {
         e.set_caret(at);
     }
 
-    /// Il tasto `edge` sul pezzo `id`, se il cursore è al bordo giusto (nessuna selezione né
-    /// composizione). Ritorna se l'ha preso; [`Edge::JoinBack`] e [`Edge::JoinForward`] cambiano
-    /// il testo. `first` e `last`: il cursore è sulla prima o sull'ultima riga disegnata del pezzo
-    /// (per le frecce su e giù, che senza layout non si sanno).
+    /// Key `edge` on piece `id`, if the cursor is at the right edge (no selection or
+    /// composition). Returns whether it took it; [`Edge::JoinBack`] and [`Edge::JoinForward`] change
+    /// the text. `first` and `last`: the cursor is on the first or last drawn line of the piece
+    /// (for the up and down arrows, which are unknown without layout).
     pub fn edge(&mut self, id: u64, edge: Edge, first: bool, last: bool) -> bool {
         let Some(i) = self.index(id) else { return false };
         let e = &self.pieces[i].edit;
@@ -249,8 +249,8 @@ impl Pieces {
         true
     }
 
-    /// Unisce il pezzo `i + 1` al pezzo `i` (toglie il `\n` fra i due); il cursore va dove si
-    /// incontravano. La cronologia del campo riparte: un Cmd+Z non può togliere il pezzo unito.
+    /// Joins piece `i + 1` to piece `i` (removes the `\n` between the two); the cursor goes where they
+    /// met. The field history restarts: a Cmd+Z cannot remove the joined piece.
     fn join(&mut self, i: usize) {
         let next = self.pieces.remove(i + 1);
         let at = self.pieces[i].edit.text.len();
@@ -261,13 +261,13 @@ impl Pieces {
     }
 }
 
-/// La colonna (in caratteri) del byte `at` nella sua riga.
+/// The column (in characters) of byte `at` in its line.
 fn column(text: &str, at: usize) -> usize {
     let start = text[..at].rfind('\n').map_or(0, |k| k + 1);
     text[start..at].chars().count()
 }
 
-/// Il byte della colonna `col` in `line` (al massimo la sua fine).
+/// The byte of column `col` in `line` (at most its end).
 fn byte_at_column(line: &str, col: usize) -> usize {
     let line = line.strip_suffix('\r').unwrap_or(line);
     line.char_indices().nth(col).map_or(line.len(), |(k, _)| k)
@@ -283,7 +283,7 @@ mod tests {
 
     #[test]
     fn split_cuts_before_a_line_after_a_blank_one() {
-        assert_eq!(split("# a\n\nuno\ndue\n\n\n\ntre\n"), ["# a\n", "uno\ndue\n\n\n", "tre\n"]);
+        assert_eq!(split("# a\n\none\ntwo\n\n\n\nthree\n"), ["# a\n", "one\ntwo\n\n\n", "three\n"]);
         assert_eq!(split(""), [""]);
         assert_eq!(split("\n\n\na"), ["\n\n", "a"]);
         assert_eq!(split("a\r\n\r\nb"), ["a\r\n\r", "b"]);
@@ -315,10 +315,10 @@ mod tests {
         assert_eq!((p.focused(), p.current().focus), (Some(1), 0));
         assert_eq!(p.caret(), 4);
         p.set_caret(3);
-        assert_eq!((p.focused(), p.current().focus), (Some(0), 3), "il \\n fra due pezzi è la fine del primo");
+        assert_eq!((p.focused(), p.current().focus), (Some(0), 3), "the \\n between two pieces is the end of the first");
         p.set_caret(99);
         assert_eq!((p.focused(), p.caret()), (Some(1), 6));
-        // Senza fuoco vale l'ultimo pezzo che l'ha avuto.
+        // Without focus the last piece that had it holds.
         p.current().focused = false;
         assert_eq!((p.focused(), p.caret()), (None, 6));
     }
@@ -329,13 +329,13 @@ mod tests {
         let ids: Vec<u64> = p.iter().map(|x| x.id).collect();
         p.set_caret(4);
         assert!(p.edge(ids[1], Edge::JoinBack, true, true));
-        assert_eq!(texts(&p), ["ab\ncd\n", "ef"], "il \\n fra i due è tolto");
+        assert_eq!(texts(&p), ["ab\ncd\n", "ef"], "the \\n between the two is removed");
         assert_eq!(p.text(), "ab\ncd\n\nef");
         assert_eq!((p.focused(), p.current().focus), (Some(0), 3));
-        // All'inizio del primo pezzo non c'è niente da unire.
+        // At the start of the first piece there is nothing to join.
         p.set_caret(0);
         assert!(!p.edge(ids[0], Edge::JoinBack, true, true));
-        // Con una selezione, Backspace è del campo.
+        // With a selection, Backspace belongs to the field.
         p.set_caret(7);
         p.current().set_selection(0, 1);
         assert!(!p.edge(ids[2], Edge::JoinBack, true, true));
@@ -349,7 +349,7 @@ mod tests {
         assert!(p.edge(first, Edge::JoinForward, true, true));
         assert_eq!(texts(&p), ["ab\ncd"]);
         assert_eq!((p.focused(), p.current().focus), (Some(0), 3));
-        assert!(!p.edge(first, Edge::JoinForward, true, true), "a metà non unisce");
+        assert!(!p.edge(first, Edge::JoinForward, true, true), "in the middle it does not join");
     }
 
     #[test]
@@ -364,27 +364,27 @@ mod tests {
 
     #[test]
     fn arrows_move_to_the_neighbour_piece() {
-        let mut p = Pieces::new("uno\ndue\n\ntre\nquattro");
+        let mut p = Pieces::new("one\ntwo\n\nsix\nseventy");
         let ids: Vec<u64> = p.iter().map(|x| x.id).collect();
-        // "tre" a colonna 2 → su: ultima riga del primo (vuota) → colonna 0.
+        // "six" at column 2 → up: last line of the first (empty) → column 0.
         p.set_caret(11);
-        assert!(!p.edge(ids[1], Edge::Up, false, false), "non sulla prima riga: è del campo");
+        assert!(!p.edge(ids[1], Edge::Up, false, false), "not on the first line: it belongs to the field");
         assert!(p.edge(ids[1], Edge::Up, true, false));
         assert_eq!((p.focused(), p.caret()), (Some(0), 8));
-        // giù dall'ultima riga del primo: prima riga del secondo, stessa colonna (0).
+        // down from the last line of the first: first line of the second, same column (0).
         assert!(p.edge(ids[0], Edge::Down, false, true));
         assert_eq!((p.focused(), p.caret()), (Some(1), 9));
-        // colonna conservata: "due" colonna 2 non è l'ultima riga del primo pezzo, ma con `last`.
+        // column kept: "two" column 2 is not the last line of the first piece, but with `last`.
         p.set_caret(6);
         assert!(p.edge(ids[0], Edge::Down, false, true));
         assert_eq!((p.focused(), p.caret()), (Some(1), 11));
-        // sinistra all'inizio, destra alla fine.
+        // left at the start, right at the end.
         p.set_caret(9);
         assert!(p.edge(ids[1], Edge::Left, false, false));
         assert_eq!((p.focused(), p.caret()), (Some(0), 8));
         assert!(p.edge(ids[0], Edge::Right, false, false));
         assert_eq!((p.focused(), p.caret()), (Some(1), 9));
-        // Ai capi del file le frecce restano al campo.
+        // At the ends of the file the arrows stay with the field.
         assert!(!p.edge(ids[1], Edge::Down, false, true));
         p.set_caret(0);
         assert!(!p.edge(ids[0], Edge::Up, true, false));

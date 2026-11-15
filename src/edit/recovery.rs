@@ -1,26 +1,26 @@
-//! Copia di recupero: chiudendo la finestra o uscendo con un conflitto o un errore di scrittura,
-//! Rune non lascia annullare la chiusura, quindi il testo del sorgente va in
-//! `~/Library/Application Support/RuneMD/Recuperati/<nome>-<AAAAMMGG-HHMMSS>.md` (fuori dai repo:
-//! agenti, indice e git non la vedono). Il file originale resta com'è. Al prossimo avvio ogni
-//! copia nuova si apre in una scheda; la copia resta finché l'utente la cancella
+//! Recovery copy: when closing the window or quitting with a conflict or a write error,
+//! Rune does not allow cancelling the close, so the source text goes into
+//! `~/Library/Application Support/RuneMD/Recuperati/<name>-<YYYYMMDD-HHMMSS>.md` (outside the repos:
+//! agents, index and git do not see it). The original file stays as it is. At the next startup each
+//! new copy opens in a tab; the copy stays until the user deletes it
 //! (`docs/decisions/2026-11-14-recovery-copy.md`).
 
 use std::fs::{self, OpenOptions};
 use std::io::{self, ErrorKind, Write};
 use std::path::{Path, PathBuf};
 
-/// Le copie da aprire al prossimo avvio, una per riga (il nome del file nella cartella).
+/// The copies to open at the next startup, one per line (the file name in the folder).
 const PENDING: &str = ".da-aprire";
 
-/// La cartella delle copie: `Recuperati` nella cartella dati dell'app (sotto `RUNE_DIRS_ROOT` se
-/// impostata, per le prove). `None` senza una cartella home.
+/// The folder of the copies: `Recuperati` in the app's data folder (under `RUNE_DIRS_ROOT` if
+/// set, for checks). `None` without a home folder.
 pub fn default_dir() -> Option<PathBuf> {
     rune::dirs::AppDirs::new(crate::settings::APP_ID).map(|d| d.data().join("Recuperati"))
 }
 
-/// Scrive `text` in una copia nuova in `dir` per il file `original`, con l'ora `stamp`
-/// (`AAAAMMGG-HHMMSS`), e la mette fra quelle da aprire al prossimo avvio. Non sovrascrive mai:
-/// due copie con lo stesso nome nello stesso secondo prendono `-2`, `-3`…
+/// Writes `text` into a new copy in `dir` for the file `original`, with the time `stamp`
+/// (`YYYYMMDD-HHMMSS`), and adds it to those to open at the next startup. It never overwrites:
+/// two copies with the same name in the same second get `-2`, `-3`…
 pub fn write(dir: &Path, original: &Path, text: &str, stamp: &str) -> io::Result<PathBuf> {
     fs::create_dir_all(dir)?;
     let stem = original
@@ -52,12 +52,12 @@ pub fn write(dir: &Path, original: &Path, text: &str, stamp: &str) -> io::Result
     unreachable!()
 }
 
-/// Le copie da aprire a questo avvio (quelle che esistono ancora), e la lista si svuota: un
-/// avvio dopo non le riapre.
+/// The copies to open at this startup (the ones that still exist), and the list empties: a
+/// later startup does not reopen them.
 pub fn take_pending(dir: &Path) -> Vec<PathBuf> {
     let list = dir.join(PENDING);
-    // Una lista con byte non validi si legge lo stesso (senza perdita per le righe buone), così
-    // si toglie e le copie dopo si riaprono. Le copie su disco non si toccano mai.
+    // A list with invalid bytes is read anyway (without loss for the good lines), so
+    // it is removed and the later copies reopen. The copies on disk are never touched.
     let Ok(bytes) = fs::read(&list) else {
         return Vec::new();
     };
@@ -70,7 +70,7 @@ pub fn take_pending(dir: &Path) -> Vec<PathBuf> {
         .collect()
 }
 
-/// L'ora di adesso, locale, come `AAAAMMGG-HHMMSS`.
+/// The current local time, as `YYYYMMDD-HHMMSS`.
 pub fn stamp_now() -> String {
     let secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -79,10 +79,10 @@ pub fn stamp_now() -> String {
     stamp(secs + offset)
 }
 
-/// `secs` dall'epoca (già spostati sul fuso locale) come `AAAAMMGG-HHMMSS`.
+/// `secs` since the epoch (already shifted to the local time zone) as `YYYYMMDD-HHMMSS`.
 pub fn stamp(secs: i64) -> String {
     let (days, rem) = (secs.div_euclid(86_400), secs.rem_euclid(86_400));
-    // Da giorni dall'epoca a data civile (Howard Hinnant, `civil_from_days`).
+    // From days since the epoch to a civil date (Howard Hinnant, `civil_from_days`).
     let z = days + 719_468;
     let era = z.div_euclid(146_097);
     let doe = z - era * 146_097;
@@ -109,7 +109,7 @@ mod tests {
         assert_eq!(stamp(0), "19700101-000000");
         // 2026-11-14 15:30:07
         assert_eq!(stamp(1_794_670_207), "20261114-153007");
-        assert_eq!(stamp(951_782_400), "20000229-000000", "29 febbraio");
+        assert_eq!(stamp(951_782_400), "20000229-000000", "29 February");
     }
 
     #[test]
@@ -118,14 +118,14 @@ mod tests {
         let a = write(
             dir.path(),
             Path::new("/x/README.md"),
-            "uno",
+            "one",
             "20261114-153007",
         )
         .unwrap();
         let b = write(
             dir.path(),
             Path::new("/y/README.md"),
-            "due",
+            "two",
             "20261114-153007",
         )
         .unwrap();
@@ -136,23 +136,23 @@ mod tests {
                 fs::read_to_string(&a).unwrap(),
                 fs::read_to_string(&b).unwrap()
             ),
-            ("uno".into(), "due".into())
+            ("one".into(), "two".into())
         );
         assert_eq!(take_pending(dir.path()), vec![a, b]);
-        assert!(take_pending(dir.path()).is_empty(), "una volta sola");
+        assert!(take_pending(dir.path()).is_empty(), "only once");
     }
 
     #[test]
     fn a_list_with_invalid_bytes_is_still_read_and_removed() {
         let dir = tempfile::tempdir().unwrap();
-        let a = write(dir.path(), Path::new("/x/a.md"), "uno", "20261114-153007").unwrap();
+        let a = write(dir.path(), Path::new("/x/a.md"), "one", "20261114-153007").unwrap();
         let mut list = fs::read(dir.path().join(PENDING)).unwrap();
         list.extend_from_slice(b"\xff\xfe broken\n");
         fs::write(dir.path().join(PENDING), list).unwrap();
         assert_eq!(take_pending(dir.path()), vec![a.clone()]);
-        assert!(!dir.path().join(PENDING).exists(), "la lista si toglie");
-        assert!(a.is_file(), "la copia resta");
-        let b = write(dir.path(), Path::new("/x/b.md"), "due", "20261114-153008").unwrap();
-        assert_eq!(take_pending(dir.path()), vec![b], "le copie dopo si riaprono");
+        assert!(!dir.path().join(PENDING).exists(), "the list is removed");
+        assert!(a.is_file(), "the copy stays");
+        let b = write(dir.path(), Path::new("/x/b.md"), "two", "20261114-153008").unwrap();
+        assert_eq!(take_pending(dir.path()), vec![b], "the later copies reopen");
     }
 }
