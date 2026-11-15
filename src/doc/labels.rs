@@ -19,6 +19,24 @@ pub struct Line {
     pub label: Option<Range<usize>>,
 }
 
+impl Line {
+    /// Il testo dopo l'etichetta (e i suoi spazi), o la riga intera se non ne ha.
+    pub fn rest(&self, source: &str) -> Range<usize> {
+        match &self.label {
+            Some(l) => {
+                let after = &source[l.end..self.range.end];
+                l.end + (after.len() - after.trim_start().len())..self.range.end
+            }
+            None => self.range.clone(),
+        }
+    }
+
+    /// L'etichetta senza i `:` finali, per la colonna delle etichette.
+    pub fn name(&self) -> Option<Range<usize>> {
+        self.label.clone().map(|l| l.start..l.end - 1)
+    }
+}
+
 /// Le parole di un'etichetta: lettere e cifre, con `( ) - _ / . # '` dentro.
 fn word_ok(w: &str) -> bool {
     !w.is_empty() && w.chars().all(|c| c.is_alphanumeric() || "()-_/.#'".contains(c)) && w.chars().any(char::is_alphanumeric)
@@ -213,6 +231,9 @@ mod tests {
         let reg = "Task 1: BASE root.\nRuling: keychain.\nmisurato di nuovo: 118 fps.\nTask 1: complete";
         let lines = block(reg).expect("registro");
         assert_eq!(lines.iter().filter(|l| l.label.is_some()).count(), 3);
+        assert_eq!(&reg[lines[2].rest(reg)], "misurato di nuovo: 118 fps.");
+        assert_eq!(&reg[lines[0].rest(reg)], "BASE root.");
+        assert_eq!(&reg[lines[1].name().unwrap()], "Ruling");
         assert!(block("Task 1: uno").is_none(), "una riga sola");
         assert!(block("Task 1: uno\naltro testo\nancora testo").is_none(), "metà o meno");
         assert!(block("Task 1: uno\nRuling: due\naltro\naltro").is_none(), "metà esatta");

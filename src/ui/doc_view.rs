@@ -43,7 +43,14 @@ pub struct Signals<S> {
     pub fonts: super::markdown_style::Fonts,
     /// Un clic su un link del documento (destinazione): i percorsi `runemd-open:` aprono il file.
     pub open: fn(&mut S, &str, &mut rune::Tx),
+    /// La colonna del testo è larga almeno [`TWO_COLUMNS`]: i blocchi a etichetta vanno su due
+    /// colonne (`label_columns`).
+    pub columns: bool,
 }
+
+/// Da quanto è larga la colonna del testo (senza i margini delle righe) i blocchi a etichetta
+/// vanno su due colonne (vincolo 4 del record dei registri, mockup t-mix).
+pub const TWO_COLUMNS: f32 = 480.0;
 
 /// Il caret "sta scrivendo" (record 2026-11-15-caret-al-punto-modificato): il carattere della
 /// riga a cui si appoggia ha un'evidenziazione trasparente con la chiave [`caret_key`], la riga
@@ -205,7 +212,7 @@ pub fn view<S: 'static>(s: &S, doc_of: fn(&S) -> &Document, style: &MarkdownStyl
                         hits.push((vec![c.at.end.clone()], clear.key(caret_end_key(doc.id))));
                     }
                     let progress = doc.tasks.get(&b.id).copied();
-                    let row = block_row(&b.source, &style, &doc.notes, &places, progress, signals.open, signals.fonts, signals.meta, (signals.marked)(s, b.id).then_some(signals.mark), hits);
+                    let row = block_row(&b.source, &style, &doc.notes, &places, progress, signals.columns, signals.open, signals.fonts, signals.meta, (signals.marked)(s, b.id).then_some(signals.mark), hits);
                     match caret {
                         Some(c) => caret_row(row, c),
                         None => row,
@@ -358,14 +365,72 @@ const FRONTMATTER_PAD_Y: f32 = 10.0;
 /// Una riga del documento, con i segni di Cerca `hits`; con `mark` ha il segno "cosa è cambiato"
 /// nel margine sinistro, fuori dal flusso (il testo non si sposta), alto quanto il testo del blocco.
 #[allow(clippy::too_many_arguments)]
-fn block_row<S: 'static>(source: &str, style: &MarkdownStyle, notes: &crate::doc::footnotes::Notes, places: &crate::doc::paths::Places, progress: Option<(u32, u32)>, open: fn(&mut S, &str, &mut rune::Tx), fonts: super::markdown_style::Fonts, meta: Meta, mark: Option<Color>, hits: super::find::Marks) -> El {
+fn block_row<S: 'static>(source: &str, style: &MarkdownStyle, notes: &crate::doc::footnotes::Notes, places: &crate::doc::paths::Places, progress: Option<(u32, u32)>, columns: bool, open: fn(&mut S, &str, &mut rune::Tx), fonts: super::markdown_style::Fonts, meta: Meta, mark: Option<Color>, hits: super::find::Marks) -> El {
     // Un paragrafo a etichetta (registri, piani) tiene i suoi a capo, etichette in grassetto
-    // (`doc::labels`); gli altri restano Markdown standard.
-    let labeled = crate::doc::labels::block(source).map(|lines| crate::doc::labels::one_column(source, &lines));
-    let (source, hits) = match &labeled {
-        Some(e) => (e.text.as_str(), hits.into_iter().map(|(ranges, hl)| (ranges.iter().map(|r| e.map(r)).collect(), hl)).collect()),
-        None => (source, hits),
+    // (`doc::labels`); con la colonna larga, etichette e testo su due colonne. Gli altri
+    // paragrafi restano Markdown standard.
+    let body = match crate::doc::labels::block(source) {
+        Some(lines) if columns => label_columns(source, &lines, hits, fonts, |src, hits| block_body(src, style, notes, places, None, open, fonts, meta, hits)),
+        Some(lines) => {
+            let e = crate::doc::labels::one_column(source, &lines);
+            block_body(&e.text, style, notes, places, None, open, fonts, meta, remap(hits, |r| e.map(r)))
+        }
+        None => block_body(source, style, notes, places, progress, open, fonts, meta, hits),
     };
+    // Le righe virtuali vogliono padding interno, non gap tra righe.
+    let row = col().w_full().px(ROW_PAD_X).py(ROW_PAD_Y).child(body);
+    match mark {
+        Some(c) => row.child(el().key("changed").pin(Some(CHANGED_MARK_X), Some(ROW_PAD_Y), None, Some(ROW_PAD_Y)).w(CHANGED_MARK_W).fill(c)),
+        None => row,
+    }
+}
+
+/// I segni di Cerca `hits` con ogni intervallo passato per `f`.
+fn remap(hits: super::find::Marks, f: impl Fn(&Range<usize>) -> Range<usize>) -> super::find::Marks {
+    hits.into_iter().map(|(ranges, hl)| (ranges.iter().map(&f).collect(), hl)).collect()
+}
+
+/// I segni di Cerca dentro `r` del sorgente, contati da `r.start`.
+fn clip(hits: &super::find::Marks, r: &Range<usize>) -> super::find::Marks {
+    hits.iter()
+        .filter_map(|(ranges, hl)| {
+            let inside: Vec<Range<usize>> = ranges.iter().filter(|x| x.start < r.end && r.start < x.end || (x.is_empty() && r.contains(&x.start))).map(|x| x.start.max(r.start) - r.start..x.end.min(r.end) - r.start).collect();
+            (!inside.is_empty()).then(|| (inside, hl.clone()))
+        })
+        .collect()
+}
+
+/// Un blocco a etichetta su due colonne (vincolo 4 del record dei registri, mockup t-mix larga):
+/// a sinistra le etichette in grassetto senza i `:`, larghe quanto la più larga e al massimo
+/// 10 em, a destra il testo, allineati riga per riga; una riga senza etichetta sta a destra.
+fn label_columns(source: &str, lines: &[crate::doc::labels::Line], hits: super::find::Marks, fonts: super::markdown_style::Fonts, body: impl Fn(&str, super::find::Marks) -> El) -> El {
+    let bold = TextStyle { weight: LABEL_WEIGHT, ..fonts.body };
+    let widest = lines.iter().filter_map(|l| l.name()).map(|r| rune::text::advance(&source[r], bold)).fold(0.0, f32::max);
+    let width = widest.min(LABEL_MAX_EM * fonts.body.size).ceil();
+    col().w_full().children(lines.iter().map(|l| {
+        let label = match l.name() {
+            Some(r) => {
+                let e = crate::doc::footnotes::Edited::new(&source[r.clone()], vec![(0..0, "**".to_owned()), (r.len()..r.len(), "**".to_owned())]);
+                let hits = remap(clip(&hits, &r), |x| e.map(x));
+                body(&e.text, hits)
+            }
+            None => el(),
+        };
+        let rest = l.rest(source);
+        rune::row().w_full().gap(LABEL_GAP).child(el().w(width).child(label)).child(el().grow(1.0).min_w(0.0).child(body(&source[rest.clone()], clip(&hits, &rest))))
+    }))
+}
+
+/// Peso delle etichette nella colonna (quello del grassetto del documento, `strong_weight`).
+const LABEL_WEIGHT: f32 = 620.0;
+/// La colonna delle etichette è larga al massimo 10 em (vincolo 4).
+const LABEL_MAX_EM: f32 = 10.0;
+/// Fra etichetta e testo.
+const LABEL_GAP: f32 = 16.0;
+
+/// Il Markdown di un blocco (o di un suo pezzo) come si disegna, con i segni di Cerca `hits`.
+#[allow(clippy::too_many_arguments)]
+fn block_body<S: 'static>(source: &str, style: &MarkdownStyle, notes: &crate::doc::footnotes::Notes, places: &crate::doc::paths::Places, progress: Option<(u32, u32)>, open: fn(&mut S, &str, &mut rune::Tx), fonts: super::markdown_style::Fonts, meta: Meta, hits: super::find::Marks) -> El {
     // Un titolo `Task N`: il numero fuori dal Markdown, in `fg3`, e l'avanzamento a destra.
     let task = crate::doc::labels::task_head(source);
     let untasked = task.as_ref().map(|t| crate::doc::footnotes::Edited::new(source, vec![(t.hashes.end + 1..t.prefix.end, String::new())]));
@@ -429,15 +494,9 @@ fn block_row<S: 'static>(source: &str, style: &MarkdownStyle, notes: &crate::doc
         Some(c) => col().w_full().child(callout_head(c.kind, &meta)).child(body),
         None => body,
     };
-    let body = match task {
+    match task {
         Some(t) => task_heading(body, &t, progress, fonts, &meta),
         None => body,
-    };
-    // Le righe virtuali vogliono padding interno, non gap tra righe.
-    let row = col().w_full().px(ROW_PAD_X).py(ROW_PAD_Y).child(body);
-    match mark {
-        Some(c) => row.child(el().key("changed").pin(Some(CHANGED_MARK_X), Some(ROW_PAD_Y), None, Some(ROW_PAD_Y)).w(CHANGED_MARK_W).fill(c)),
-        None => row,
     }
 }
 
@@ -1347,10 +1406,15 @@ mod tests {
 
     /// Il lettore con lo stile vero dell'app (`markdown_style::style`), nel tema `dark`.
     fn open_themed(source: &str, dark: bool) -> Runtime<Doc> {
+        open_sized(source, dark, VIEWPORT)
+    }
+
+    /// [`open_themed`] in una finestra di `size`.
+    fn open_sized(source: &str, dark: bool, size: (f32, f32)) -> Runtime<Doc> {
         let mut state = Doc::bare(crate::index::Library::load(Vec::new(), None));
         state.set_style(crate::ui::markdown_style::style(&crate::ui::theme::Theme::for_mode(dark), crate::ui::theme::BODY_TEXT));
         state.push_tab(Document::from_source(Path::new("t.md"), source));
-        let mut rt = Runtime::new(state, crate::view, VIEWPORT, Env::new(dark, 2.0));
+        let mut rt = Runtime::new(state, crate::view, size, Env::new(dark, 2.0));
         rt.frame(0.0);
         settle(&mut rt);
         rt
@@ -1511,13 +1575,40 @@ mod tests {
     #[test]
     fn a_register_reads_as_lines() {
         let source = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/registro.md")).unwrap();
-        let rt = open_themed(&source, true);
+        let rt = open_sized(&source, true, NARROW);
         let texts: Vec<String> = rt.elements().into_iter().filter_map(|e| e.text).map(|x| x.replace('\u{200B}', "")).collect();
         let reg = texts.iter().find(|x| x.starts_with("Task 1: BASE root")).unwrap_or_else(|| panic!("{texts:?}"));
         assert!(reg.contains("Implementer a382e1858b685d390.\nRuling: keychain"), "{reg:?}");
         assert!(reg.contains("review clean)\nTask 2: BASE 0095282."), "{reg:?}");
         let preamble = texts.iter().find(|x| x.starts_with("Spec: docs/spec.md")).unwrap();
         assert!(preamble.contains("push).\nRuling: lavoro"), "due righe, tutte e due a etichetta: {preamble:?}");
+    }
+
+    /// Una finestra in cui la colonna del testo è più stretta di [`super::TWO_COLUMNS`].
+    const NARROW: (f32, f32) = (640.0, 1000.0);
+
+    /// Con la colonna larga il registro va su due colonne (vincolo 4 del record dei registri):
+    /// etichette senza `:` a sinistra, tutte allo stesso x e larghe al massimo 10 em, testo a
+    /// destra allineato; una riga senza etichetta sta nella colonna del testo. Stretta, una colonna.
+    #[test]
+    fn a_wide_register_shows_two_columns() {
+        let source = "Task 2: BASE 0095282. Implementer abd1.\nRuling: commit del task 2.\nmisurato di nuovo dopo lo sblocco dello schermo: 118 fps.\nTask 2: minor (deferred): TreeRing.\nTask 2: complete (commits 0095282..f04c761)\n";
+        let rt = open_themed(source, false);
+        let els = rt.elements();
+        let rows = els.iter().find(|e| e.key.as_deref() == Some("rows")).unwrap().rect;
+        assert!(rows[2] - 2.0 * crate::ui::theme::ROW_PAD_X >= super::TWO_COLUMNS, "colonna {rows:?}");
+        let at = |s: &str| els.iter().find(|e| e.text.as_deref().map(|t| t.replace(['\u{2066}', '\u{2069}'], "")).as_deref() == Some(s)).unwrap_or_else(|| panic!("manca {s:?}: {:?}", els.iter().filter_map(|e| e.text.clone()).collect::<Vec<_>>())).rect;
+        let labels = ["Task 2", "Ruling", "Task 2: minor (deferred)"].map(at);
+        let texts = ["BASE 0095282. Implementer abd1.", "commit del task 2.", "misurato di nuovo dopo lo sblocco dello schermo: 118 fps.", "TreeRing."].map(at);
+        assert!(labels.iter().all(|l| l[0] == labels[0][0]), "etichette allo stesso x: {labels:?}");
+        assert!(texts.iter().all(|t| t[0] == texts[0][0] && t[0] > labels[0][0] + 40.0), "testo allineato a destra: {texts:?}");
+        let em = crate::ui::markdown_style::fonts(crate::fonts::Typeface::of("Inter", crate::ui::theme::BODY_TEXT)).body.size;
+        assert!(texts[0][0] - labels[0][0] <= 10.0 * em + super::LABEL_GAP + 1.0, "al massimo 10 em");
+        assert!((labels[0][1] - texts[0][1]).abs() < 1.0 && (labels[1][1] - texts[1][1]).abs() < 1.0, "righe allineate");
+        let narrow = open_sized(source, false, NARROW);
+        let one: Vec<String> = narrow.elements().into_iter().filter_map(|e| e.text).filter(|t| t.starts_with("Task 2: BASE")).collect();
+        assert_eq!(one.len(), 1, "una colonna: {one:?}");
+        assert!(one[0].contains("abd1.\nRuling: commit"));
     }
 
     /// DESIGN.md (paragraphs andati a capo a mano, nessun registro) esce identico a com'era senza
