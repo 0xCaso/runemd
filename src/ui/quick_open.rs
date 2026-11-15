@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use rune::{Color, Key, KeyEvent, TextEdit, Tx, TextStyle, col, row, text, text_input, icon, El, ScrollSpec, el};
 use rune_kit::glyphs;
 
-use super::sidebar::{Hooks, Motion, RECENT_LINE_GAP, RECENT_META_LH, RECENT_NAME_LH, RECENT_ROW, pressable, row_meta, small_font, ui_font};
+use super::sidebar::{Hooks, Motion, pressable, row_meta, small_font, ui_font};
 use super::theme::{FIELD_H, FIELD_MARGIN_BOTTOM, FIELD_MARGIN_X, HAIRLINE, ICON, KBD_PAD_X, KBD_PAD_Y, KBD_TEXT, KBD_WEIGHT, R_FIELD, R_KBD, R_PANEL, R_ROW, ROW_GAP, ROW_PAD, SECTION_PAD_BOTTOM, SECTION_PAD_TOP, TAB_BAR_H, FRAME, Theme, UI_SMALL, UI_WEIGHT};
 
 /// Risultati al massimo (ipotesi: oltre non si scorre, si scrive di più).
@@ -23,12 +23,19 @@ pub const MAX_RESULTS: usize = 50;
 pub const QUICK_W: f32 = 560.0;
 const QUICK_TOP: f32 = FRAME + TAB_BAR_H + 20.0;
 const QUICK_SIDE: f32 = 16.0;
-/// Il campo in alto (48, testo 15), le righe (`RECENT_ROW`, margine 6, 2 fra le righe), il fondo (36).
+/// Il campo in alto (48, testo 15), le righe (`QUICK_ROW`, margine 6, 2 fra le righe), il fondo (36).
 const QUICK_HEAD: f32 = 48.0;
 const QUICK_TEXT: f32 = 15.0;
 const QUICK_PAD: f32 = 6.0;
 const QUICK_ROW_GAP: f32 = 2.0;
 const QUICK_FOOT: f32 = 36.0;
+/// Una riga dei risultati, su una riga sola (record 2026-11-15-quick-open-una-riga; mockup
+/// "compatto": `.qr` alta 40, margini 10, 10 fra icona, nome, repo o cartella e ora).
+pub const QUICK_ROW: f32 = 40.0;
+const ROW_PX: f32 = 10.0;
+const ROW_GAP_Q: f32 = 10.0;
+/// Il repo o cartella non scende sotto questo prima che si tagli il nome (mockup: `min-width: 40px`).
+const PLACE_MIN: f32 = 40.0;
 /// Righe in vista prima che la lista scorra.
 const QUICK_VISIBLE: f32 = 8.0;
 /// Il velo sopra il contenuto: `panel` al 60 % (mockup).
@@ -283,23 +290,41 @@ fn hint(keys: &[&'static str], what: &'static str, theme: &Theme) -> El {
     r.child(text(what).font(TextStyle::new(UI_SMALL, UI_WEIGHT)).color(theme.fg3).ml(2.0))
 }
 
-/// Una riga dei risultati: icona del file, sopra il nome (`fg`, tagliato in mezzo), sotto repo o
-/// cartella e l'ora (in [`row_meta`] anche in hover e scelta). Clic: anteprima e la riga diventa
-/// la scelta, il pannello resta; doppio clic: scheda fissa e il pannello si chiude.
+/// Lo spazio fisso di una riga larga `row_w` con l'ora larga `time_w`: margini, icona, lo spazio
+/// dopo l'icona e quello prima dell'ora.
+fn row_fixed(time_w: f32) -> f32 {
+    2.0 * ROW_PX + ICON + 2.0 * ROW_GAP_Q + time_w
+}
+
+/// Quanto è largo il nome (largo `name_w` intero) in una riga larga `row_w` con l'ora larga
+/// `time_w`: intero finché il repo o cartella ha almeno `PLACE_MIN`; poi si taglia il nome
+/// (vincolo 2 del record quick-open-una-riga: prima il repo o cartella, poi il nome).
+fn name_width(row_w: f32, name_w: f32, time_w: f32) -> f32 {
+    name_w.min(row_w - row_fixed(time_w) - ROW_GAP_Q - PLACE_MIN).max(0.0)
+}
+
+/// Una riga dei risultati, su una riga sola (record 2026-11-15-quick-open-una-riga): icona del
+/// file, il nome (`fg`, tagliato in mezzo), repo o cartella (tagliato in fondo) e in fondo a destra
+/// l'ora (in [`row_meta`] anche in hover e scelta). `row_w` è la larghezza della riga. Clic:
+/// anteprima e la riga diventa la scelta, il pannello resta; doppio clic: scheda fissa e il
+/// pannello si chiude.
 #[allow(clippy::too_many_arguments)]
-fn result_row<S: 'static>(sb: &super::sidebar::Sidebar, hooks: Hooks<S>, i: usize, r: &super::sidebar::RecentRow, label: &str, theme: &Theme, motion: Motion) -> El {
+fn result_row<S: 'static>(sb: &super::sidebar::Sidebar, hooks: Hooks<S>, i: usize, r: &super::sidebar::RecentRow, label: &str, row_w: f32, theme: &Theme, motion: Motion) -> El {
     let selected = i == sb.quick.selected;
-    let name = text(r.name.clone()).font(ui_font().lh(RECENT_NAME_LH)).color(theme.fg).truncate_middle().w_full().min_w(0.0);
-    let place = text(r.qualifier.clone().unwrap_or_default()).font(TextStyle::new(UI_SMALL, UI_WEIGHT).lh(RECENT_META_LH)).color(row_meta(theme)).truncate().grow(1.0).shrink().min_w(0.0);
-    let time = text(label.to_owned()).font(small_font().lh(RECENT_META_LH)).color(row_meta(theme));
-    let lines = col().grow(1.0).shrink().min_w(0.0).gap(RECENT_LINE_GAP).child(name).child(row().w_full().gap(ROW_GAP).center_y().child(place).child(time));
+    let (name_font, place_font, time_font) = (ui_font(), TextStyle::new(UI_SMALL, UI_WEIGHT), small_font());
+    // Il nome si misura come lo misura la vista; il mezzo punto in più evita un taglio per arrotondamento.
+    let name_w = name_width(row_w, (rune::text::advance(&r.name, name_font) + 0.5).ceil(), rune::text::advance(label, time_font).ceil());
+    let name = text(r.name.clone()).font(name_font).color(theme.fg).truncate_middle().w(name_w);
+    let place = text(r.qualifier.clone().unwrap_or_default()).font(place_font).color(row_meta(theme)).truncate().grow(1.0).shrink().min_w(0.0);
+    let time = text(label.to_owned()).font(time_font).color(row_meta(theme));
+    let lines = row().grow(1.0).shrink().min_w(0.0).gap(ROW_GAP_Q).center_y().child(name).child(place).child(time);
     let glyph = icon(&glyphs::FILE, ICON).color(if selected { theme.fg } else { theme.fg2 });
     let (open, pin) = (r.path.clone(), r.path.clone());
     let mut e = row()
         .w_full()
-        .h(RECENT_ROW)
-        .px(10.0)
-        .gap(10.0)
+        .h(QUICK_ROW)
+        .px(ROW_PX)
+        .gap(ROW_GAP_Q)
         .center_y()
         .child(glyph)
         .child(lines)
@@ -321,7 +346,7 @@ fn result_row<S: 'static>(sb: &super::sidebar::Sidebar, hooks: Hooks<S>, i: usiz
 /// Il pannello di Cmd+P, da montare alla radice: un velo `panel` al 60 % su tutta la finestra e
 /// sopra, centrato, il pannello (`panel`, raggio `R_PANEL`, bordo e ombra del pannello). Il
 /// pannello è modale: un clic fuori o Esc lo chiudono. Vuoto se è chiuso.
-pub fn panel<S: 'static>(s: &S, hooks: Hooks<S>, theme: &Theme, reduced: bool, hover: bool) -> Vec<El> {
+pub fn panel<S: 'static>(s: &S, hooks: Hooks<S>, list: Option<[f32; 4]>, theme: &Theme, reduced: bool, hover: bool) -> Vec<El> {
     let sb = (hooks.get)(s);
     if !sb.quick.active() {
         return Vec::new();
@@ -342,16 +367,19 @@ pub fn panel<S: 'static>(s: &S, hooks: Hooks<S>, theme: &Theme, reduced: bool, h
         .on_input_key(move |s: &mut S, ev: &KeyEvent, tx: &mut Tx| on_key(s, hooks, ev, tx));
     let head = row().key("quick-head").w_full().h(QUICK_HEAD).px(14.0).gap(10.0).center_y().child(icon(&glyphs::SEARCH, ICON).color(theme.fg2)).child(input);
     let line = || el().w_full().h(HAIRLINE).fill(theme.line);
-    let mut list = col().key("quick-rows").w_full().padding(QUICK_PAD).gap(QUICK_ROW_GAP);
+    // La riga è larga quanto la lista dell'ultimo layout meno i margini; prima del primo, il pannello pieno.
+    let row_w = list.map_or(QUICK_W, |r| r[2]) - 2.0 * QUICK_PAD;
+    let mut rows = col().key("quick-rows").w_full().padding(QUICK_PAD).gap(QUICK_ROW_GAP);
     if sb.quick_rows.is_empty() {
         let none = if sb.quick.empty_query() { "Nessun file recente" } else { "Nessun file" };
-        list = list.child(text(none).key("quick-none").font(small_font()).color(theme.fg3).px(ROW_PAD).pt(SECTION_PAD_TOP).pb(SECTION_PAD_BOTTOM));
+        rows = rows.child(text(none).key("quick-none").font(small_font()).color(theme.fg3).px(ROW_PAD).pt(SECTION_PAD_TOP).pb(SECTION_PAD_BOTTOM));
     }
     for (i, r) in sb.quick_rows.iter().enumerate() {
         let label = sb.quick_labels.get(i).map(String::as_str).unwrap_or("");
-        list = list.child(result_row(sb, hooks, i, r, label, theme, motion));
+        rows = rows.child(result_row(sb, hooks, i, r, label, row_w, theme, motion));
     }
-    let list_max = QUICK_PAD * 2.0 + QUICK_VISIBLE * RECENT_ROW + (QUICK_VISIBLE - 1.0) * QUICK_ROW_GAP;
+    let list = rows;
+    let list_max = QUICK_PAD * 2.0 + QUICK_VISIBLE * QUICK_ROW + (QUICK_VISIBLE - 1.0) * QUICK_ROW_GAP;
     let scroll = col().key("quick").w_full().max_h(list_max).shrink().min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(list);
     let n = sb.quick_rows.len();
     let count = text(if n == 1 { "1 file".to_owned() } else { format!("{n} file") }).key("quick-count").font(small_font()).color(theme.fg3);
@@ -488,8 +516,33 @@ mod tests {
             assert!(find(&rt, "quick-panel").is_some());
         }
 
-        /// Vincoli 2 e 4: righe su due righe (nome; repo o cartella e ora); clic singolo apre in
-        /// anteprima e il pannello resta, doppio clic fissa la scheda e chiude.
+        /// Record 2026-11-15-quick-open-una-riga, vincolo 1: ogni riga è su una riga sola, alta
+        /// `QUICK_ROW`: nome a sinistra, repo o cartella subito dopo, l'ora in fondo a destra,
+        /// tutti alla stessa altezza.
+        #[test]
+        fn rows_are_on_one_line() {
+            let (_d, mut rt) = open();
+            rt.key(cmd_p());
+            settle(&mut rt);
+            rt.update(|s: &mut App, _| {
+                s.sidebar.quick.edit.replace_text("beta");
+                s.requery_sidebar();
+            });
+            settle(&mut rt);
+            let key = rt.elements().into_iter().filter_map(|e| e.key).find(|k| k.starts_with("quick-/")).expect("riga");
+            let row = find(&rt, &key).unwrap().rect;
+            assert_eq!(row[3], super::super::QUICK_ROW, "una riga sola");
+            let (place, time) = (rt.state.sidebar.quick_rows[0].qualifier.clone().unwrap(), rt.state.sidebar.quick_labels[0].clone());
+            let at = |t: &str| rt.elements().into_iter().find(|e| e.text.as_deref() == Some(t) && e.rect[1] >= row[1] && e.rect[1] < row[1] + row[3]).unwrap_or_else(|| panic!("manca {t}")).rect;
+            let (n, p, t) = (at("beta.md"), at(&place), at(&time));
+            let mid = |r: [f32; 4]| r[1] + r[3] / 2.0;
+            assert!((mid(n) - mid(p)).abs() < 1.5 && (mid(n) - mid(t)).abs() < 1.5, "stessa riga: {n:?} {p:?} {t:?}");
+            assert!(n[0] + n[2] < p[0] && p[0] + p[2] <= t[0], "nome, poi repo o cartella, poi l'ora: {n:?} {p:?} {t:?}");
+            assert!((t[0] + t[2] - (row[0] + row[2] - 10.0)).abs() < 1.0, "l'ora in fondo a destra: {t:?} {row:?}");
+        }
+
+        /// Vincoli 2 e 4 del record compatto: clic singolo apre in anteprima e il pannello resta,
+        /// doppio clic fissa la scheda e chiude.
         #[test]
         fn a_double_click_pins_the_tab() {
             let (_d, mut rt) = open();
@@ -502,8 +555,8 @@ mod tests {
             settle(&mut rt);
             let rows: Vec<String> = rt.state.sidebar.quick_rows.iter().map(|r| r.name.clone()).collect();
             assert_eq!(rows, ["beta.md"]);
-            assert!(rt.state.sidebar.quick_rows[0].qualifier.is_some(), "seconda riga: repo o cartella");
-            assert!(!rt.state.sidebar.quick_labels[0].is_empty(), "seconda riga: l'ora");
+            assert!(rt.state.sidebar.quick_rows[0].qualifier.is_some(), "repo o cartella");
+            assert!(!rt.state.sidebar.quick_labels[0].is_empty(), "l'ora");
             let key = rt.elements().into_iter().filter_map(|e| e.key).find(|k| k.starts_with("quick-/")).expect("riga");
 
             let (x, y) = centre(&rt, &key);
@@ -518,6 +571,21 @@ mod tests {
             assert_eq!(tabs(&rt), [("alfa.md".to_owned(), false), ("beta.md".to_owned(), false)], "doppio clic: fissa");
             assert!(find(&rt, "quick-panel").is_none(), "e chiude");
         }
+    }
+
+    /// Vincolo 2 del record quick-open-una-riga: se lo spazio non basta si accorcia prima il repo o
+    /// cartella (fino a `PLACE_MIN`), poi il nome.
+    #[test]
+    fn the_place_gives_way_before_the_name() {
+        // Ci sta tutto: il nome intero.
+        assert_eq!(name_width(500.0, 200.0, 30.0), 200.0);
+        // Il nome intero, il repo o cartella prende quello che resta, almeno PLACE_MIN.
+        let room = 500.0 - row_fixed(30.0);
+        assert_eq!(name_width(500.0, room - PLACE_MIN - ROW_GAP_Q, 30.0), room - PLACE_MIN - ROW_GAP_Q);
+        // Il nome più lungo: si taglia lui, il repo o cartella resta a PLACE_MIN.
+        assert_eq!(name_width(500.0, 1000.0, 30.0), room - PLACE_MIN - ROW_GAP_Q);
+        // Una riga strettissima: niente valori negativi.
+        assert_eq!(name_width(40.0, 1000.0, 30.0), 0.0);
     }
 
     #[test]
