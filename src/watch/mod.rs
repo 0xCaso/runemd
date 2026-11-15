@@ -316,7 +316,7 @@ impl Watcher {
         let notify = match notify::recommended_watcher(handler) {
             Ok(w) => Some(w),
             Err(e) => {
-                eprintln!("runemd: watcher non avviato: {e}");
+                eprintln!("runemd: watcher not started: {e}");
                 None
             }
         };
@@ -507,7 +507,7 @@ mod tests {
         let ready = root.join("ready.md");
         fs::write(&ready, "ready").unwrap();
         let seen = collect_raw(&mut w, Duration::from_secs(5), |s| s.contains(&FsEvent::Changed(ready.clone())));
-        assert!(seen.contains(&FsEvent::Changed(ready)), "watcher non pronto");
+        assert!(seen.contains(&FsEvent::Changed(ready)), "watcher not ready");
         (dir, root, w)
     }
 
@@ -860,7 +860,7 @@ mod tests {
         let ready = root.join("ready.md");
         fs::write(&ready, "ready").unwrap();
         let seen = collect_raw(&mut w, Duration::from_secs(5), |s| s.contains(&FsEvent::Changed(ready.clone())));
-        assert!(seen.contains(&FsEvent::Changed(ready)), "watcher non pronto");
+        assert!(seen.contains(&FsEvent::Changed(ready)), "watcher not ready");
         fs::write(root.join("sub/x.md"), "# below").unwrap();
         fs::write(root.join("top.md"), "# above").unwrap();
         let events = collect(&mut w, Duration::from_secs(5), |s| s.contains(&FsEvent::Changed(root.join("top.md"))));

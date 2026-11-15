@@ -113,7 +113,7 @@ mod tests {
         }
     }
 
-    /// docs/decisions/2026-11-15-thick-ring.md, vincolo 1: 2,5 px, non 1,5.
+    /// docs/decisions/2026-11-15-thick-ring.md, constraint 1: 2.5 px, not 1.5.
     #[test]
     fn ring_is_2_5_px_wide() {
         assert_eq!(RING_W, 2.5);
