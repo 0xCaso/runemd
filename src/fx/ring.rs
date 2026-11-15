@@ -11,8 +11,8 @@ use rune_fx::{Fx, FxLayer, LiquidMetalParams, Rect, Shape};
 
 use super::Mark;
 
-/// Larghezza dell'anello, pt (DESIGN.md: 1,5).
-pub const RING_W: f32 = 1.5;
+/// Larghezza dell'anello, pt (DESIGN.md: 2,5; docs/decisions/2026-11-15-anello-spesso.md).
+pub const RING_W: f32 = 2.5;
 /// Entrata: opacità da 0 a 1 in 220 ms, ease-out.
 pub const ENTER: f32 = 0.22;
 /// Un giro dello studio riflesso ogni 3 s.
@@ -111,6 +111,13 @@ mod tests {
             FillStyle::LiquidMetal(m) => m,
             other => panic!("non è metallo liquido: {other:?}"),
         }
+    }
+
+    /// docs/decisions/2026-11-15-anello-spesso.md, vincolo 1: 2,5 px, non 1,5.
+    #[test]
+    fn ring_is_2_5_px_wide() {
+        assert_eq!(RING_W, 2.5);
+        assert_eq!(fill(&layer(row(), 1.0, false)).border, 2.5);
     }
 
     #[test]

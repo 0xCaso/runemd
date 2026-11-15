@@ -463,7 +463,7 @@ Doppio clic: il default. Esc durante il trascinamento: com'era. Le larghezze res
 
 | Effetto | Significato | Dove | Inizio | Fine |
 |---|---|---|---|---|
-| Metallo liquido (anello su 4 lati, 1,5 px, giro di 3 s) | Un agente sta scrivendo questo file | Scheda del file, sua riga in "Recenti", sua riga nell'albero | Appare in 220 ms ease-out alla prima modifica | Si ferma quando il file non cambia più (ipotesi: 3 s senza scritture) |
+| Metallo liquido (anello su 4 lati, 2,5 px, giro di 3 s) | Un agente sta scrivendo questo file | Scheda del file, sua riga in "Recenti", sua riga nell'albero | Appare in 220 ms ease-out alla prima modifica | Si ferma quando il file non cambia più (ipotesi: 3 s senza scritture) |
 | Fuoco di Rune (fiamme e braci) | A riposo, basso (26 px): è il fondo del pannello. Alto 110 px: c'è testo nuovo sotto la parte che stai leggendo | Fondo del pannello, sempre in lettura; alto, con l'etichetta "N paragrafi nuovi più in basso" | Da riposo sale a 110 in 420 ms ease-out | Torna a riposo in 300 ms ease-out quando scorri fino al testo nuovo |
 | Dither (Bayer 4×4, pulsa a 4 passi in 1,6 s) | Questo blocco sta arrivando | Al posto dei blocchi non ancora scritti, larghi come una riga di testo | Subito | Quando il blocco è completo |
 
