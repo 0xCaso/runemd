@@ -39,6 +39,9 @@ pub struct Document {
     pub file_hash: u64,
     /// Le note a piè di pagina dei blocchi (`doc::footnotes`), rifatte a ogni revisione.
     pub notes: Arc<super::footnotes::Notes>,
+    /// L'avanzamento ("2 di 4") dei titoli `Task N` per id del blocco (`doc::labels::progress`),
+    /// rifatto a ogni revisione.
+    pub tasks: Arc<std::collections::HashMap<u64, (u32, u32)>>,
     /// Se la selezione corrente è un Cmd+A (`ui::doc_view`); condiviso con le closure della vista.
     pub select_all: Arc<SelectAllFlag>,
     next_id: u64,
@@ -59,13 +62,20 @@ impl Document {
             blocks: Vec::new(),
             file_hash: ids::hash_str(source),
             notes: Arc::default(),
+            tasks: Arc::default(),
             select_all: Arc::default(),
             next_id: 1,
         };
         let (blocks, _) = ids::assign(&[], ids::hash_sources(blocks::split(source)), &mut doc.next_id);
         doc.blocks = blocks;
         doc.notes = Arc::new(super::footnotes::Notes::of(doc.blocks.iter().map(|b| &*b.source)));
+        doc.tasks = doc.tasks_now();
         doc
+    }
+
+    fn tasks_now(&self) -> Arc<std::collections::HashMap<u64, (u32, u32)>> {
+        let by_index = super::labels::progress(self.blocks.iter().map(|b| &*b.source));
+        Arc::new(by_index.into_iter().map(|(i, p)| (self.blocks[i].id, p)).collect())
     }
 
     pub fn update(&mut self, source: &str) -> Change {
@@ -85,6 +95,7 @@ impl Document {
         }
         self.blocks = p.blocks;
         self.notes = Arc::new(super::footnotes::Notes::of(self.blocks.iter().map(|b| &*b.source)));
+        self.tasks = self.tasks_now();
         self.file_hash = p.file_hash;
         self.next_id = p.next_id;
         self.revision += 1;

@@ -5,6 +5,7 @@
 //! Tutto il resto resta Markdown standard: un paragrafo che non è un blocco a etichetta non
 //! cambia (vincolo 3 del record degli a capo).
 
+use std::collections::HashMap;
 use std::ops::Range;
 
 use super::footnotes::Edited;
@@ -106,6 +107,77 @@ pub fn one_column(source: &str, lines: &[Line]) -> Edited {
     Edited::new(source, edits)
 }
 
+/// Un titolo `Task N` (vincolo 3): il numero e il titolo dopo `Task N:` nel sorgente.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TaskHead {
+    pub level: u8,
+    pub number: String,
+    /// I byte del sorgente prima del titolo (`### Task 12: `), che non si disegnano.
+    pub prefix: Range<usize>,
+    pub hashes: Range<usize>,
+}
+
+/// `source` è un titolo `Task N: titolo` (anche `Task N —`, `Task N.`).
+pub fn task_head(source: &str) -> Option<TaskHead> {
+    if source.contains('\n') {
+        return None;
+    }
+    let hashes = source.bytes().take_while(|&b| b == b'#').count();
+    if !(1..=6).contains(&hashes) {
+        return None;
+    }
+    let after = source[hashes..].strip_prefix(' ')?;
+    let start = hashes + 1;
+    let rest = after.strip_prefix("Task ")?;
+    let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
+    if digits == 0 {
+        return None;
+    }
+    let number = rest[..digits].to_owned();
+    let tail = &rest[digits..];
+    let sep = tail.len() - tail.trim_start_matches([':', '.', ' ', '—', '–', '-']).len();
+    if sep == 0 || tail[sep..].trim().is_empty() {
+        return None;
+    }
+    let end = start + "Task ".len() + digits + sep;
+    Some(TaskHead { level: hashes as u8, number, prefix: 0..end, hashes: 0..hashes })
+}
+
+/// L'avanzamento di ogni titolo `Task N` per indice del blocco: caselle `[x]` e caselle in
+/// tutto fra il titolo e il titolo seguente di livello uguale o più alto. Solo i titoli con
+/// almeno una casella.
+pub fn progress<'a>(blocks: impl Iterator<Item = &'a str>) -> HashMap<usize, (u32, u32)> {
+    let mut out = HashMap::new();
+    let mut current: Option<(usize, u8)> = None;
+    for (i, b) in blocks.enumerate() {
+        let level = match super::breaks::Kind::of(b) {
+            super::breaks::Kind::Heading(n) if !b.contains('\n') => Some(n),
+            _ => None,
+        };
+        if let Some(n) = level {
+            if current.is_some_and(|(_, l)| n <= l) {
+                current = None;
+            }
+            if let Some(t) = task_head(b) {
+                current = Some((i, t.level));
+            }
+            continue;
+        }
+        let Some((at, _)) = current else { continue };
+        for l in b.lines() {
+            let t = l.trim_start();
+            let Some(rest) = t.strip_prefix(['-', '*', '+']).and_then(|r| r.strip_prefix(' ')) else { continue };
+            let done = rest.starts_with("[x]") || rest.starts_with("[X]");
+            if done || rest.starts_with("[ ]") {
+                let e = out.entry(at).or_insert((0, 0));
+                e.0 += done as u32;
+                e.1 += 1;
+            }
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -155,5 +227,26 @@ mod tests {
         assert_eq!(e.text, "**Task 1:** uno\\\n**Ruling:** due\\\naltro");
         // Un segno di Cerca sull'etichetta prende anche i `**` (il kit li toglie dal disegno).
         assert_eq!(&e.text[e.map(&(12..18))], "**Ruling");
+    }
+
+    #[test]
+    fn task_headings_give_number_and_title() {
+        let h = task_head("### Task 12: Fuoco per il testo").unwrap();
+        assert_eq!((h.level, h.number.as_str()), (3, "12"));
+        assert_eq!(&"### Task 12: Fuoco per il testo"[h.prefix.end..], "Fuoco per il testo");
+        assert!(task_head("### Task 12").is_none());
+        assert!(task_head("### Tasks").is_none());
+        assert!(task_head("Task 1: x").is_none());
+        assert_eq!(task_head("## Task 3 — Aprire").map(|h| h.number), Some("3".into()));
+    }
+
+    #[test]
+    fn progress_counts_the_task_boxes() {
+        let blocks = ["## Piano", "### Task 1: Uno", "**Files:**", "- [x] a\n- [x] b\n- [ ] c\n- [ ] d", "### Task 2: Due", "- [ ] e", "## Altro", "- [x] f", "### Task 3: Tre", "testo"];
+        let p = progress(blocks.into_iter());
+        assert_eq!(p.get(&1), Some(&(2, 4)));
+        assert_eq!(p.get(&4), Some(&(0, 1)));
+        assert_eq!(p.get(&8), None, "senza caselle niente avanzamento");
+        assert_eq!(p.len(), 2);
     }
 }

@@ -204,7 +204,8 @@ pub fn view<S: 'static>(s: &S, doc_of: fn(&S) -> &Document, style: &MarkdownStyl
                         hits.push((vec![c.at.anchor.clone()], clear.clone().key(caret_key(doc.id))));
                         hits.push((vec![c.at.end.clone()], clear.key(caret_end_key(doc.id))));
                     }
-                    let row = block_row(&b.source, &style, &doc.notes, &places, signals.open, signals.fonts, signals.meta, (signals.marked)(s, b.id).then_some(signals.mark), hits);
+                    let progress = doc.tasks.get(&b.id).copied();
+                    let row = block_row(&b.source, &style, &doc.notes, &places, progress, signals.open, signals.fonts, signals.meta, (signals.marked)(s, b.id).then_some(signals.mark), hits);
                     match caret {
                         Some(c) => caret_row(row, c),
                         None => row,
@@ -357,11 +358,18 @@ const FRONTMATTER_PAD_Y: f32 = 10.0;
 /// Una riga del documento, con i segni di Cerca `hits`; con `mark` ha il segno "cosa è cambiato"
 /// nel margine sinistro, fuori dal flusso (il testo non si sposta), alto quanto il testo del blocco.
 #[allow(clippy::too_many_arguments)]
-fn block_row<S: 'static>(source: &str, style: &MarkdownStyle, notes: &crate::doc::footnotes::Notes, places: &crate::doc::paths::Places, open: fn(&mut S, &str, &mut rune::Tx), fonts: super::markdown_style::Fonts, meta: Meta, mark: Option<Color>, hits: super::find::Marks) -> El {
+fn block_row<S: 'static>(source: &str, style: &MarkdownStyle, notes: &crate::doc::footnotes::Notes, places: &crate::doc::paths::Places, progress: Option<(u32, u32)>, open: fn(&mut S, &str, &mut rune::Tx), fonts: super::markdown_style::Fonts, meta: Meta, mark: Option<Color>, hits: super::find::Marks) -> El {
     // Un paragrafo a etichetta (registri, piani) tiene i suoi a capo, etichette in grassetto
     // (`doc::labels`); gli altri restano Markdown standard.
     let labeled = crate::doc::labels::block(source).map(|lines| crate::doc::labels::one_column(source, &lines));
     let (source, hits) = match &labeled {
+        Some(e) => (e.text.as_str(), hits.into_iter().map(|(ranges, hl)| (ranges.iter().map(|r| e.map(r)).collect(), hl)).collect()),
+        None => (source, hits),
+    };
+    // Un titolo `Task N`: il numero fuori dal Markdown, in `fg3`, e l'avanzamento a destra.
+    let task = crate::doc::labels::task_head(source);
+    let untasked = task.as_ref().map(|t| crate::doc::footnotes::Edited::new(source, vec![(t.hashes.end + 1..t.prefix.end, String::new())]));
+    let (source, hits) = match &untasked {
         Some(e) => (e.text.as_str(), hits.into_iter().map(|(ranges, hl)| (ranges.iter().map(|r| e.map(r)).collect(), hl)).collect()),
         None => (source, hits),
     };
@@ -421,6 +429,10 @@ fn block_row<S: 'static>(source: &str, style: &MarkdownStyle, notes: &crate::doc
         Some(c) => col().w_full().child(callout_head(c.kind, &meta)).child(body),
         None => body,
     };
+    let body = match task {
+        Some(t) => task_heading(body, &t, progress, fonts, &meta),
+        None => body,
+    };
     // Le righe virtuali vogliono padding interno, non gap tra righe.
     let row = col().w_full().px(ROW_PAD_X).py(ROW_PAD_Y).child(body);
     match mark {
@@ -428,6 +440,19 @@ fn block_row<S: 'static>(source: &str, style: &MarkdownStyle, notes: &crate::doc
         None => row,
     }
 }
+
+/// Un titolo `Task N` (mockup t-sezioni): il numero nel font del titolo in `fg3` a sinistra, il
+/// titolo, e a destra "2 di 4" dalle caselle del task, piccolo in `fg3`, centrato sulla prima riga.
+fn task_heading(body: El, t: &crate::doc::labels::TaskHead, progress: Option<(u32, u32)>, fonts: super::markdown_style::Fonts, meta: &Meta) -> El {
+    let font = fonts.headings[t.level as usize - 1];
+    let number = rune::text(t.number.clone()).font(font).color(meta.path.dim).selectable(false);
+    let small = super::sidebar::small_font();
+    let done = progress.map(|(d, n)| rune::text(format!("{d} di {n}")).font(small).color(meta.path.dim).selectable(false).pt(((font.line_height - small.line_height) / 2.0).max(0.0)));
+    rune::row().w_full().gap(TASK_GAP).child(number).child(el().grow(1.0).min_w(0.0).child(body)).children(done)
+}
+
+/// Fra numero, titolo e avanzamento di un titolo `Task N`.
+const TASK_GAP: f32 = 10.0;
 
 /// L'aspetto dei link dei percorsi a file che esistono (mockup p-mix): monospaziato a 13,5 in
 /// `fg3`, sottolineato in `fg3` (il kit non ha la linea a puntini) e in hover fondo `sel`, linea
@@ -1502,7 +1527,7 @@ mod tests {
     fn design_md_renders_as_before() {
         let source = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/DESIGN.md")).unwrap();
         let d = Document::from_source(Path::new("DESIGN.md"), &source);
-        let labeled: Vec<&str> = d.blocks.iter().map(|b| &*b.source).filter(|b| crate::doc::labels::block(b).is_some()).collect();
+        let labeled: Vec<&str> = d.blocks.iter().map(|b| &*b.source).filter(|b| crate::doc::labels::block(b).is_some() || crate::doc::labels::task_head(b).is_some()).collect();
         assert!(labeled.is_empty(), "{labeled:?}");
         let layout = |off: bool| {
             crate::doc::labels::OFF.with(|o| o.set(off));
@@ -1519,6 +1544,24 @@ mod tests {
         let before = layout(true);
         assert!(before.len() > 100, "testi: {}", before.len());
         assert_eq!(layout(false), before);
+    }
+
+    /// Un titolo `Task N` (vincolo 3 del record dei registri): il numero in `fg3`, il titolo senza
+    /// `Task N:`, e a destra l'avanzamento dalle caselle del task.
+    #[test]
+    fn task_headings_show_number_and_progress() {
+        for dark in [true, false] {
+            let t = crate::ui::theme::Theme::for_mode(dark);
+            let rt = open_themed("### Task 12: Fuoco\n\n- [x] uno\n- [x] due\n- [ ] tre\n- [ ] quattro\n\n### Task 13: Dither\n\nTesto.\n", dark);
+            let els = rt.elements();
+            let find = |s: &str| els.iter().find(|e| e.text.as_deref() == Some(s)).unwrap_or_else(|| panic!("manca {s:?}")).clone();
+            let (number, title, done) = (find("12"), find("Fuoco"), find("2 di 4"));
+            assert_eq!(number.text_color, Some(t.fg3));
+            assert_eq!(done.text_color, Some(t.fg3));
+            assert!(number.rect[0] < title.rect[0] && title.rect[0] < done.rect[0], "{number:?} {title:?} {done:?}");
+            assert!(find("Dither").rect[1] > done.rect[1]);
+            assert!(!els.iter().any(|e| e.text.as_deref().is_some_and(|x| x.contains("Task 1") || x.contains("di 0"))), "senza caselle niente avanzamento");
+        }
     }
 
     /// Il link `key` della vista: un clic al suo centro.

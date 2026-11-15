@@ -126,6 +126,10 @@ pub fn rows(t: &Theme, rings: &Rings, glass: Color) -> Vec<Row> {
         row("documento: casella dei compiti spenta, bordo fg3 su panel + sel (selezione)", t.fg3, panel_sel, mark),
         row("documento: casella dei compiti accesa, fg2 su panel + sel (selezione)", t.fg2, panel_sel, mark),
         row("documento: titolo 6 (fg3) su panel", t.fg3, panel, 4.5),
+        // Titoli `Task N` (record 2026-11-16-tasks-sezioni-e-colonne, vincolo 3): numero e
+        // avanzamento "2 di 4" in fg3.
+        row("documento: numero del titolo Task (fg3) su panel", t.fg3, panel, 4.5),
+        row("documento: avanzamento del titolo Task (fg3) su panel", t.fg3, panel, 4.5),
         row("documento: titolo 5, note a piè di pagina, icona dei callout (fg2) su panel", t.fg2, panel, 4.5),
         row("impostazioni: casella spenta, bordo fg3 su panel", t.fg3, panel, mark),
         row("impostazioni: casella accesa, fg2 su panel", t.fg2, panel, mark),
