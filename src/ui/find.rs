@@ -70,7 +70,8 @@ pub enum Goal {
 struct Job {
     generation: u64,
     query: String,
-    blocks: Vec<(u64, u64, Arc<str>)>,
+    /// Posizione nel documento, id, hash e sorgente di ogni blocco da cercare.
+    blocks: Vec<(usize, u64, u64, Arc<str>)>,
 }
 
 /// I risultati di un lavoro.
@@ -127,16 +128,16 @@ impl Worker {
 /// nuovo (si guarda ogni 64 blocchi).
 fn search(job: &Job, latest: &AtomicU64) -> Option<Vec<Hit>> {
     let mut hits = Vec::new();
-    for (at, (id, hash, src)) in job.blocks.iter().enumerate() {
-        if at % 64 == 0 && latest.load(Ordering::Relaxed) != job.generation {
+    for (n, &(at, id, hash, ref src)) in job.blocks.iter().enumerate() {
+        if n % 64 == 0 && latest.load(Ordering::Relaxed) != job.generation {
             return None;
         }
         hits.extend(
             find(src, &job.query, Case::Insensitive)
                 .into_iter()
                 .map(|ranges| Hit {
-                    block: *id,
-                    hash: *hash,
+                    block: id,
+                    hash,
                     at,
                     ranges,
                 }),
@@ -228,10 +229,15 @@ impl Find {
         let waker = self.waker.clone();
         let worker = self.worker.get_or_insert_with(|| Worker::spawn(waker));
         worker.latest.store(self.generation, Ordering::Relaxed);
+        // I blocchi delle definizioni delle note non si disegnano: le note si cercano dove si
+        // vedono, nel blocco delle note in fondo (`Notes::block`), dopo tutti gli altri.
         let blocks = doc
             .blocks
             .iter()
-            .map(|b| (b.id, b.hash, b.source.clone()))
+            .enumerate()
+            .filter(|(_, b)| crate::doc::footnotes::definitions(&b.source).is_none())
+            .map(|(at, b)| (at, b.id, b.hash, b.source.clone()))
+            .chain(doc.notes.block().map(|b| (doc.blocks.len(), b.id, b.hash, b.source)))
             .collect();
         if worker
             .jobs
@@ -435,6 +441,9 @@ impl Find {
     /// La chiave da passare a `Tx::scroll_center_in_instant("doc", …)` per il risultato attivo.
     pub fn reveal_key(&self, doc: &Document) -> Option<String> {
         let h = self.hits.get(self.current)?;
+        if h.block == crate::doc::footnotes::BLOCK_ID {
+            return Some(current_key(crate::doc::footnotes::KEY));
+        }
         let i = match doc.blocks.get(h.at) {
             Some(b) if b.id == h.block => h.at,
             _ => doc.blocks.iter().position(|b| b.id == h.block)?,
@@ -984,6 +993,26 @@ mod tests {
         assert!(!rt.state.open_find(), "nel sorgente Cmd+F non apre niente");
         rt.state.sync_find();
         assert!(!rt.state.find.open);
+    }
+
+    /// Il testo di una nota si trova dove si vede, in fondo al file sotto la linea, non nel blocco
+    /// della definizione (che non si disegna): il segno attivo è nelle note ed è in vista.
+    #[test]
+    fn a_footnote_is_found_where_it_is_shown() {
+        let body: Vec<String> = (0..60).map(|n| format!("Paragrafo {n} di prova, abbastanza lungo da andare a capo nella colonna, con altre parole.")).collect();
+        let src = format!("Una nota[^1] qui.\n\n[^1]: Il testo della zebra.\n\n{}\n", body.join("\n\n"));
+        let mut rt = open(&[("a.md", &src)]);
+        cmd(&mut rt, 'f');
+        type_text(&mut rt, "zebra");
+        assert_eq!(count_text(&rt).as_deref(), Some("1 di 1"));
+        enter(&mut rt, false);
+        let current: Vec<_> = marks(&rt).into_iter().filter(|(k, _)| k.as_deref().is_some_and(|k| k.ends_with("/find-current"))).collect();
+        assert_eq!(current.len(), 1, "{current:?}");
+        assert_eq!(current[0].0.as_deref(), Some("footnotes/find-current"));
+        let els = rt.elements();
+        let notes = els.iter().find(|e| e.key.as_deref() == Some("footnotes")).expect("note in fondo").rect;
+        let r = current[0].1;
+        assert!(r[1] >= notes[1] && r[1] + r[3] <= notes[1] + notes[3] + 0.5, "segno {r:?} fuori dalle note {notes:?}");
     }
 
     /// Scrive senza aspettare i risultati (il thread della ricerca risponde dopo).

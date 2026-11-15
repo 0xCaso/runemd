@@ -6,6 +6,12 @@
 use std::collections::HashMap;
 use std::ops::Range;
 
+/// L'id del blocco delle note in fondo (`Notes::block`).
+pub const BLOCK_ID: u64 = u64::MAX;
+
+/// La chiave della colonna delle note in fondo, che fa anche da riga per i segni di Cerca.
+pub const KEY: &str = "footnotes";
+
 /// Le note di un documento.
 #[derive(Debug, Default, PartialEq)]
 pub struct Notes {
@@ -43,6 +49,17 @@ impl Notes {
 
     pub fn is_empty(&self) -> bool {
         self.list.is_empty()
+    }
+
+    /// Le note come si disegnano in fondo al file (una lista numerata), in un blocco con un id che
+    /// nessun blocco del documento ha: Cerca le trova lì e la vista ci mette i segni. `None` se non
+    /// ce ne sono.
+    pub fn block(&self) -> Option<super::document::Block> {
+        if self.is_empty() {
+            return None;
+        }
+        let source: String = self.list.iter().enumerate().map(|(i, n)| format!("{}. {n}\n", i + 1)).collect();
+        Some(super::document::Block { id: BLOCK_ID, hash: super::ids::hash_str(&source), source: source.into() })
     }
 
     /// `source` con i numeri in apice al posto dei riferimenti che hanno una nota. `None` se non

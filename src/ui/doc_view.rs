@@ -160,7 +160,7 @@ pub fn rows_version(doc: &Document) -> (u64, u64, u64) {
 pub fn view<S: 'static>(s: &S, doc_of: fn(&S) -> &Document, style: &MarkdownStyle, column: f32, on_rows: fn(&mut S, u64, Range<usize>) -> bool, signals: Signals<S>) -> El {
     let doc = doc_of(s);
     let generation = doc.id;
-    let notes = footnotes(&doc.notes, style, signals.fonts, signals.meta, column);
+    let notes = doc.notes.block().map(|b| footnotes(&b, (signals.hits)(s, &b, crate::doc::footnotes::KEY), style, signals.fonts, signals.meta, column));
     let style = style.clone();
     let blocks: Arc<[(u64, Arc<str>)]> = doc.blocks.iter().map(|b| (b.id, b.source.clone())).collect();
     let file = File { path: doc.path.clone(), hash: doc.file_hash };
@@ -393,17 +393,13 @@ fn heading_level(source: &str) -> Option<u8> {
 }
 
 /// Le note a piè di pagina in fondo al file: una linea in `line`, poi le note numerate a 13,5 in
-/// `fg2`, nella colonna del testo. Nessun elemento se non ce ne sono.
-fn footnotes(notes: &crate::doc::footnotes::Notes, style: &MarkdownStyle, fonts: super::markdown_style::Fonts, meta: Meta, column: f32) -> Option<El> {
-    if notes.is_empty() {
-        return None;
-    }
+/// `fg2`, nella colonna del testo, con i segni di Cerca.
+fn footnotes(notes: &crate::doc::document::Block, hits: super::find::Marks, style: &MarkdownStyle, fonts: super::markdown_style::Fonts, meta: Meta, column: f32) -> El {
     let size = super::theme::CODE_TEXT * fonts.body.size / super::theme::BODY_TEXT;
     let font = TextStyle { size, line_height: size * super::theme::BODY_LEADING, ..fonts.body };
-    let list: String = notes.list.iter().enumerate().map(|(i, n)| format!("{}. {n}\n", i + 1)).collect();
-    let body = rune_kit::Markdown::new(list).selectable(true).render(&style.clone().body_font(font).text(meta.text));
+    let body = rune_kit::Markdown::new(notes.source.to_string()).highlights(hits).selectable(true).render(&style.clone().body_font(font).text(meta.text));
     let block = col().w_full().px(ROW_PAD_X).py(ROW_PAD_Y).gap(FOOTNOTES_GAP).child(el().w_full().h(super::theme::HAIRLINE).fill(meta.line)).child(body);
-    Some(super::theme::column(col().key("footnotes").w_full(), column).self_center().child(block))
+    super::theme::column(col().key(crate::doc::footnotes::KEY).w_full(), column).self_center().child(block)
 }
 
 /// Fra la linea e le note.
