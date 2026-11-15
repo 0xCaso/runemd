@@ -101,7 +101,7 @@ pub struct RecentRow {
     /// Dove sta il file. Per un nome che ritorna, il repo o la cartella che lo distingue: i file
     /// di `.worktrees/` e `.repos/` restano in Recenti e si distinguono così (decisione Waggle
     /// c_453c875b). In Recenti c'è sempre, perché è la seconda riga: per un nome unico è il repo
-    /// (la cartella fuori da un repo). In ⌘P solo per i nomi doppi.
+    /// (la cartella fuori da un repo). In ⌘P è sempre "repo / cartella" (`place`).
     pub qualifier: Option<String>,
     pub mtime: SystemTime,
 }
@@ -127,6 +127,21 @@ fn qualify(rows: &mut [RecentRow], mut repo_name: impl FnMut(&Path) -> String) {
 
 fn file_name(path: &Path) -> String {
     path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
+}
+
+/// Radice e nome del repo di un file (la sua cartella fuori da un repo).
+fn repo_of(path: &Path) -> (PathBuf, String) {
+    let r = repo::of(path);
+    (r.root, r.name)
+}
+
+/// Dove sta un file in ⌘P: "repo / cartella" con la cartella relativa alla radice del repo, o
+/// solo il repo per un file nella radice.
+fn place(path: &Path, root: &Path, name: &str) -> String {
+    match path.parent().and_then(|d| d.strip_prefix(root).ok()).filter(|rel| !rel.as_os_str().is_empty()) {
+        Some(rel) => format!("{name} / {}", rel.to_string_lossy()),
+        None => name.to_owned(),
+    }
 }
 
 fn parent_name(path: &Path) -> String {
@@ -238,8 +253,8 @@ pub struct Sidebar {
     /// e fra queste quelle che non sono più file: il disco si guarda solo per una candidata nuova.
     candidates: Vec<PathBuf>,
     missing: HashSet<PathBuf>,
-    /// Il nome del repo di ogni percorso già visto fra i doppi (`repo::of`, una volta per percorso).
-    repo_names: HashMap<PathBuf, String>,
+    /// Radice e nome del repo di ogni percorso già visto (`repo::of`, una volta per percorso).
+    repo_names: HashMap<PathBuf, (PathBuf, String)>,
     /// Il file aperto (canonico, come i percorsi dell'indice).
     open: Option<PathBuf>,
     /// Il repo del file aperto (o la sua cartella fuori da un repo), con il branch.
@@ -429,13 +444,17 @@ impl Sidebar {
         } else {
             self.quick.requery(index.names());
         }
-        let mut rows: Vec<RecentRow> = self.quick.hits.iter().map(|p| RecentRow { name: file_name(p), path: p.clone(), qualifier: None, mtime: index.mtime(p).unwrap_or(SystemTime::UNIX_EPOCH) }).collect();
+        // Ogni riga dice "repo / cartella" (mockup "compatto"): distingue già i nomi doppi.
         let names = &mut self.repo_names;
-        let mut repo_name = |p: &Path| names.entry(p.to_owned()).or_insert_with(|| repo::of(p).name).clone();
-        qualify(&mut rows, &mut repo_name);
-        for r in rows.iter_mut().filter(|r| r.qualifier.is_none()) {
-            r.qualifier = Some(repo_name(&r.path));
-        }
+        let rows: Vec<RecentRow> = self
+            .quick
+            .hits
+            .iter()
+            .map(|p| {
+                let (root, name) = names.entry(p.to_owned()).or_insert_with(|| repo_of(p));
+                RecentRow { name: file_name(p), path: p.clone(), qualifier: Some(place(p, root, name)), mtime: index.mtime(p).unwrap_or(SystemTime::UNIX_EPOCH) }
+            })
+            .collect();
         let now = SystemTime::now();
         self.quick_labels = rows.iter().map(|r| if r.mtime == SystemTime::UNIX_EPOCH { String::new() } else { relative_time::format(now.duration_since(r.mtime).unwrap_or_default()) }).collect();
         self.quick_rows = rows;
@@ -469,7 +488,7 @@ impl Sidebar {
             .map(|e| RecentRow { name: file_name(&e.path), path: e.path.clone(), qualifier: None, mtime: e.mtime })
             .collect();
         let names = &mut self.repo_names;
-        let mut repo_name = |p: &Path| names.entry(p.to_owned()).or_insert_with(|| repo::of(p).name).clone();
+        let mut repo_name = |p: &Path| names.entry(p.to_owned()).or_insert_with(|| repo_of(p)).1.clone();
         qualify(&mut rows, &mut repo_name);
         // La seconda riga: un nome unico mostra il suo repo.
         for r in rows.iter_mut().filter(|r| r.qualifier.is_none()) {
@@ -1393,6 +1412,20 @@ mod tests {
         sb.requery(&index);
         assert_eq!(sb.quick_rows.len(), 1);
         assert_eq!(sb.quick_rows[0].qualifier.as_deref(), Some("docs"));
+    }
+
+    /// Le righe di ⌘P dicono "repo / cartella" (mockup "compatto"); un file nella radice del repo
+    /// dice solo il repo.
+    #[test]
+    fn quick_rows_show_repo_and_folder() {
+        let (_d, root) = repo_with(&["docs/decisions/a-dec.md", "DECISIONS.md"]);
+        let index = Index::from_entries(vec![entry(&root.join("docs/decisions/a-dec.md"), 1), entry(&root.join("DECISIONS.md"), 2)]);
+        let mut sb = Sidebar::default();
+        sb.quick.edit.replace_text("dec");
+        sb.requery(&index);
+        let q = |name: &str| sb.quick_rows.iter().find(|r| r.name == name).unwrap().qualifier.clone().unwrap();
+        assert_eq!(q("a-dec.md"), "proj / docs/decisions");
+        assert_eq!(q("DECISIONS.md"), "proj");
     }
 
     /// Ricerca vuota: il pannello mostra Recenti, con l'ora di ognuno.
