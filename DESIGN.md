@@ -330,7 +330,8 @@ nella lista in fondo, dove si vede.
 monospaziato a 13,5, senza pastiglia; cartelle e `:riga` in `fg-3`, nome del file in `fg` 600. Se il file esiste
 (accanto al file, nel repo, assoluto o `~`) è un link: linea di 1 in `fg-3` sotto tutto il percorso (il kit non ha la
 linea a puntini del mockup), in hover fondo `sel`, linea in `fg-2` e "Apri in RuneMD"; il clic apre il file in una
-scheda, con `:riga` alla riga. Se non esiste, stesso aspetto senza linea. Nei blocchi di codice niente; restano
+scheda, con `:riga` alla riga. Se non esiste non è un link (niente mano né clic): codice in linea, nome in `fg`
+(peso del codice, 400), senza pastiglia se è il solo codice del blocco, con la pastiglia se no. Nei blocchi di codice niente; restano
 testo le parole con un punto (`ecc.`, `v1.2`, `Node.js`) e gli URL.
 
 **Casella delle liste di compiti**: come quella delle Impostazioni, 14 pt, raggio 4, 8 dentro la colonna dei segni;

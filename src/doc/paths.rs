@@ -203,11 +203,12 @@ impl Places {
     }
 }
 
-/// `source` come si disegna: ogni percorso diventa un link Markdown (vincoli 1–3), cartelle e
-/// `:riga` come testo del link, il nome del file in grassetto, senza backtick; la destinazione è
-/// [`open_target`] se il file esiste, [`NOWHERE`] se no. Con il testo, i byte del nome di ogni
-/// percorso nel testo nuovo, per il colore del nome. `None` se non c'è nessun percorso.
-pub fn shown(source: &str, places: &Places) -> Option<(super::footnotes::Edited, Vec<Range<usize>>)> {
+/// `source` come si disegna (vincoli 1–3): un percorso a un file che esiste diventa un link
+/// Markdown verso [`open_target`], cartelle e `:riga` come testo del link, il nome del file in
+/// grassetto, senza backtick; uno che non esiste diventa codice in linea (monospaziato, non un
+/// link: niente mano né clic), con cartelle e `:riga` in [`Shown::dims`]. `None` se non c'è
+/// nessun percorso.
+pub fn shown(source: &str, places: &Places) -> Option<Shown> {
     let found = find(source);
     if found.is_empty() {
         return None;
@@ -223,34 +224,65 @@ pub fn shown(source: &str, places: &Places) -> Option<(super::footnotes::Edited,
         o
     };
     let mut names = Vec::new();
+    let mut dims = Vec::new();
+    let mut missing = false;
     let mut shift = 0isize;
     let edits: Vec<(Range<usize>, String)> = found
         .iter()
         .map(|f| {
             let (dir, name) = f.parts();
-            let target = match places.resolve(&f.path) {
-                Some(file) => open_target(&file, f.line),
-                None => NOWHERE.to_owned(),
-            };
             let line = f.line.map(|n| format!(":{n}")).unwrap_or_default();
-            let head = format!("[{}**", esc(dir));
-            let name = esc(name);
-            let text = format!("{head}{name}**{line}](<{target}>)");
-            let at = (f.range.start as isize + shift) as usize + head.len();
-            names.push(at..at + name.len());
+            let at = (f.range.start as isize + shift) as usize;
+            let text = match places.resolve(&f.path) {
+                Some(file) => {
+                    let head = format!("[{}**", esc(dir));
+                    let name = esc(name);
+                    names.push(at + head.len()..at + head.len() + name.len());
+                    format!("{head}{name}**{line}](<{}>)", open_target(&file, f.line))
+                }
+                None => {
+                    missing = true;
+                    let n = at + 1 + dir.len();
+                    dims.push(at + 1..n);
+                    names.push(n..n + name.len());
+                    dims.push(n + name.len()..n + name.len() + line.len());
+                    format!("`{dir}{name}{line}`")
+                }
+            };
             shift += text.len() as isize - f.range.len() as isize;
             (f.range.clone(), text)
         })
         .collect();
-    Some((super::footnotes::Edited::new(source, edits), names))
+    // Altro codice in linea nel blocco: allora i percorsi che non esistono tengono la pastiglia
+    // del codice, che il kit dà a tutto il codice di un blocco.
+    let mut rest = String::new();
+    let mut from = 0;
+    for f in &found {
+        rest.push_str(&source[from..f.range.start]);
+        from = f.range.end;
+    }
+    rest.push_str(&source[from..]);
+    let bare = missing && !rest.contains('`');
+    dims.retain(|r| !r.is_empty());
+    Some(Shown { edited: super::footnotes::Edited::new(source, edits), names, dims, bare })
+}
+
+/// Il testo disegnato di un blocco con dei percorsi ([`shown`]).
+#[derive(Debug)]
+pub struct Shown {
+    pub edited: super::footnotes::Edited,
+    /// I byte del nome di ogni percorso nel testo nuovo, per il colore del nome.
+    pub names: Vec<Range<usize>>,
+    /// Cartelle e `:riga` dei percorsi che non esistono (codice in linea), in `fg-3`.
+    pub dims: Vec<Range<usize>>,
+    /// Il solo codice in linea del blocco sono percorsi che non esistono: la vista lo disegna
+    /// senza pastiglia (vincolo 1).
+    pub bare: bool,
 }
 
 /// La destinazione di un link a un file che esiste: `runemd-open:` più il percorso assoluto e,
 /// se c'è, `#L` e la riga.
 pub const OPEN: &str = "runemd-open:";
-/// La destinazione di un percorso che non esiste: un link che non porta da nessuna parte, solo
-/// per l'aspetto del percorso (vincolo 3).
-pub const NOWHERE: &str = "runemd-path:";
 
 /// La destinazione per `file` alla riga `line`.
 pub fn open_target(file: &Path, line: Option<u32>) -> String {
@@ -362,11 +394,16 @@ mod tests {
     fn shown_text_makes_each_path_a_link_with_a_bold_name() {
         let (t, p) = tree();
         let s = "Vedi `src/live/below.rs` e src/old/fire_x.rs:3.";
-        let (e, names) = shown(s, &p).unwrap();
+        let sh = shown(s, &p).unwrap();
+        let (e, names) = (&sh.edited, &sh.names);
         let file = t.join("repo/src/live/below.rs");
-        assert_eq!(e.text, format!("Vedi [src/live/**below.rs**](<{OPEN}{}>) e [src/old/**fire\\_x.rs**:3](<{NOWHERE}>).", file.display()));
+        assert_eq!(e.text, format!("Vedi [src/live/**below.rs**](<{OPEN}{}>) e `src/old/fire_x.rs:3`.", file.display()));
         let got: Vec<&str> = names.iter().map(|r| &e.text[r.clone()]).collect();
-        assert_eq!(got, ["below.rs", "fire\\_x.rs"]);
+        assert_eq!(got, ["below.rs", "fire_x.rs"]);
+        let dims: Vec<&str> = sh.dims.iter().map(|r| &e.text[r.clone()]).collect();
+        assert_eq!(dims, ["src/old/", ":3"]);
+        assert!(sh.bare, "nessun altro codice nel blocco");
+        assert!(!shown("src/old/a.rs e `cargo test`", &p).unwrap().bare);
         assert!(shown("niente qui, ecc.", &p).is_none());
         std::fs::remove_dir_all(&t).unwrap();
     }

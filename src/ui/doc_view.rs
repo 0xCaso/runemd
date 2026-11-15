@@ -374,10 +374,12 @@ fn block_row<S: 'static>(source: &str, style: &MarkdownStyle, notes: &crate::doc
     // prende il suo colore da un segno senza fondo, come quelli di Cerca.
     let linked = crate::doc::paths::shown(source, places);
     let (source, hits) = match &linked {
-        Some((e, names)) => {
+        Some(sh) => {
+            let e = &sh.edited;
             let mut hits: super::find::Marks = hits.into_iter().map(|(ranges, hl)| (ranges.iter().map(|r| e.map(r)).collect(), hl)).collect();
-            let name = rune_kit::markdown::Highlight::new().bg(Color::TRANSPARENT).ring(Color::TRANSPARENT, 1.0).fg(meta.path.name);
-            hits.splice(0..0, names.iter().map(|r| (vec![r.clone()], name.clone())));
+            let paint = |c| rune_kit::markdown::Highlight::new().bg(Color::TRANSPARENT).ring(Color::TRANSPARENT, 1.0).fg(c);
+            let marks = sh.names.iter().map(|r| (vec![r.clone()], paint(meta.path.name))).chain(sh.dims.iter().map(|r| (vec![r.clone()], paint(meta.path.dim))));
+            hits.splice(0..0, marks);
             (e.text.as_str(), hits)
         }
         None => (source, hits),
@@ -398,6 +400,11 @@ fn block_row<S: 'static>(source: &str, style: &MarkdownStyle, notes: &crate::doc
         Some(n @ 4..=6) => Cow::Owned(style.clone().heading_font(4, fonts.headings[n as usize - 1]).muted(meta.headings[n as usize - 4])),
         _ => Cow::Borrowed(style),
     };
+    // I percorsi che non esistono sono codice in linea: senza pastiglia se è il solo del blocco.
+    let style = match &linked {
+        Some(sh) if sh.bare => Cow::Owned(style.into_owned().inline_code_bg(Color::TRANSPARENT).inline_code_pad(0.0)),
+        _ => style,
+    };
     let md = rune_kit::Markdown::new(shown).highlights(hits).selectable(true);
     let md = if linked.is_some() { path_links(md, &meta, fonts, open) } else { md };
     let body = md.render(&style).selection_group(false);
@@ -413,19 +420,17 @@ fn block_row<S: 'static>(source: &str, style: &MarkdownStyle, notes: &crate::doc
     }
 }
 
-/// L'aspetto dei link dei percorsi (mockup p-mix): monospaziato a 13,5 in `fg3`; se il file esiste
-/// sottolineato in `fg3` (il kit non ha la linea a puntini) e in hover fondo `sel`, linea `fg2` e
-/// "Apri in RuneMD"; se non esiste niente linea, niente hover, e il clic non fa niente.
+/// L'aspetto dei link dei percorsi a file che esistono (mockup p-mix): monospaziato a 13,5 in
+/// `fg3`, sottolineato in `fg3` (il kit non ha la linea a puntini) e in hover fondo `sel`, linea
+/// `fg2` e "Apri in RuneMD". Quelli che non esistono non sono link (`doc::paths::shown`).
 fn path_links<S: 'static>(md: rune_kit::Markdown, meta: &Meta, fonts: super::markdown_style::Fonts, open: fn(&mut S, &str, &mut rune::Tx)) -> rune_kit::Markdown {
-    use crate::doc::paths::{NOWHERE, OPEN};
+    use crate::doc::paths::OPEN;
     let c = meta.path;
     let size = super::theme::CODE_TEXT * fonts.body.size / super::theme::BODY_TEXT;
     let span = rune::text::Span { mono: true, size: Some(size), color: Some(c.dim), ..Default::default() };
     md.link_style(move |url| {
         if url.starts_with(OPEN) {
             Some((rune::text::Span { underline: Some(c.dim), ..span.clone() }, rune::text::LinkPaint::new().bg(c.hover_bg).underline(c.hover_line)))
-        } else if url.starts_with(NOWHERE) {
-            Some((span.clone(), rune::text::LinkPaint::new().color(c.dim)))
         } else {
             None
         }
@@ -1441,7 +1446,7 @@ mod tests {
         let mut rt = Runtime::new(state, crate::view, VIEWPORT, Env::new(true, 2.0));
         rt.frame(0.0);
         settle(&mut rt);
-        let texts: Vec<String> = rt.elements().into_iter().filter_map(|e| e.text).map(|x| x.replace('\u{200B}', "")).collect();
+        let texts: Vec<String> = rt.elements().into_iter().filter_map(|e| e.text).map(|x| x.replace(['\u{200B}', '\u{2066}', '\u{2069}', '\u{202F}'], "")).collect();
         assert!(texts.iter().any(|x| x.contains("Vedi src/live/below.rs:31, src/live/below.rs e src/old/gone.rs.")), "{texts:?}");
         assert!(texts.iter().any(|x| x.contains("cat src/live/below.rs")), "il codice resta: {texts:?}");
         let url = crate::doc::paths::open_target(&t.join("src/live/below.rs").canonicalize().unwrap(), Some(31));
@@ -1452,6 +1457,20 @@ mod tests {
         let texts: Vec<String> = rt.elements().into_iter().filter(|e| e.visible[3] > 0.0).filter_map(|e| e.text).collect();
         assert!(texts.iter().any(|x| x == "Paragrafo 16."), "la riga 31 è in vista: {texts:?}");
         let _ = std::fs::remove_dir_all(&t);
+    }
+
+    /// Un percorso che non esiste non è un link (vincolo 3 del record dei percorsi): niente mano,
+    /// niente clic; resta in monospaziato con il nome in evidenza.
+    #[test]
+    fn a_missing_path_is_not_a_link() {
+        for src in ["Vedi src/old/gone.rs:3 qui.\n", "Vedi src/old/gone.rs e `cargo test`.\n"] {
+            let rt = open_themed(src, true);
+            let els = rt.elements();
+            let links: Vec<_> = els.iter().filter(|e| e.role == "link").map(|e| e.key.clone()).collect();
+            assert!(links.is_empty(), "{src:?}: {links:?}");
+            let texts: Vec<String> = els.iter().filter_map(|e| e.text.clone()).map(|x| x.replace(['\u{200B}', '\u{2066}', '\u{2069}', '\u{202F}'], "")).collect();
+            assert!(texts.iter().any(|x| x.contains("Vedi src/old/gone.rs")), "{texts:?}");
+        }
     }
 
     /// Le caselle delle liste di compiti sono quelle delle Impostazioni: spenta vuota (bordo `fg3`),
