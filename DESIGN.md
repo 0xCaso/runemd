@@ -240,6 +240,10 @@ linee solo decorative e i riempimenti. I test falliscono se un minimo non è ris
 | Frontmatter (`fg-2`) su panel + `sel` a metà | — | 9,89 | — | 10,03 | 4,5 |
 | × della scheda (`fg-2`) su panel + `sel` | — | 8,30 | — | 9,38 | 3 |
 | × della scheda (`fg-2`) in hover su panel + `sel` + `sel` | — | 5,67 | — | 8,22 | 3 |
+| Pulsante ↔ della larghezza (`fg-2`) su panel | — | 11,19 | — | 10,71 | 3 |
+| Pulsante ↔ della larghezza (`fg-2`) su panel + `sel` (hover, popover aperto) | — | 8,30 | — | 9,38 | 3 |
+| Popover della larghezza: titolo (`fg-2`) e valore (`fg`) su panel | — | 11,19 / 16,89 | — | 10,71 / 17,07 | 4,5 |
+| Popover della larghezza: scorciatoie e binario (`fg-3`) su panel | — | 7,88 | — | 7,34 | 4,5 |
 | `line` su panel (linee decorative) | 1,19 | 1,44 | 1,22 | 1,22 | — |
 | `line` su vetro (bordo dei campi) | 1,28 | 1,52 | 1,21 | 1,19 | — |
 | `sel` su panel | 1,23 | 1,35 | 1,14 | 1,14 | — |
@@ -372,6 +376,16 @@ centrale resta. Contrasto del glifo: 8,30 / 9,38 su `sel`, 5,67 / 8,22 in hover 
 singolo nella sidebar, come VS Code): stesso aspetto, nome in corsivo; al massimo una, il clic singolo dopo la
 sostituisce nello stesso posto. Troppe schede: la riga scorre di lato. "⌘E
 sorgente" a destra come il tasto "⌘P", in `fg-3`.
+
+**Larghezza del testo (pulsante ↔).** Nella barra delle schede, subito a sinistra di "⌘E sorgente": 28 × 28
+(`row`), raggio 6, glifo "↔" 15 in `fg-2`, hover `sel`; col popover aperto ha il riempimento `sel`. Etichetta
+"Larghezza del testo". Un clic apre sotto il pulsante, allineato al suo bordo destro e 4 più in basso, un popover
+largo 248 (`sidebar`): riempimento `panel`, raggio 10, bordo 0,5 a `ink` 10 % e l'ombra del pannello (le stesse
+della sola profondità che c'è); dentro "Larghezza del testo" (UI 13 in `fg-2`), lo stesso cursore a passi delle
+impostazioni e "⌘⌥+ e ⌘⌥− un passo alla volta" (12 in `fg-3`). Il valore è uno solo, `settings.column`: cursore,
+impostazioni e scorciatoie lo cambiano insieme e si salva. Esc, un clic fuori o il pulsante lo chiudono.
+⌘⌥+ (anche ⌘⌥=) e ⌘⌥− fanno un passo anche col popover chiuso. Contrasto: glifo 11,19 / 10,71 su panel e
+8,30 / 9,38 su `sel`; scorciatoie 7,88 / 7,34.
 
 **Cerca nel file (⌘F).** Solo in lettura. Il campo sta nella barra delle schede, a destra delle schede e prima
 di "⌘E sorgente", così il documento non si sposta: largo 240 (`find-field`), alto 30, raggio 7, riempimento

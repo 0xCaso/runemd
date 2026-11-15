@@ -329,6 +329,8 @@ pub struct App {
     prefs: rune::prefs::Prefs,
     /// Il pannello delle impostazioni.
     pub(crate) settings_panel: ui::settings::Panel,
+    /// Il popover della larghezza del testo (pulsante ↔ nella barra delle schede) è aperto.
+    pub(crate) width_popover: bool,
     /// `RUNEMD_THEME` (`light` o `dark`), letto una volta all'avvio: vince sul tema scelto.
     theme_env: Option<bool>,
     /// `RUNEMD_REDUCE_MOTION` (`1` o `0`), letto una volta all'avvio: vince sulla preferenza di
@@ -376,6 +378,7 @@ impl App {
             settings,
             prefs,
             settings_panel: ui::settings::Panel::default(),
+            width_popover: false,
             theme_env: match std::env::var("RUNEMD_THEME").as_deref() {
                 Ok("light") => Some(false),
                 Ok("dark") => Some(true),

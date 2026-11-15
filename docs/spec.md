@@ -75,7 +75,7 @@ Per la modifica Matteo ha scelto **"Un tasto: lettura o sorgente"**, non "Sorgen
 
 Dettagli in `DESIGN.md` e nel record. Sidebar di vetro con "Apri file ⌘P", "Recenti" e "Repo del file" (riga del
 repo con nome e branch, file indentati con linee guida). Pannello pieno a 8 px dai bordi, vetro su tutti e quattro
-i lati. Schede in alto, "⌘E sorgente" a destra, colonna di 680 px, indice "In questo file" a destra.
+i lati. Schede in alto, "⌘E sorgente" a destra con alla sua sinistra il pulsante ↔ della larghezza del testo (popover col cursore, ⌘⌥+ e ⌘⌥−), colonna di 680 px, indice "In questo file" a destra.
 
 ### Segnali live, uno per significato
 
