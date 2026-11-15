@@ -12,8 +12,8 @@ R="$W/root"; rm -rf "$R"; mkdir -p "$R"
 repo() { mkdir -p "$R/$1/.git"; printf 'ref: refs/heads/%s\n' "$2" > "$R/$1/.git/HEAD"; }
 put() { mkdir -p "$(dirname "$R/$1")"; printf '# %s\n\nTest note.\n' "$(basename "$1" .md)" > "$R/$1"; touch -t "$2" "$R/$1"; }
 repo runemd main; repo my-portfolio feat/sito-form; repo notes main
-put runemd/docs/decisions/2026-11-15-ordine-lavori-dopo-v1.md 202611151200
-put runemd/docs/decisions/2026-11-15-recenti-due-righe.md 202611150900
+put runemd/docs/decisions/2026-11-15-work-order-after-v1.md 202611151200
+put runemd/docs/decisions/2026-11-15-recent-two-lines.md 202611150900
 put runemd/DESIGN.md 202611151158
 put runemd/progress.md 202611151155
 put runemd/design/mockups/README.md 202611140900

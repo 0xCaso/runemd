@@ -5,7 +5,7 @@
 #    does not close; Esc removes the row and keeps the changes; Cmd+W and Return save and close;
 # 3. "Don't save" closes without writing;
 # 4. "Save" with the file changed by a shell: the tab stays with the conflict row.
-# uso: bench/close_ask.sh [WORKDIR]
+# usage: bench/close_ask.sh [WORKDIR]
 #   with SNAP=docs/proof/close-ask saves the row in SNAP-dark.png and SNAP-light.png (--scale 2,
 #   cropped to the panel: the sidebar shows real file names).
 # Exits 1 at the first check that fails.

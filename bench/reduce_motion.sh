@@ -5,7 +5,7 @@
 # apart ("lit" and "later"), on `fixtures/normal.md` (ring and fire) and on a short file (ring
 # and caret, which is out of view on the long file): with RUNEMD_REDUCE_MOTION=1 they are equal pixel by
 # pixel (ring and caret still, fire at full height from the start); without it, they change.
-# uso: bench/reduce_motion.sh [WORKDIR]
+# usage: bench/reduce_motion.sh [WORKDIR]
 #   with SNAP=docs/proof/reduce-motion saves SNAP.png (dark, reduced, --scale 2, cropped to the
 #   panel: the sidebar shows file names), SNAP-moving.png (the same instant without reduction)
 #   and SNAP-caret.png (short file, reduced).

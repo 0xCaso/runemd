@@ -1,6 +1,6 @@
 # Audit: formattazione Markdown in lettura
 
-Data: 2026-11-16 (lavoro del 2026-11-15). Record: `docs/decisions/2026-11-15-ordine-lavori-dopo-v1.md`, gruppo 3.
+Data: 2026-11-16 (lavoro del 2026-11-15). Record: `docs/decisions/2026-11-15-work-order-after-v1.md`, gruppo 3.
 Richiesta di Matteo (scrawl `1794741347588`, 0:16–0:43): evidenziare percorsi e nomi di file, sistemare le sezioni
 tipo "Tasks" non formattate, controllare formattazione ed evidenziazione in generale. I titoli che uscivano dalla
 colonna sono già sistemati (f41cdf1).
@@ -12,13 +12,13 @@ Build `cargo build --profile perf` a 7ccaaff, foto headless come `bench/long_tit
 
 | File | Cosa | Foto (chiaro / scuro) |
 |---|---|---|
-| `docs/audit/2026-11-16-formattazione-markdown/prova.md` | ogni elemento della lista | `formattazione-light.png` / `-dark.png` |
+| `docs/audit/2026-11-16-markdown-formatting/prova.md` | ogni elemento della lista | `formattazione-light.png` / `-dark.png` |
 | `.superpowers/sdd/plan/progress.md`, righe 1–40 | il registro SDD della registrazione | `progress-*.png` |
 | `docs/plan.md`, righe 50–80 | un `### Task N:` con `- [ ] **Step**` | `plan-task-*.png` |
 | `README.md` | README | `README-*.png` |
-| `docs/decisions/2026-11-15-ordine-lavori-dopo-v1.md` | un record di decisione | `decisione-*.png` |
+| `docs/decisions/2026-11-15-work-order-after-v1.md` | un record di decisione | `decisione-*.png` |
 
-Foto in `docs/audit/2026-11-16-formattazione-markdown/`. Il file di prova copre: liste di compiti, liste annidate,
+Foto in `docs/audit/2026-11-16-markdown-formatting/`. Il file di prova copre: liste di compiti, liste annidate,
 codice in linea con percorsi (`src/ui/tabs.rs:42`), percorsi nudi nella prosa, tabelle con colonna a destra,
 citazioni, callout `> [!NOTE]` e `> [!WARNING]`, titoli 1–6, blocchi di codice `rust` e `sh`, riga orizzontale,
 nota a piè di pagina, barrato, corsivo, URL lungo, righe con un solo a capo.

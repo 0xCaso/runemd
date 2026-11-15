@@ -113,7 +113,7 @@ impl Tab {
         (changed, rearm(&mut self.mark_wake, self.changed.left(now), clock, now))
     }
 
-    /// Il caret "sta scrivendo" (record 2026-11-15-caret-al-punto-modificato, vincoli 2 e 4): `at`
+    /// Il caret "sta scrivendo" (record 2026-11-15-caret-at-the-edit-point, vincoli 2 e 4): `at`
     /// è il punto dell'ultima ricarica, se ne ha uno, e prende il posto del precedente. Acceso
     /// finché il file sta scrivendo e il blocco del punto c'è ancora; a fine finestra (lo stesso
     /// risveglio dell'anello, `update_ring`) si spegne e il punto si scorda. L'orologio resta

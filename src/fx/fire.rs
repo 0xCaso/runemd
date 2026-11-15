@@ -4,7 +4,7 @@
 //!
 //! `layer` è una funzione pura del rect del pannello, della fase e del tempo. In entrambi i temi le fiamme
 //! coprono il testo sotto di loro (miscela normale, stessa occlusione): decisione di Matteo,
-//! `docs/decisions/2026-11-14-fuoco-tema-chiaro.md`. Il Multiply del tema chiaro (DESIGN.md e
+//! `docs/decisions/2026-11-14-light-theme-fire.md`. Il Multiply del tema chiaro (DESIGN.md e
 //! spec) è scartato: lasciava il testo sopra le fiamme e l'etichetta illeggibile.
 
 use std::time::Duration;

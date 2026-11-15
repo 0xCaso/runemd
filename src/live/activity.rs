@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 /// Quanto resta acceso l'anello dopo l'ultima scrittura. Decisione di Matteo:
-/// `docs/decisions/2026-11-13-anello-sta-scrivendo-10s.md`. Unica costante, non ripeterla.
+/// `docs/decisions/2026-11-13-writing-ring-10s.md`. Unica costante, non ripeterla.
 pub const WRITING_WINDOW_MS: u64 = 10_000;
 pub const WRITING_WINDOW: Duration = Duration::from_millis(WRITING_WINDOW_MS);
 

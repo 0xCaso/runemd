@@ -11,7 +11,7 @@ use rune_fx::{Fx, FxLayer, LiquidMetalParams, Rect, Shape};
 
 use super::Mark;
 
-/// Larghezza dell'anello, pt (DESIGN.md: 2,5; docs/decisions/2026-11-15-anello-spesso.md).
+/// Larghezza dell'anello, pt (DESIGN.md: 2,5; docs/decisions/2026-11-15-thick-ring.md).
 pub const RING_W: f32 = 2.5;
 /// Entrata: opacità da 0 a 1 in 220 ms, ease-out.
 pub const ENTER: f32 = 0.22;
@@ -113,7 +113,7 @@ mod tests {
         }
     }
 
-    /// docs/decisions/2026-11-15-anello-spesso.md, vincolo 1: 2,5 px, non 1,5.
+    /// docs/decisions/2026-11-15-thick-ring.md, vincolo 1: 2,5 px, non 1,5.
     #[test]
     fn ring_is_2_5_px_wide() {
         assert_eq!(RING_W, 2.5);

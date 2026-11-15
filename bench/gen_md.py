@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Genera un Markdown realistico e misto (titoli, paragrafi, liste, codice, tabelle, citazioni).
-Uso: gen_md.py OUT.md TARGET_BYTES [SEED]"""
+"""Generates realistic, mixed Markdown (headings, paragraphs, lists, code, tables, quotes).
+Usage: gen_md.py OUT.md TARGET_BYTES [SEED]"""
 import random, sys
 
 WORDS = ("il la di che e un una per con non sono come più anche questo quando dove sempre "

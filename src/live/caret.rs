@@ -1,4 +1,4 @@
-//! Dove sta il caret "sta scrivendo" (record docs/decisions/2026-11-15-caret-al-punto-modificato.md):
+//! Dove sta il caret "sta scrivendo" (record docs/decisions/2026-11-15-caret-at-the-edit-point.md):
 //! nel punto dell'ultima modifica, dal confronto fra i blocchi di prima e quelli di adesso
 //! (lo stesso `ids::assign` che segna i blocchi cambiati).
 //!

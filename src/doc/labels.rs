@@ -1,4 +1,4 @@
-//! Registri e piani (record 2026-11-16-tasks-sezioni-e-colonne, con 2026-11-16-a-capo-solo-
+//! Registri e piani (record 2026-11-16-tasks-sections-and-columns, con 2026-11-16-a-capo-solo-
 //! blocchi-etichetta): i paragrafi fatti di righe a etichetta (`Task 1:`, `Ruling:`) tengono i
 //! loro a capo e l'etichetta in grassetto; i titoli `Task N` mostrano il numero e l'avanzamento.
 //!

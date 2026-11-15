@@ -3,7 +3,7 @@
 //! `~/Library/Application Support/RuneMD/Recuperati/<nome>-<AAAAMMGG-HHMMSS>.md` (fuori dai repo:
 //! agenti, indice e git non la vedono). Il file originale resta com'è. Al prossimo avvio ogni
 //! copia nuova si apre in una scheda; la copia resta finché l'utente la cancella
-//! (`docs/decisions/2026-11-14-copia-di-recupero.md`).
+//! (`docs/decisions/2026-11-14-recovery-copy.md`).
 
 use std::fs::{self, OpenOptions};
 use std::io::{self, ErrorKind, Write};

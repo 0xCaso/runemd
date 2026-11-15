@@ -147,7 +147,7 @@ traslucido attorno al pannello, come in Current. L'app è calma: nessun colore d
 nessuna statistica. Gli unici elementi che si muovono sono tre effetti GPU di Rune, e ognuno dice una sola cosa.
 
 Schermata di riferimento: variante `scheda` in `design/mockups/2026-11-13-runemd-main/index.html`
-(decisione: `docs/decisions/2026-11-13-runemd-schermata-principale.md`).
+(decisione: `docs/decisions/2026-11-13-runemd-main-screen.md`).
 
 **Key Characteristics:**
 - Due materiali: vetro (cornice, sidebar, barra delle schede) e pannello pieno (documento).
@@ -204,7 +204,7 @@ il colore composto sullo sfondo, alpha inclusa, in sRGB codificato come lo compo
 della sidebar misurato nella finestra vera sul fondo peggiore della scrivania (bianco nel tema scuro, `3e3f40`; nero
 nel chiaro, `999a9c`; `contrast::GLASS_GROUNDS`, che misura anche Sonoma), con il testo in `Theme::on_glass`. Minimi: 4,5:1 per il testo, 3:1 per i segni con un significato in tutti e due i temi, nessuno per le
 linee solo decorative e i riempimenti. I test falliscono se un minimo non è rispettato o se il tema chiaro peggiora.
-"Prima" è il 13/11/2026, "dopo" il fix del 14/11/2026 (`docs/decisions/2026-11-14-cerca-contrasto-scuro.md`).
+"Prima" è il 13/11/2026, "dopo" il fix del 14/11/2026 (`docs/decisions/2026-11-14-find-dark-contrast.md`).
 
 | Cosa | Scuro prima | Scuro dopo | Chiaro prima | Chiaro dopo | Minimo |
 |---|---|---|---|---|---|
@@ -326,7 +326,7 @@ non si disegnano dove sono scritte ma in fondo al file, sotto una linea di 0,5 i
 numerata a 13,5 in `fg-2`. Un riferimento senza definizione resta scritto com'è. Cerca trova il testo delle note
 nella lista in fondo, dove si vede.
 
-**Percorsi e nomi di file** (con o senza backtick; record `2026-11-16-percorsi-nome-e-link`, mockup p-mix): in
+**Percorsi e nomi di file** (con o senza backtick; record `2026-11-16-paths-name-and-link`, mockup p-mix): in
 monospaziato a 13,5, senza pastiglia; cartelle e `:riga` in `fg-3`, nome del file in `fg` 600. Se il file esiste
 (accanto al file, nel repo, assoluto o `~`) è un link: linea di 1 in `fg-3` sotto tutto il percorso (il kit non ha la
 linea a puntini del mockup), in hover fondo `sel`, linea in `fg-2` e "Apri in RuneMD"; il clic apre il file in una
@@ -334,7 +334,7 @@ scheda, con `:riga` alla riga. Se non esiste non è un link (niente mano né cli
 (peso del codice, 400), senza pastiglia se è il solo codice del blocco, con la pastiglia se no. Nei blocchi di codice niente; restano
 testo le parole con un punto (`ecc.`, `v1.2`, `Node.js`) e gli URL.
 
-**Registri e piani** (record `2026-11-16-tasks-sezioni-e-colonne` con `2026-11-16-a-capo-solo-blocchi-etichetta`,
+**Registri e piani** (record `2026-11-16-tasks-sections-and-columns` con `2026-11-16-wrap-only-label-blocks`,
 mockup t-mix): un paragrafo in cui più della metà delle righe, e almeno due, comincia con un'etichetta (da una a tre
 parole con la maiuscola o una cifra e i due punti, come `Task 1` o `Ruling`) tiene ogni a capo del file, con le
 etichette in grassetto. Gli altri paragrafi restano Markdown standard: un a capo vale uno spazio. Un titolo
@@ -354,12 +354,12 @@ spenta vuota con il bordo di 1 in `fg-3`, accesa piena in `fg-2` con la spunta i
 - Sidebar, dall'alto: semafori; campo "Apri file ⌘P"; sezione "Recenti" (righe su due righe: nome del file
   sopra, cartella o repo e tempo relativo sotto); una linea; il titolo dell'albero (icona repo, nome del repo e
   sotto il branch con la sua icona), poi i file indentati di 16 px con linea guida verticale. Nessuna etichetta
-  sopra l'albero: il nome del repo fa da titolo. (`docs/decisions/2026-11-15-recenti-due-righe.md`, mockup A
+  sopra l'albero: il nome del repo fa da titolo. (`docs/decisions/2026-11-15-recent-two-lines.md`, mockup A
   in `design/mockups/2026-11-14-recenti-leggibili/`.)
 - Recenti prende al massimo il 40 % dell'altezza della sidebar (`recent-share`) e poi scorre, con la barra del
   sistema (sottile, a scomparsa); 3 px fra le righe (`recent-gap`), con o senza anelli. Con righe da 44 ci
   stanno circa 5 file (6 in una sidebar alta 800) invece di 7–8; l'ordine resta quello d'apertura. Aprendo un file l'albero
-  scorre quanto basta per mostrarne la riga. (D1, D2: `docs/decisions/2026-11-14-sidebar-schede-nomi-lunghi.md`.)
+  scorre quanto basta per mostrarne la riga. (D1, D2: `docs/decisions/2026-11-14-sidebar-tabs-long-names.md`.)
 - Nomi lunghi di file (Recenti, albero, schede, ⌘P) e il branch si tagliano in mezzo: restano la fine e
   l'estensione (`2026-11-14-arc…definitiva.md`). Il nome del repo si taglia in fondo. (D4)
 - Pannello: barra delle schede in alto (nomi dei file aperti, "⌘E sorgente" a destra); colonna del documento
@@ -395,7 +395,7 @@ mezzo solo se non ci sta. Seconda riga, 2 sotto (interlinea 15): a sinistra dove
 in fondo; a destra il tempo relativo, 12/500 cifre tabellari; 8 fra i due. Tutti e due in `fg-2` (`fg-2-glass`,
 `sidebar::row_meta`), anche in hover. Dove sta il file: il repo (la cartella del file fuori da un repo); per un
 nome che ritorna, il repo o la cartella che lo distingue (regola dei nomi doppi). (Record
-`2026-11-15-recenti-due-righe`, vincoli 1–2.)
+`2026-11-15-recent-two-lines`, vincoli 1–2.)
 
 **Titolo dell'albero (repo).** Al posto dell'etichetta "Repo del file", sotto una linea 0,5 in `line` (12 sopra,
 8 sotto, 10 ai lati). Icona repo (un libro, 14) in `fg-3` a sinistra, centrata sulle due righe; 8 dopo, il nome
@@ -404,7 +404,7 @@ nome che ritorna, il repo o la cartella che lo distingue (regola dei nomi doppi)
 almeno 44, 4 sopra e sotto. La riga non ha hover, quindi `fg-3` sta sul vetro (`fg-3-glass`, 6,89:1 / 5,18:1 sul
 fondo peggiore misurato). Le due icone sono disegnate come quelle del kit (viewBox 16, tratto 1, giunti tondi;
 quella del branch, più piccola, con tratto 1,2 per lo stesso spessore). Fuori da un repo il titolo è la cartella
-del file: icona cartella e nome, niente branch, alta almeno 30. (D3; record `2026-11-15-recenti-due-righe`,
+del file: icona cartella e nome, niente branch, alta almeno 30. (D3; record `2026-11-15-recent-two-lines`,
 vincoli 4–5.)
 
 **Campo "Apri file".** Alto 30 px, raggio 7, riempimento `field`, bordo interno 0,5 px in `line`. Icona,
@@ -446,7 +446,7 @@ del testo"). Un clic apre sotto il pulsante il popover della larghezza con un al
 12 / 14, "Scorciatoie" (13 in `fg-2`), i gruppi File, Schede, Lettura, App (12 peso 500 in `fg-3`) e righe da 24
 con l'azione (13 in `fg-2`) e i tasti a destra (11,5 in `fg-2`, bordo `line` 0,5, raggio 4). Esc, un clic fuori o
 il pulsante lo chiudono; aprire ⌘ chiude ↔ e viceversa. L'elenco è `ui::shortcuts::GROUPS`
-(docs/decisions/2026-11-15-scorciatoie-popover.md).
+(docs/decisions/2026-11-15-shortcuts-popover.md).
 
 **Apri file (⌘P).** Un pannello largo 560 (meno con la finestra stretta, 16 dai bordi), centrato nella finestra,
 20 sotto la barra delle schede, sopra un velo `panel` al 60 %: non sposta niente. Riempimento `panel`, raggio 10,
@@ -456,8 +456,8 @@ basta si accorcia prima repo o cartella, fino a 40, poi il nome con il taglio in
 (36) ↑ ↓ scegli, ↵ apri, Esc chiudi (tasti in `fg-2`, parole in `fg-3`) e "N file". Con la ricerca vuota le righe
 sono Recenti. Il campo "Apri file ⌘P" della sidebar è un pulsante che apre il pannello. Clic: anteprima, il pannello
 resta; doppio clic: scheda fissa e il pannello si chiude; Invio apre in anteprima e chiude. Esc o un clic fuori
-chiudono (pannello modale). Record docs/decisions/2026-11-15-quick-open-compatto.md e
-docs/decisions/2026-11-15-quick-open-una-riga.md (una riga sola; i Recenti nella sidebar restano su due righe).
+chiudono (pannello modale). Record docs/decisions/2026-11-15-compact-quick-open.md e
+docs/decisions/2026-11-15-quick-open-one-line.md (una riga sola; i Recenti nella sidebar restano su due righe).
 
 **Cerca nel file (⌘F).** Solo in lettura. Il campo sta nella barra delle schede, a destra delle schede e prima
 di "⌘E sorgente", così il documento non si sposta: largo 240 (`find-field`), alto 30, raggio 7, riempimento

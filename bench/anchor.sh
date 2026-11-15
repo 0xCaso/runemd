@@ -1,6 +1,6 @@
 #!/bin/sh
 # Reading anchor: the first visible block and its offset stay still when the file changes.
-# uso: bench/anchor.sh [WORKDIR]
+# usage: bench/anchor.sh [WORKDIR]
 #
 # 1. Check: the headless tests in `src/ui/doc_view.rs` open a document in the app view,
 #    scroll halfway and apply `Document::update` in the three cases (5 paragraphs at the top, top

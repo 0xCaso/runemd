@@ -1,6 +1,6 @@
 #!/bin/sh
 # Cmd+A, Cmd+C copy all the Markdown source, also with rows out of view.
-# uso: bench/copy_all.sh [WORKDIR]
+# usage: bench/copy_all.sh [WORKDIR]
 #
 # 1. Binding check: the headless tests in `src/ui/doc_view.rs` (`copy_*`) open the document
 #    in the app view and read Rune's test clipboard after Cmd+A, Cmd+C.

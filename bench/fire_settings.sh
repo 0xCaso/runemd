@@ -3,7 +3,7 @@
 # with tests/scripts/fire_settings.json: Cmd+, opens the panel and scrolls it to the end (Intensity, Height,
 # Speed, Colour); a click on a colour, Cmd+, closes; two paragraphs written at the end by a shell
 # light the fire (real time). With RUNEMD_ROOTS the settings stay in memory.
-# uso: bench/fire_settings.sh [WORKDIR]
+# usage: bench/fire_settings.sh [WORKDIR]
 #   → WORKDIR/fire-settings-{dark,light}.png (the panel, cropped) and WORKDIR/fire-<colour>.png
 #   (the bottom of the document with the fire lit, dark). Exits 1 if a colour is not picked.
 set -eu

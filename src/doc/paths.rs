@@ -1,4 +1,4 @@
-//! Percorsi e nomi di file nel testo (record 2026-11-16-percorsi-nome-e-link): dove sono in un
+//! Percorsi e nomi di file nel testo (record 2026-11-16-paths-name-and-link): dove sono in un
 //! blocco, con o senza backtick, e a quale file sul disco portano.
 //!
 //! Il riconoscimento è prudente (vincolo 5): un percorso finisce con un nome di file con

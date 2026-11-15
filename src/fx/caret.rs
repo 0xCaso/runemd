@@ -1,4 +1,4 @@
-//! Caret "sta scrivendo" (record docs/decisions/2026-11-15-caret-al-punto-modificato.md): una
+//! Caret "sta scrivendo" (record docs/decisions/2026-11-15-caret-at-the-edit-point.md): una
 //! barra di [`WIDTH`] pt in `fg` nel punto dell'ultima modifica (`live::caret`), che pulsa a
 //! `STEPS` passi in `PERIOD` cambiando opacità. Prende il posto della riga a dither in fondo.
 //!
@@ -27,7 +27,7 @@ pub const OPACITY: [f32; STEPS] = [1.0, 0.81, 0.62, 0.81];
 const STILL_STEP: usize = 0;
 
 /// Il colore del caret nel tema `t`: `fg`, il colore del testo (record
-/// docs/decisions/2026-11-15-caret-piu-forte.md, vincolo 1).
+/// docs/decisions/2026-11-15-stronger-caret.md, vincolo 1).
 pub fn color(t: &Theme) -> rune::Color {
     t.fg
 }

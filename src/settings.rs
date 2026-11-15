@@ -88,7 +88,7 @@ pub struct Settings {
     /// La dimensione del corpo, pt; titoli, tabelle e codice scalano con lei.
     pub size: f32,
     pub theme: ThemePref,
-    /// Il fuoco in fondo al pannello (decisione di Matteo, `docs/decisions/2026-11-14-fuoco-tema-chiaro.md`;
+    /// Il fuoco in fondo al pannello (decisione di Matteo, `docs/decisions/2026-11-14-light-theme-fire.md`;
     /// sempre acceso dalla v1.1): spento, niente fiamme, né a riposo né col testo nuovo, e
     /// l'etichetta "N paragrafi nuovi più in basso" resta.
     pub fire: bool,
@@ -105,7 +105,7 @@ pub struct Settings {
     pub sidebar: Pane,
     pub outline: Pane,
     /// Le cartelle salvate nella sidebar, nell'ordine in cui si sono salvate (record
-    /// `2026-11-15-cartelle-al-posto-albero`, vincolo 4).
+    /// `2026-11-15-folders-instead-of-tree`, vincolo 4).
     pub saved: Vec<PathBuf>,
 }
 
@@ -521,7 +521,7 @@ mod tests {
     }
 
     /// Le cartelle salvate restano fra un avvio e l'altro, nel loro ordine (record
-    /// `2026-11-15-cartelle-al-posto-albero`, vincolo 4); una cartella si salva una volta e si toglie.
+    /// `2026-11-15-folders-instead-of-tree`, vincolo 4); una cartella si salva una volta e si toglie.
     #[test]
     fn saved_folders_round_trip_through_prefs_json() {
         let dir = tempfile::tempdir().unwrap();

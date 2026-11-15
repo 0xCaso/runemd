@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-# Contrasto dell'anello "sta scrivendo" sui pixel (DESIGN.md, "Contrasto"): per ogni punto dei lati
-# dritti attorno alla scheda (rect in pt dal --tree, scala 2) il pixel più contrastato sui 3 px di
-# spessore, contro la barra delle schede (panel) e contro il riempimento sel della scheda.
-# Lo spessore è quello dell'anello (`fx::ring::RING_W`, 2,5 pt) a scala 2: 5 px (prima 3, con l'anello di 1,5).
-# uso: python3 -I bench/ring_contrast.py FOTO.png X Y W H [BANDA_PX]   (es. 258 16 240 28 da bench/worst_case.sh)
+# Contrast of the "writing" ring on the pixels (DESIGN.md, "Contrast"): for each point of the straight
+# sides around the tab (rect in pt from --tree, scale 2) the highest-contrast pixel over the 3 px of
+# thickness, against the tab bar (panel) and against the tab's sel fill.
+# The thickness is the ring's (`fx::ring::RING_W`, 2.5 pt) at scale 2: 5 px (before 3, with the 1.5 ring).
+# usage: python3 -I bench/ring_contrast.py PHOTO.png X Y W H [BAND_PX]   (e.g. 258 16 240 28 from bench/worst_case.sh)
 import subprocess, sys, statistics
 img, rx, ry, rw, rh = sys.argv[1], *map(float, sys.argv[2:6])
 band = int(sys.argv[6]) if len(sys.argv) > 6 else 5
@@ -23,9 +23,9 @@ def ratio(a, b):
     la, lb = lum(a), lum(b)
     return (max(la,lb)+0.05)/(min(la,lb)+0.05)
 x0, y0, x1, y1 = int(rx*scale), int(ry*scale), int((rx+rw)*scale), int((ry+rh)*scale)
-panel = px(int(x1 + 40), int((y0+y1)//2))           # barra delle schede, lontano dalla scheda
-sel = px(x0 + 8, y0 + 8)                             # dentro la scheda, fuori dal testo
-corner = 7*scale                                     # raggio 6 + margine: solo i lati dritti
+panel = px(int(x1 + 40), int((y0+y1)//2))           # tab bar, far from the tab
+sel = px(x0 + 8, y0 + 8)                             # inside the tab, outside the text
+corner = 7*scale                                     # radius 6 + margin: only the straight sides
 samples = []
 for x in range(x0 + corner, x1 - corner):
     samples.append([px(x, y) for y in range(y0 - band, y0)])
