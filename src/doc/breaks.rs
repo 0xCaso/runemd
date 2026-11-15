@@ -4,8 +4,9 @@
 //! senza punti di a capo più larghi di una riga. Il sorgente vero non cambia: questo testo va
 //! solo al disegno; copia, indice e Cerca leggono il sorgente del blocco.
 //!
-//! Non si tocca il codice a blocchi, l'HTML, le destinazioni dei link, le definizioni dei
-//! riferimenti e gli URL nudi (il link prenderebbe anche gli U+200B).
+//! Non si tocca il codice a blocchi, l'HTML, le destinazioni dei link e le definizioni dei
+//! riferimenti. Un URL nudo lungo diventa un link esplicito `[testo](<url>)` con gli U+200B solo
+//! nel testo: il link automatico prenderebbe anche gli U+200B e l'indirizzo non si aprirebbe.
 
 use std::ops::Range;
 
@@ -23,43 +24,45 @@ pub fn soft_breaks(source: &str, limit: impl Fn(Kind) -> f32, advance: impl Fn(&
     if first.starts_with("```") || first.starts_with("~~~") || first.starts_with('<') || source.starts_with("    ") || source.starts_with('\t') {
         return None;
     }
-    let mut at = Vec::new();
+    let mut ins = Vec::new();
     let mut start = 0;
     for line in source.split_inclusive('\n') {
         let kind = Kind::of(line);
         if !is_reference(line) {
-            line_breaks(line, start, kind, &limit, &advance, &mut at);
+            line_breaks(line, start, kind, &limit, &advance, &mut ins);
         }
         start += line.len();
     }
-    if at.is_empty() {
+    if ins.is_empty() {
         return None;
     }
-    let mut text = String::with_capacity(source.len() + at.len() * ZWSP.len_utf8());
+    let mut text = String::with_capacity(source.len() + ins.iter().map(|(_, s)| s.len()).sum::<usize>());
     let mut from = 0;
-    for &p in &at {
-        text.push_str(&source[from..p]);
-        text.push(ZWSP);
-        from = p;
+    for (p, s) in &ins {
+        text.push_str(&source[from..*p]);
+        text.push_str(s);
+        from = *p;
     }
     text.push_str(&source[from..]);
-    Some(Breaks { text, at })
+    Some(Breaks { text, ins })
 }
 
-/// Il testo da disegnare e dove sono andati gli U+200B (byte del sorgente, in ordine: ognuno sta
-/// prima del byte indicato).
+/// Il testo da disegnare e cosa vi è stato aggiunto: U+200B, e per un URL nudo lungo il `[` e il
+/// `](<url>)` di un link esplicito con le sue `\` (byte del sorgente, in ordine: ognuno sta prima
+/// del byte indicato).
 #[derive(Debug, PartialEq)]
 pub struct Breaks {
     pub text: String,
-    pub at: Vec<usize>,
+    ins: Vec<(usize, String)>,
 }
 
 impl Breaks {
-    /// `r`, un intervallo del sorgente, nel testo da disegnare. Un U+200B al bordo resta fuori.
+    /// `r`, un intervallo del sorgente, nel testo da disegnare. Un'aggiunta al bordo resta fuori.
     pub fn map(&self, r: &Range<usize>) -> Range<usize> {
-        let shift = |n: usize| n * ZWSP.len_utf8();
-        let before = |o: usize, inclusive: bool| self.at.iter().take_while(|&&p| if inclusive { p <= o } else { p < o }).count();
-        r.start + shift(before(r.start, true))..r.end + shift(before(r.end, false))
+        let shift = |o: usize, inclusive: bool| -> usize {
+            self.ins.iter().take_while(|(p, _)| if inclusive { *p <= o } else { *p < o }).map(|(_, s)| s.len()).sum()
+        };
+        r.start + shift(r.start, true)..r.end + shift(r.end, false)
     }
 }
 
@@ -95,7 +98,7 @@ fn is_reference(line: &str) -> bool {
 }
 
 /// I punti di a capo di una riga (`start`: dove comincia nel sorgente).
-fn line_breaks(line: &str, start: usize, kind: Kind, limit: &impl Fn(Kind) -> f32, advance: &impl Fn(&str, Kind) -> f32, out: &mut Vec<usize>) {
+fn line_breaks(line: &str, start: usize, kind: Kind, limit: &impl Fn(Kind) -> f32, advance: &impl Fn(&str, Kind) -> f32, out: &mut Vec<(usize, String)>) {
     let mut word_start = None;
     for (i, c) in line.char_indices().chain(std::iter::once((line.len(), ' '))) {
         match (c.is_whitespace(), word_start) {
@@ -109,12 +112,40 @@ fn line_breaks(line: &str, start: usize, kind: Kind, limit: &impl Fn(Kind) -> f3
     }
 }
 
-/// I punti di a capo di una parola (`start`: dove comincia nel sorgente).
-fn word_breaks(word: &str, start: usize, kind: Kind, limit: &impl Fn(Kind) -> f32, advance: &impl Fn(&str, Kind) -> f32, out: &mut Vec<usize>) {
+/// I punti di a capo di una parola (`start`: dove comincia nel sorgente). Un URL nudo diventa un
+/// link esplicito `[testo](<url>)`: gli U+200B vanno solo nel testo, la destinazione resta intatta
+/// (il link automatico di Rune Kit prenderebbe anche gli U+200B).
+fn word_breaks(word: &str, start: usize, kind: Kind, limit: &impl Fn(Kind) -> f32, advance: &impl Fn(&str, Kind) -> f32, out: &mut Vec<(usize, String)>) {
     if word.chars().count() < MIN_WORD {
         return;
     }
+    if let Some((r, www)) = bare_url(word) {
+        let url = &word[r.clone()];
+        let at = start + r.start;
+        let cuts = cuts(url, &[], kind, limit, advance);
+        if cuts.is_empty() {
+            return;
+        }
+        out.push((at, "[".to_owned()));
+        let mut cuts = cuts.into_iter().peekable();
+        for (i, c) in url.char_indices() {
+            if cuts.next_if_eq(&i).is_some() {
+                out.push((at + i, ZWSP.to_string()));
+            }
+            if needs_escape(c) {
+                out.push((at + i, "\\".to_owned()));
+            }
+        }
+        let dest: String = url.chars().flat_map(|c| (needs_escape(c) && matches!(c, '\\' | '&')).then_some('\\').into_iter().chain([c])).collect();
+        out.push((start + r.end, format!("](<{}{dest}>)", if www { "http://" } else { "" })));
+        return;
+    }
     let protected = protected(word);
+    out.extend(cuts(word, &protected, kind, limit, advance).into_iter().map(|i| (start + i, ZWSP.to_string())));
+}
+
+/// I punti di a capo dentro `word` (byte della parola, in ordine), fuori dai tratti `protected`.
+fn cuts(word: &str, protected: &[Range<usize>], kind: Kind, limit: &impl Fn(Kind) -> f32, advance: &impl Fn(&str, Kind) -> f32) -> Vec<usize> {
     let free = |i: usize| !protected.iter().any(|r| r.contains(&i));
     let chars: Vec<(usize, char)> = word.char_indices().collect();
     // Dopo `/ - _ .` fra due lettere o cifre.
@@ -149,7 +180,39 @@ fn word_breaks(word: &str, start: usize, kind: Kind, limit: &impl Fn(Kind) -> f3
         }
         from = end;
     }
-    out.extend(all.into_iter().map(|i| start + i));
+    all
+}
+
+/// I caratteri che nel testo del link vanno scritti con `\` per restare letterali.
+fn needs_escape(c: char) -> bool {
+    matches!(c, '\\' | '[' | ']' | '*' | '_' | '`' | '~' | '&')
+}
+
+/// L'URL nudo di una parola, come lo trova il link automatico di Rune Kit (GFM): all'inizio della
+/// parola o dopo `( * _ ~`, con un dominio che ha un punto, senza la punteggiatura in coda. `true`
+/// se comincia con `www.`. `None` dentro codice, link e citazioni fra virgolette.
+fn bare_url(word: &str) -> Option<(Range<usize>, bool)> {
+    let lead = word.len() - word.trim_start_matches(['(', '*', '_', '~']).len();
+    let rest = &word[lead..];
+    let prefix = ["https://", "http://", "www."].into_iter().find(|p| rest.get(..p.len()).is_some_and(|s| s.eq_ignore_ascii_case(p)))?;
+    if word[..lead].ends_with('(') && lead > 1 && word[..lead - 1].ends_with(']') {
+        return None;
+    }
+    let mut end = word.len();
+    loop {
+        let body = &word[lead + prefix.len()..end];
+        let last = body.chars().next_back()?;
+        let unbalanced = |o: char, c: char| last == c && body.matches(c).count() > body.matches(o).count();
+        if matches!(last, '?' | '!' | '.' | ',' | ':' | ';' | '*' | '_' | '~' | '\'' | '"') || unbalanced('(', ')') || unbalanced('[', ']') {
+            end -= last.len_utf8();
+        } else {
+            break;
+        }
+    }
+    let body = &word[lead + prefix.len()..end];
+    let domain = body.split(['/', '?', '#']).next().unwrap_or("");
+    let ok = domain.contains('.') && !body.contains(['<', '>', '`']) && !word[end..].contains("](");
+    ok.then_some((lead..end, prefix == "www."))
 }
 
 /// Le parti di una parola che non si spezzano: URL nudi, destinazioni dei link `](…)`, link
@@ -227,9 +290,54 @@ mod tests {
         assert_eq!(breaks("```\nsrc/ui/doc_view/molto/lungo.rs\n```"), None);
         assert_eq!(breaks("    src/ui/doc_view/molto/lungo.rs"), None);
         assert_eq!(breaks("<div>src/ui/doc_view/molto/lungo.rs</div>"), None);
-        assert_eq!(breaks("Vedi https://example.com/un/percorso/lungo.html qui"), None);
         assert_eq!(shown("[docs/decisions/x](https://example.com/a/b/c-d)"), "[docs/|decisions/|x](https://example.com/a/b/c-d)");
         assert_eq!(breaks("[rif]: https://example.com/un/percorso/lungo.html"), None);
+    }
+
+    /// Un URL nudo va a capo come il resto ma resta un link solo: diventa un link esplicito con
+    /// la destinazione intatta e gli U+200B solo nel testo.
+    #[test]
+    fn a_bare_url_wraps_and_stays_one_whole_link() {
+        let url = "https://github.com/anomalyco/rune/blob/384c2991e582418ba529835279c5876ac3915e02/crates/rune-kit/src/markdown/render.rs";
+        for source in [format!("Link lungo: {url}"), format!("Vedi ({url}), qui."), format!("- **{url}**")] {
+            let b = breaks(&source).expect("un URL lungo va a capo");
+            assert!(b.text.contains(ZWSP), "{}", b.text);
+            let links: Vec<(String, String)> = links_of(&b.text);
+            assert_eq!(links.len(), 1, "un link solo: {}", b.text);
+            assert_eq!(links[0].0, url, "destinazione intatta");
+            assert_eq!(links[0].1.replace(ZWSP, ""), url, "testo uguale all'URL");
+        }
+        // Un URL corto, in codice o già dentro un link non cambia.
+        assert_eq!(breaks("Vedi https://a.it/b qui"), None);
+        assert_eq!(breaks(&format!("`{url}`")), None);
+        assert_eq!(links_of(&shown_raw(&format!("[testo]({url})")))[0].0, url);
+        // I segni di Cerca seguono anche il `[` aggiunto davanti.
+        let b = breaks(&format!("x {url}")).unwrap();
+        assert_eq!(b.text[b.map(&(2..7))].replace(ZWSP, ""), "https");
+    }
+
+    fn shown_raw(source: &str) -> String {
+        breaks(source).map_or(source.to_owned(), |b| b.text)
+    }
+
+    /// I link di `text` come li vede il parser: (destinazione, testo).
+    fn links_of(text: &str) -> Vec<(String, String)> {
+        use pulldown_cmark::{Event, Parser, Tag, TagEnd};
+        let mut out = Vec::new();
+        let mut open: Option<(String, String)> = None;
+        for e in Parser::new(text) {
+            match e {
+                Event::Start(Tag::Link { dest_url, .. }) => open = Some((dest_url.into_string(), String::new())),
+                Event::Text(t) | Event::Code(t) => {
+                    if let Some(o) = open.as_mut() {
+                        o.1.push_str(&t);
+                    }
+                }
+                Event::End(TagEnd::Link) => out.extend(open.take()),
+                _ => {}
+            }
+        }
+        out
     }
 
     #[test]
