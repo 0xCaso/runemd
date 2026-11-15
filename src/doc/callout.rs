@@ -1,11 +1,11 @@
-//! I callout di GitHub: una citazione che comincia con una riga `> [!NOTE]` (o `TIP`, `IMPORTANT`,
-//! `WARNING`, `CAUTION`, maiuscole o no). Il kit non li riconosce: la vista toglie quella riga dal
-//! testo che si disegna e mette al suo posto l'etichetta in parole con l'icona. Il sorgente non
-//! cambia: copia, indice e Cerca leggono il sorgente del blocco.
+//! GitHub callouts: a quote that starts with a `> [!NOTE]` line (or `TIP`, `IMPORTANT`,
+//! `WARNING`, `CAUTION`, any case). The kit does not recognize them: the view removes that line from the
+//! text it draws and puts in its place the label in words with the icon. The source does not
+//! change: copy, index and Find read the block's source.
 
 use std::ops::Range;
 
-/// Il tipo di callout.
+/// The kind of callout.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
     Note,
@@ -16,7 +16,7 @@ pub enum Kind {
 }
 
 impl Kind {
-    /// L'etichetta in parole.
+    /// The label in words.
     pub fn label(self) -> &'static str {
         match self {
             Kind::Note => "Note",
@@ -28,25 +28,25 @@ impl Kind {
     }
 }
 
-/// Un callout: il tipo e il testo da disegnare, cioè la citazione senza la riga del segno.
+/// A callout: the kind and the text to draw, that is the quote without the marker line.
 #[derive(Debug, PartialEq)]
 pub struct Callout {
     pub kind: Kind,
     pub text: String,
-    /// La riga del segno nel sorgente, a capo compreso.
+    /// The marker line in the source, newline included.
     cut: Range<usize>,
 }
 
 impl Callout {
-    /// `r`, un intervallo del sorgente, nel testo da disegnare: ciò che cade nella riga del segno
-    /// si stringe al suo posto.
+    /// `r`, a range of the source, in the text to draw: what falls in the marker line
+    /// shrinks to its place.
     pub fn map(&self, r: &Range<usize>) -> Range<usize> {
         let at = |o: usize| if o <= self.cut.start { o } else { o.saturating_sub(self.cut.len()).max(self.cut.start) };
         at(r.start)..at(r.end)
     }
 }
 
-/// Il callout del blocco `source`, se la sua prima riga è `> [!TIPO]` da sola.
+/// The callout of block `source`, if its first line is `> [!KIND]` on its own.
 pub fn of(source: &str) -> Option<Callout> {
     let line_end = source.find('\n').map_or(source.len(), |i| i + 1);
     let line = source[..line_end].trim_end();
@@ -70,21 +70,21 @@ mod tests {
 
     #[test]
     fn the_marker_line_goes_and_the_quote_stays() {
-        let c = of("> [!NOTE]\n> Una nota in stile GitHub.").unwrap();
-        assert_eq!((c.kind, c.text.as_str()), (Kind::Note, "> Una nota in stile GitHub."));
+        let c = of("> [!NOTE]\n> A note in GitHub style.").unwrap();
+        assert_eq!((c.kind, c.text.as_str()), (Kind::Note, "> A note in GitHub style."));
         assert_eq!(of("> [!warning]\n> x").unwrap().kind, Kind::Warning);
         assert_eq!(of(">[!CAUTION]").unwrap().text, "");
-        assert_eq!(of("> [!NOTA]\n> x"), None, "tipo sconosciuto");
-        assert_eq!(of("> [!NOTE] e testo\n> x"), None, "il segno va da solo sulla riga");
-        assert_eq!(of("[!NOTE]\n> x"), None, "fuori da una citazione");
+        assert_eq!(of("> [!MEMO]\n> x"), None, "unknown kind");
+        assert_eq!(of("> [!NOTE] and text\n> x"), None, "the marker goes alone on the line");
+        assert_eq!(of("[!NOTE]\n> x"), None, "outside a quote");
     }
 
     #[test]
     fn search_ranges_skip_the_marker() {
-        let src = "> [!TIP]\n> Un suggerimento.";
+        let src = "> [!TIP]\n> A suggestion.";
         let c = of(src).unwrap();
-        let r = src.find("Un").unwrap()..src.len();
-        assert_eq!(&c.text[c.map(&r)], "Un suggerimento.");
-        assert_eq!(c.map(&(3..6)), 0..0, "dentro il segno");
+        let r = src.find("A s").unwrap()..src.len();
+        assert_eq!(&c.text[c.map(&r)], "A suggestion.");
+        assert_eq!(c.map(&(3..6)), 0..0, "inside the marker");
     }
 }

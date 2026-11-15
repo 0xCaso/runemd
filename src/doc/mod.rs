@@ -1,4 +1,4 @@
-//! Modello del documento: i blocchi top-level del Markdown.
+//! Document model: the top-level blocks of the Markdown.
 
 pub mod anchors;
 pub mod blocks;

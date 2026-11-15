@@ -1,4 +1,4 @@
-//! Assegna id stabili ai blocchi: diff LCS sugli hash tra vecchi e nuovi blocchi.
+//! Assigns stable ids to blocks: LCS diff on the hashes between old and new blocks.
 
 use std::hash::{DefaultHasher, Hash, Hasher};
 
@@ -12,7 +12,7 @@ pub fn hash_str(s: &str) -> u64 {
     h.finish()
 }
 
-/// Sorgente + hash di ogni blocco; i blocchi uguali ripetuti si distinguono con l'occorrenza.
+/// Source + hash of every block; equal repeated blocks are told apart by their occurrence.
 pub fn hash_sources(sources: Vec<String>) -> Vec<(String, u64)> {
     let mut seen: std::collections::HashMap<u64, u64> = std::collections::HashMap::new();
     sources
@@ -36,7 +36,7 @@ pub fn assign(old: &[Block], new: Vec<(String, u64)>, next_id: &mut u64) -> (Vec
     let mut change = Change::default();
     let mut kept = vec![false; old.len()];
 
-    // Unisce Delete+Insert adiacenti in un Replace.
+    // Merges adjacent Delete+Insert into a Replace.
     let mut merged: Vec<DiffOp> = Vec::new();
     for op in ops {
         if let (Some(&DiffOp::Delete { old_index, old_len, new_index }), DiffOp::Insert { new_len, .. }) =
@@ -102,7 +102,7 @@ mod tests {
 
     #[test]
     fn same_blocks_keep_ids() {
-        let src = "# A\n\nuno\n\ndue\n";
+        let src = "# A\n\none\n\ntwo\n";
         let mut d = doc(src);
         let before = ids(&d);
         let ch = d.update(src);
@@ -113,9 +113,9 @@ mod tests {
 
     #[test]
     fn insert_above_keeps_ids_below() {
-        let mut d = doc("# A\n\nuno\n\ndue\n");
+        let mut d = doc("# A\n\none\n\ntwo\n");
         let before = ids(&d);
-        let ch = d.update("nuovo\n\n# A\n\nuno\n\ndue\n");
+        let ch = d.update("fresh\n\n# A\n\none\n\ntwo\n");
         assert_eq!(&ids(&d)[1..], &before[..]);
         assert_eq!(ch.added.len(), 1);
         assert!(ch.changed.is_empty() && ch.removed.is_empty());
@@ -123,9 +123,9 @@ mod tests {
 
     #[test]
     fn edit_in_place_keeps_id() {
-        let mut d = doc("# A\n\nuno\n\ndue tre\n\nquattro\n");
+        let mut d = doc("# A\n\none\n\ntwo six\n\nfour\n");
         let before = ids(&d);
-        let ch = d.update("# A\n\nuno\n\ndue cinque\n\nquattro\n");
+        let ch = d.update("# A\n\none\n\ntwo five\n\nfour\n");
         assert_eq!(ids(&d), before);
         assert_eq!(ch.changed, [before[2]]);
         assert!(ch.added.is_empty() && ch.removed.is_empty());

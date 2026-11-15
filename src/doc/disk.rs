@@ -1,11 +1,11 @@
-//! Lettura di un file Markdown dal disco, uguale per tutti: UTF-8 lossy, come la ricarica.
+//! Reading a Markdown file from disk, the same for everyone: lossy UTF-8, like the reload.
 
 use std::io;
 use std::path::Path;
 
 use super::ids::hash_str;
 
-/// Il testo del file e se era UTF-8 valido (altrimenti i byte non validi sono U+FFFD).
+/// The file's text and whether it was valid UTF-8 (otherwise the invalid bytes are U+FFFD).
 pub fn read_lossy(path: &Path) -> io::Result<(String, bool)> {
     let bytes = std::fs::read(path)?;
     Ok(match String::from_utf8(bytes) {
@@ -14,7 +14,7 @@ pub fn read_lossy(path: &Path) -> io::Result<(String, bool)> {
     })
 }
 
-/// Come [`read_lossy`], più l'hash del testo letto.
+/// Like [`read_lossy`], plus the hash of the text read.
 pub fn read_disk(path: &Path) -> io::Result<(String, u64, bool)> {
     let (text, utf8) = read_lossy(path)?;
     let hash = hash_str(&text);

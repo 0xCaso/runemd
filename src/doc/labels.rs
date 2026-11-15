@@ -1,26 +1,26 @@
-//! Registri e piani (record 2026-11-16-tasks-sections-and-columns, con 2026-11-16-a-capo-solo-
-//! blocchi-etichetta): i paragrafi fatti di righe a etichetta (`Task 1:`, `Ruling:`) tengono i
-//! loro a capo e l'etichetta in grassetto; i titoli `Task N` mostrano il numero e l'avanzamento.
+//! Records and plans (record 2026-11-16-tasks-sections-and-columns, with
+//! 2026-11-16-wrap-only-label-blocks): paragraphs made of labelled lines (`Task 1:`, `Ruling:`) keep their
+//! line breaks and the label in bold; `Task N` headings show the number and the progress.
 //!
-//! Tutto il resto resta Markdown standard: un paragrafo che non è un blocco a etichetta non
-//! cambia (vincolo 3 del record degli a capo).
+//! Everything else stays standard Markdown: a paragraph that is not a labelled block does not
+//! change (constraint 3 of the line-break record).
 
 use std::collections::HashMap;
 use std::ops::Range;
 
 use super::footnotes::Edited;
 
-/// Una riga di un blocco a etichetta.
+/// A line of a labelled block.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Line {
-    /// La riga nel sorgente del blocco, senza `\n`.
+    /// The line in the block's source, without `\n`.
     pub range: Range<usize>,
-    /// L'etichetta nel sorgente, con i `:`; `None` per una riga senza etichetta.
+    /// The label in the source, with the `:`; `None` for a line without a label.
     pub label: Option<Range<usize>>,
 }
 
 impl Line {
-    /// Il testo dopo l'etichetta (e i suoi spazi), o la riga intera se non ne ha.
+    /// The text after the label (and its spaces), or the whole line if it has none.
     pub fn rest(&self, source: &str) -> Range<usize> {
         match &self.label {
             Some(l) => {
@@ -31,19 +31,19 @@ impl Line {
         }
     }
 
-    /// L'etichetta senza i `:` finali, per la colonna delle etichette.
+    /// The label without the trailing `:`, for the labels column.
     pub fn name(&self) -> Option<Range<usize>> {
         self.label.clone().map(|l| l.start..l.end - 1)
     }
 }
 
-/// Le parole di un'etichetta: lettere e cifre, con `( ) - _ / . # '` dentro.
+/// The words of a label: letters and digits, with `( ) - _ / . # '` inside.
 fn word_ok(w: &str) -> bool {
     !w.is_empty() && w.chars().all(|c| c.is_alphanumeric() || "()-_/.#'".contains(c)) && w.chars().any(char::is_alphanumeric)
 }
 
-/// Fine (dopo i `:`) di un segmento `parole:` che comincia in `at` di `line`, con le sue parole,
-/// se i `:` sono seguiti da uno spazio o dalla fine della riga.
+/// End (after the `:`) of a `words:` segment that starts at `at` of `line`, with its words,
+/// if the `:` is followed by a space or by the end of the line.
 fn segment(line: &str, at: usize) -> Option<(usize, usize)> {
     let colon = at + line[at..].find(':')?;
     if !matches!(line.as_bytes().get(colon + 1), None | Some(b' ' | b'\t')) {
@@ -53,9 +53,9 @@ fn segment(line: &str, at: usize) -> Option<(usize, usize)> {
     words.iter().all(|w| word_ok(w)).then_some((colon + 1, words.len()))
 }
 
-/// L'etichetta a inizio di `line` (vincolo 2): da 1 a 3 parole e `:`, la prima con la maiuscola
-/// o una cifra; più un secondo segmento di 1–2 parole con `:` subito dopo (`Task 1: minor
-/// (deferred):`, mockup t-mix). I byte che copre, `:` compresi.
+/// The label at the start of `line` (constraint 2): from 1 to 3 words and `:`, the first capitalized
+/// or a digit; plus a second segment of 1–2 words with `:` right after (`Task 1: minor
+/// (deferred):`, mockup t-mix). The bytes it covers, `:` included.
 pub fn label_of(line: &str) -> Option<Range<usize>> {
     let first = line.chars().next()?;
     if !(first.is_uppercase() || first.is_ascii_digit()) {
@@ -72,8 +72,8 @@ pub fn label_of(line: &str) -> Option<Range<usize>> {
     }
 }
 
-/// Se `source`, un blocco top-level, è un paragrafo a etichetta: più della metà delle righe, e
-/// almeno 2, cominciano con un'etichetta (vincolo 2 del record degli a capo). Le sue righe.
+/// Whether `source`, a top-level block, is a labelled paragraph: more than half of the lines, and
+/// at least 2, start with a label (constraint 2 of the line-break record). Its lines.
 pub fn block(source: &str) -> Option<Vec<Line>> {
     #[cfg(test)]
     if OFF.with(std::cell::Cell::get) {
@@ -94,12 +94,12 @@ pub fn block(source: &str) -> Option<Vec<Line>> {
 
 #[cfg(test)]
 thread_local! {
-    /// Nei test: spegne i blocchi a etichetta, per confrontare con com'era prima.
+    /// In tests: turns labelled blocks off, to compare with how it was before.
     pub static OFF: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
-/// Un paragrafo semplice: niente titolo, lista, citazione, tabella, codice, HTML, e nessuna riga
-/// che lo diventa.
+/// A plain paragraph: no heading, list, quote, table, code, HTML, and no line
+/// that becomes one.
 fn is_paragraph(source: &str) -> bool {
     source.split('\n').all(|l| {
         let t = l.trim_start();
@@ -109,8 +109,8 @@ fn is_paragraph(source: &str) -> bool {
     })
 }
 
-/// Il blocco come si disegna su una colonna: ogni a capo è un a capo (`\` a fine riga) ed
-/// etichette in grassetto.
+/// The block as it is drawn in one column: every line break is a line break (`\` at the end of the line) and
+/// labels in bold.
 pub fn one_column(source: &str, lines: &[Line]) -> Edited {
     let mut edits = Vec::new();
     for (i, l) in lines.iter().enumerate() {
@@ -125,17 +125,17 @@ pub fn one_column(source: &str, lines: &[Line]) -> Edited {
     Edited::new(source, edits)
 }
 
-/// Un titolo `Task N` (vincolo 3): il numero e il titolo dopo `Task N:` nel sorgente.
+/// A `Task N` heading (constraint 3): the number and the title after `Task N:` in the source.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TaskHead {
     pub level: u8,
     pub number: String,
-    /// I byte del sorgente prima del titolo (`### Task 12: `), che non si disegnano.
+    /// The source bytes before the title (`### Task 12: `), which are not drawn.
     pub prefix: Range<usize>,
     pub hashes: Range<usize>,
 }
 
-/// `source` è un titolo `Task N: titolo` (anche `Task N —`, `Task N.`).
+/// `source` is a `Task N: title` heading (also `Task N —`, `Task N.`).
 pub fn task_head(source: &str) -> Option<TaskHead> {
     if source.contains('\n') {
         return None;
@@ -161,9 +161,9 @@ pub fn task_head(source: &str) -> Option<TaskHead> {
     Some(TaskHead { level: hashes as u8, number, prefix: 0..end, hashes: 0..hashes })
 }
 
-/// L'avanzamento di ogni titolo `Task N` per indice del blocco: caselle `[x]` e caselle in
-/// tutto fra il titolo e il titolo seguente di livello uguale o più alto. Solo i titoli con
-/// almeno una casella.
+/// The progress of every `Task N` heading by block index: `[x]` boxes and boxes in
+/// all between the heading and the next heading of equal or higher level. Only the headings with
+/// at least one box.
 pub fn progress<'a>(blocks: impl Iterator<Item = &'a str>) -> HashMap<usize, (u32, u32)> {
     let mut out = HashMap::new();
     let mut current: Option<(usize, u8)> = None;
@@ -206,9 +206,9 @@ mod tests {
 
     #[test]
     fn labels_are_short_and_start_the_line() {
-        assert_eq!(label("Task 1: BASE root (nessun commit)"), Some("Task 1:"));
-        assert_eq!(label("Ruling: keychain dedicato"), Some("Ruling:"));
-        assert_eq!(label("Task 1: minor (deferred): Makefile senza .PHONY"), Some("Task 1: minor (deferred):"));
+        assert_eq!(label("Task 1: BASE root (no commit)"), Some("Task 1:"));
+        assert_eq!(label("Ruling: dedicated keychain"), Some("Ruling:"));
+        assert_eq!(label("Task 1: minor (deferred): Makefile without .PHONY"), Some("Task 1: minor (deferred):"));
         assert_eq!(label("Task 1: complete (commits root..0095282, review clean)"), Some("Task 1:"));
         assert_eq!(label("Report BLOCKED: scroll"), Some("Report BLOCKED:"));
         assert_eq!(label("Task 3: review (session wer-team) — Important 1: open_paths"), Some("Task 3:"));
@@ -217,57 +217,57 @@ mod tests {
 
     #[test]
     fn sentences_are_not_labels() {
-        assert_eq!(label("misurato di nuovo dopo lo sblocco dello schermo: 118 fps."), None);
-        assert_eq!(label("Questo è un paragrafo lungo che dice: qualcosa"), None);
-        assert_eq!(label("vedi https://example.com"), None);
-        assert_eq!(label("Vedi https://example.com"), None);
-        assert_eq!(label("nota: minuscola"), None);
+        assert_eq!(label("measured again after the screen was unlocked: 118 fps."), None);
+        assert_eq!(label("This is a long paragraph that says: something"), None);
+        assert_eq!(label("see https://example.com"), None);
+        assert_eq!(label("See https://example.com"), None);
+        assert_eq!(label("note: lowercase"), None);
         assert_eq!(label("**Files:**"), None);
-        assert_eq!(label("Ore 10:30 arrivo"), None);
+        assert_eq!(label("At 10:30 we land"), None);
     }
 
     #[test]
     fn a_block_needs_most_lines_labelled() {
-        let reg = "Task 1: BASE root.\nRuling: keychain.\nmisurato di nuovo: 118 fps.\nTask 1: complete";
-        let lines = block(reg).expect("registro");
+        let reg = "Task 1: BASE root.\nRuling: keychain.\nmeasured again: 118 fps.\nTask 1: complete";
+        let lines = block(reg).expect("record");
         assert_eq!(lines.iter().filter(|l| l.label.is_some()).count(), 3);
-        assert_eq!(&reg[lines[2].rest(reg)], "misurato di nuovo: 118 fps.");
+        assert_eq!(&reg[lines[2].rest(reg)], "measured again: 118 fps.");
         assert_eq!(&reg[lines[0].rest(reg)], "BASE root.");
         assert_eq!(&reg[lines[1].name().unwrap()], "Ruling");
-        assert!(block("Task 1: uno").is_none(), "una riga sola");
-        assert!(block("Task 1: uno\naltro testo\nancora testo").is_none(), "metà o meno");
-        assert!(block("Task 1: uno\nRuling: due\naltro\naltro").is_none(), "metà esatta");
-        assert!(block("- Task 1: uno\n- Ruling: due").is_none(), "lista");
-        assert!(block("Un paragrafo andato\na capo a mano.").is_none());
+        assert!(block("Task 1: one").is_none(), "a single line");
+        assert!(block("Task 1: one\nother text\nmore text").is_none(), "half or less");
+        assert!(block("Task 1: one\nRuling: two\nother\nother").is_none(), "exactly half");
+        assert!(block("- Task 1: one\n- Ruling: two").is_none(), "list");
+        assert!(block("A paragraph broken\nby hand.").is_none());
     }
 
     #[test]
     fn one_column_keeps_breaks_and_bolds_labels() {
-        let s = "Task 1: uno\nRuling: due\naltro";
+        let s = "Task 1: one\nRuling: two\nother";
         let e = one_column(s, &block(s).unwrap());
-        assert_eq!(e.text, "**Task 1:** uno\\\n**Ruling:** due\\\naltro");
-        // Un segno di Cerca sull'etichetta prende anche i `**` (il kit li toglie dal disegno).
+        assert_eq!(e.text, "**Task 1:** one\\\n**Ruling:** two\\\nother");
+        // A Find mark on the label also takes the `**` (the kit removes them from the drawing).
         assert_eq!(&e.text[e.map(&(12..18))], "**Ruling");
     }
 
     #[test]
     fn task_headings_give_number_and_title() {
-        let h = task_head("### Task 12: Fuoco per il testo").unwrap();
+        let h = task_head("### Task 12: Fire for the text").unwrap();
         assert_eq!((h.level, h.number.as_str()), (3, "12"));
-        assert_eq!(&"### Task 12: Fuoco per il testo"[h.prefix.end..], "Fuoco per il testo");
+        assert_eq!(&"### Task 12: Fire for the text"[h.prefix.end..], "Fire for the text");
         assert!(task_head("### Task 12").is_none());
         assert!(task_head("### Tasks").is_none());
         assert!(task_head("Task 1: x").is_none());
-        assert_eq!(task_head("## Task 3 — Aprire").map(|h| h.number), Some("3".into()));
+        assert_eq!(task_head("## Task 3 — Open").map(|h| h.number), Some("3".into()));
     }
 
     #[test]
     fn progress_counts_the_task_boxes() {
-        let blocks = ["## Piano", "### Task 1: Uno", "**Files:**", "- [x] a\n- [x] b\n- [ ] c\n- [ ] d", "### Task 2: Due", "- [ ] e", "## Altro", "- [x] f", "### Task 3: Tre", "testo"];
+        let blocks = ["## Plan", "### Task 1: One", "**Files:**", "- [x] a\n- [x] b\n- [ ] c\n- [ ] d", "### Task 2: Two", "- [ ] e", "## Other", "- [x] f", "### Task 3: Three", "text"];
         let p = progress(blocks.into_iter());
         assert_eq!(p.get(&1), Some(&(2, 4)));
         assert_eq!(p.get(&4), Some(&(0, 1)));
-        assert_eq!(p.get(&8), None, "senza caselle niente avanzamento");
+        assert_eq!(p.get(&8), None, "no boxes, no progress");
         assert_eq!(p.len(), 2);
     }
 }

@@ -1,11 +1,11 @@
-//! Lo stato del Cmd+A sul documento: dati puri (id dei blocchi e byte), condivisi tra il
-//! documento e le closure della vista. La logica che lo legge e lo scrive è in `ui::doc_view`.
+//! The state of Cmd+A on the document: plain data (block ids and bytes), shared between the
+//! document and the view's closures. The logic that reads and writes it is in `ui::doc_view`.
 
 use std::ops::Range;
 use std::sync::{Mutex, PoisonError};
 
-/// Se la selezione corrente viene da un Cmd+A (`Document::select_all`, condiviso con le closure
-/// della vista).
+/// Whether the current selection comes from a Cmd+A (`Document::select_all`, shared with the
+/// view's closures).
 #[derive(Debug, Default)]
 pub struct SelectAllFlag(Mutex<SelectAll>);
 
@@ -13,15 +13,15 @@ pub struct SelectAllFlag(Mutex<SelectAll>);
 pub enum SelectAll {
     #[default]
     No,
-    /// Cmd+A premuto, la selezione che ne segue non è ancora arrivata.
+    /// Cmd+A pressed, the selection that follows has not arrived yet.
     Pending,
-    /// La selezione fatta dal Cmd+A, con le righe ai suoi capi.
+    /// The selection made by Cmd+A, with the rows at its ends.
     All(Ends),
 }
 
-/// I capi di una selezione: per la prima e l'ultima riga toccate, l'id del blocco e i byte
-/// selezionati del suo testo; e se la selezione è arrivata troncata al tetto di copia di Rune
-/// (allora l'ultima riga non è la fine).
+/// The ends of a selection: for the first and last rows touched, the block id and the
+/// selected bytes of its text; and whether the selection arrived truncated at Rune's copy cap
+/// (then the last row is not the end).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Ends {
     pub first: End,
@@ -37,8 +37,8 @@ pub struct End {
 }
 
 impl End {
-    /// Lo stesso capo di `was`: stessa riga, e il testo intero o selezionato come allora (un
-    /// ricaricamento può allungare il blocco sotto una selezione che non è cambiata).
+    /// The same end as `was`: same row, and the whole or selected text as then (a
+    /// reload can lengthen the block under a selection that has not changed).
     pub fn holds(&self, was: &End) -> bool {
         self.row == was.row && (self.whole || self.range == was.range)
     }

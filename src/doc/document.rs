@@ -1,4 +1,4 @@
-//! Il documento aperto: blocchi con id stabili tra una lettura e l'altra.
+//! The open document: blocks with ids stable from one read to the next.
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -20,35 +20,35 @@ pub struct Change {
     pub added: Vec<u64>,
     pub changed: Vec<u64>,
     pub removed: Vec<u64>,
-    /// Il punto dell'ultima modifica, per il caret "sta scrivendo" (`live::caret::locate`).
+    /// The point of the last edit, for the "is writing" caret (`live::caret::locate`).
     pub at: Option<crate::live::caret::At>,
 }
 
-/// Il prossimo id di documento: uno solo per tutta l'app, mai riusato.
+/// The next document id: a single one for the whole app, never reused.
 static NEXT_DOC: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Debug)]
 pub struct Document {
-    /// Unico nell'app: ogni `Document` letto ne prende uno nuovo, anche lo stesso file riaperto.
-    /// Le chiavi delle righe lo usano (due schede non condividono le altezze misurate da Rune) e
-    /// `commit` rifiuta un aggiornamento preparato per un altro documento.
+    /// Unique in the app: every `Document` read takes a new one, even the same file reopened.
+    /// Row keys use it (two tabs do not share the heights Rune measured) and
+    /// `commit` rejects an update prepared for another document.
     pub id: u64,
     pub path: PathBuf,
     pub revision: u64,
     pub blocks: Vec<Block>,
     pub file_hash: u64,
-    /// Le note a piè di pagina dei blocchi (`doc::footnotes`), rifatte a ogni revisione.
+    /// The footnotes of the blocks (`doc::footnotes`), redone at every revision.
     pub notes: Arc<super::footnotes::Notes>,
-    /// L'avanzamento ("2 di 4") dei titoli `Task N` per id del blocco (`doc::labels::progress`),
-    /// rifatto a ogni revisione.
+    /// The progress ("2 of 4") of the `Task N` headings by block id (`doc::labels::progress`),
+    /// redone at every revision.
     pub tasks: Arc<std::collections::HashMap<u64, (u32, u32)>>,
-    /// Se la selezione corrente è un Cmd+A (`ui::doc_view`); condiviso con le closure della vista.
+    /// Whether the current selection is a Cmd+A (`ui::doc_view`); shared with the view's closures.
     pub select_all: Arc<SelectAllFlag>,
     next_id: u64,
 }
 
 impl Document {
-    /// Legge il file; i byte non UTF-8 diventano U+FFFD.
+    /// Reads the file; non-UTF-8 bytes become U+FFFD.
     pub fn load(path: &Path) -> io::Result<Document> {
         let (source, _) = super::disk::read_lossy(path)?;
         Ok(Self::from_source(path, &source))
@@ -79,16 +79,16 @@ impl Document {
     }
 
     pub fn update(&mut self, source: &str) -> Change {
-        self.commit(self.snapshot().prepare(source)).expect("preparato dalla revisione corrente")
+        self.commit(self.snapshot().prepare(source)).expect("prepared from the current revision")
     }
 
-    /// Quanto serve per preparare un aggiornamento su un altro thread (`Snapshot::prepare`).
+    /// What it takes to prepare an update on another thread (`Snapshot::prepare`).
     pub fn snapshot(&self) -> Snapshot {
         Snapshot { doc: self.id, revision: self.revision, file_hash: self.file_hash, blocks: self.blocks.clone(), next_id: self.next_id }
     }
 
-    /// Applica un aggiornamento preparato. `None` se il documento è cambiato dopo lo snapshot
-    /// (il chiamante rilegge) o se è stato preparato per un altro documento.
+    /// Applies a prepared update. `None` if the document changed after the snapshot
+    /// (the caller reads again) or if it was prepared for another document.
     pub fn commit(&mut self, p: Prepared) -> Option<Change> {
         if p.doc != self.id || p.revision != self.revision {
             return None;
@@ -103,11 +103,11 @@ impl Document {
     }
 }
 
-/// I blocchi di un `Document` a una revisione; si sposta su un altro thread (`Block.source` è
+/// The blocks of a `Document` at a revision; it moves to another thread (`Block.source` is
 /// `Arc<str>`).
 #[derive(Debug, Clone)]
 pub struct Snapshot {
-    /// L'id del `Document` da cui viene.
+    /// The id of the `Document` it comes from.
     doc: u64,
     revision: u64,
     pub file_hash: u64,
@@ -116,13 +116,13 @@ pub struct Snapshot {
 }
 
 impl Snapshot {
-    /// La lunghezza del sorgente dei blocchi (senza le righe vuote tra un blocco e l'altro).
+    /// The length of the blocks' source (without the empty lines between one block and the next).
     pub fn source_len(&self) -> usize {
         self.blocks.iter().map(|b| b.source.len()).sum()
     }
 
-    /// Il lavoro di `Document::update` che non tocca il documento: divisione in blocchi, hash e
-    /// diff con id stabili, e il punto dell'ultima modifica.
+    /// The work of `Document::update` that does not touch the document: splitting into blocks, hashes and
+    /// diff with stable ids, and the point of the last edit.
     pub fn prepare(&self, source: &str) -> Prepared {
         let mut next_id = self.next_id;
         let (blocks, mut change) = ids::assign(&self.blocks, ids::hash_sources(blocks::split(source)), &mut next_id);
@@ -131,7 +131,7 @@ impl Snapshot {
     }
 }
 
-/// Un aggiornamento pronto per `Document::commit`.
+/// An update ready for `Document::commit`.
 #[derive(Debug)]
 pub struct Prepared {
     doc: u64,
@@ -146,15 +146,15 @@ pub struct Prepared {
 mod tests {
     use super::*;
 
-    /// Una ricarica preparata per la scheda A non entra mai nella scheda B, anche con la stessa
-    /// revisione e lo stesso percorso (una scheda chiusa e un'altra aperta sullo stesso file).
+    /// A reload prepared for tab A never enters tab B, even with the same
+    /// revision and the same path (a tab closed and another opened on the same file).
     #[test]
     fn a_reload_prepared_for_another_document_is_refused() {
         let p = Path::new("/r/a.md");
         let a = Document::from_source(p, "# a\n");
         let mut b = Document::from_source(p, "# a\n");
-        assert_ne!(a.id, b.id, "id unici");
-        let prepared = a.snapshot().prepare("# a\n\nnuovo\n");
+        assert_ne!(a.id, b.id, "unique ids");
+        let prepared = a.snapshot().prepare("# a\n\nfresh\n");
         assert!(b.commit(prepared).is_none());
         assert_eq!(b.revision, 0);
     }

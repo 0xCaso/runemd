@@ -1,28 +1,28 @@
-//! Le note a piè di pagina (`[^1]` nel testo, `[^1]: …` in un blocco a sé). Il kit non le accende:
-//! la vista mette al posto del riferimento il numero in alto (cifre in apice, in ordine di primo
-//! riferimento, come GitHub), non disegna i blocchi delle definizioni dove sono e le elenca in
-//! fondo al file. Un riferimento senza definizione resta com'è scritto. Il sorgente non cambia.
+//! Footnotes (`[^1]` in the text, `[^1]: …` in a block of their own). The kit does not turn them on:
+//! the view puts the raised number in place of the reference (superscript digits, in order of first
+//! reference, like GitHub), does not draw the definition blocks where they are and lists them at
+//! the end of the file. A reference without a definition stays as written. The source does not change.
 
 use std::collections::HashMap;
 use std::ops::Range;
 
-/// L'id del blocco delle note in fondo (`Notes::block`).
+/// The id of the notes block at the end (`Notes::block`).
 pub const BLOCK_ID: u64 = u64::MAX;
 
-/// La chiave della colonna delle note in fondo, che fa anche da riga per i segni di Cerca.
+/// The key of the notes column at the end, which also acts as a row for the Find marks.
 pub const KEY: &str = "footnotes";
 
-/// Le note di un documento.
+/// The notes of a document.
 #[derive(Debug, Default, PartialEq)]
 pub struct Notes {
-    /// Il numero di ogni etichetta che ha una definizione e almeno un riferimento.
+    /// The number of every label that has a definition and at least one reference.
     numbers: HashMap<String, usize>,
-    /// Il testo delle note, nell'ordine dei numeri (la prima è la 1).
+    /// The text of the notes, in number order (the first is 1).
     pub list: Vec<String>,
 }
 
 impl Notes {
-    /// Le note dei blocchi `sources`, in ordine.
+    /// The notes of the blocks `sources`, in order.
     pub fn of<'a>(sources: impl Iterator<Item = &'a str> + Clone) -> Notes {
         if !sources.clone().any(|s| s.contains("[^")) {
             return Notes::default();
@@ -51,9 +51,9 @@ impl Notes {
         self.list.is_empty()
     }
 
-    /// Le note come si disegnano in fondo al file (una lista numerata), in un blocco con un id che
-    /// nessun blocco del documento ha: Cerca le trova lì e la vista ci mette i segni. `None` se non
-    /// ce ne sono.
+    /// The notes as they are drawn at the end of the file (a numbered list), in a block with an id that
+    /// no block of the document has: Find finds them there and the view puts the marks there. `None` if there
+    /// are none.
     pub fn block(&self) -> Option<super::document::Block> {
         if self.is_empty() {
             return None;
@@ -62,8 +62,8 @@ impl Notes {
         Some(super::document::Block { id: BLOCK_ID, hash: super::ids::hash_str(&source), source: source.into() })
     }
 
-    /// `source` con i numeri in apice al posto dei riferimenti che hanno una nota. `None` se non
-    /// ce n'è nessuno.
+    /// `source` with superscript numbers in place of the references that have a note. `None` if
+    /// there are none.
     pub fn shown(&self, source: &str) -> Option<Edited> {
         if self.is_empty() {
             return None;
@@ -73,7 +73,7 @@ impl Notes {
     }
 }
 
-/// Un testo con dei tratti del sorgente sostituiti.
+/// A text with some stretches of the source replaced.
 #[derive(Debug, PartialEq)]
 pub struct Edited {
     pub text: String,
@@ -93,8 +93,8 @@ impl Edited {
         Edited { text, edits }
     }
 
-    /// `r`, un intervallo del sorgente, nel testo: ciò che cade dentro un tratto sostituito
-    /// prende tutta la sostituzione.
+    /// `r`, a range of the source, in the text: what falls inside a replaced stretch
+    /// takes the whole replacement.
     pub fn map(&self, r: &Range<usize>) -> Range<usize> {
         let at = |o: usize, end: bool| {
             let mut shift = 0isize;
@@ -114,13 +114,13 @@ impl Edited {
     }
 }
 
-/// `n` in cifre in apice.
+/// `n` in superscript digits.
 fn superscript(n: usize) -> String {
     n.to_string().chars().map(|c| ['⁰', '¹', '²', '³', '⁴', '⁵', '⁶', '⁷', '⁸', '⁹'][c as usize - '0' as usize]).collect()
 }
 
-/// Se il blocco è fatto di definizioni (`[^etichetta]: testo`, con le righe che seguono), le sue
-/// note: (etichetta, testo).
+/// If the block is made of definitions (`[^label]: text`, with the lines that follow), its
+/// notes: (label, text).
 pub fn definitions(source: &str) -> Option<Vec<(String, String)>> {
     let mut out: Vec<(String, String)> = Vec::new();
     for line in source.lines() {
@@ -139,7 +139,7 @@ pub fn definitions(source: &str) -> Option<Vec<(String, String)>> {
     (!out.is_empty()).then_some(out)
 }
 
-/// `[^etichetta]:` all'inizio di `t`: l'etichetta e il resto.
+/// `[^label]:` at the start of `t`: the label and the rest.
 fn def_head(t: &str) -> Option<(&str, &str)> {
     let rest = t.strip_prefix("[^")?;
     let end = rest.find(']')?;
@@ -152,7 +152,7 @@ fn valid(label: &str) -> bool {
     !label.is_empty() && !label.contains(|c: char| c.is_whitespace() || c == '[' || c == '^')
 }
 
-/// I riferimenti `[^etichetta]` di un blocco, fuori dal codice: (dove, etichetta).
+/// The `[^label]` references of a block, outside code: (where, label).
 fn references(source: &str) -> Vec<(Range<usize>, &str)> {
     let first = source.trim_start_matches([' ', '\n']);
     if first.starts_with("```") || first.starts_with("~~~") || source.starts_with("    ") || source.starts_with('\t') || !source.contains("[^") {
@@ -186,18 +186,18 @@ fn references(source: &str) -> Vec<(Range<usize>, &str)> {
 mod tests {
     use super::*;
 
-    const DOC: [&str; 4] = ["Prima[^b] e poi[^a], ancora[^b], e[^manca].", "[^a]: Nota A.\n[^b]: Nota B\n  su due righe.", "`[^a]` in codice", "```\n[^a]\n```"];
+    const DOC: [&str; 4] = ["First[^b] and now[^a], again[^b], so[^missing].", "[^a]: Note A.\n[^b]: Note B\n  on two lines.", "`[^a]` in code", "```\n[^a]\n```"];
 
     #[test]
     fn notes_are_numbered_by_first_reference() {
         let n = Notes::of(DOC.iter().copied());
-        assert_eq!(n.list, ["Nota B su due righe.", "Nota A."]);
-        assert_eq!(n.shown(DOC[0]).unwrap().text, "Prima¹ e poi², ancora¹, e[^manca].");
-        assert_eq!(n.shown(DOC[2]), None, "in codice resta");
+        assert_eq!(n.list, ["Note B on two lines.", "Note A."]);
+        assert_eq!(n.shown(DOC[0]).unwrap().text, "First¹ and now², again¹, so[^missing].");
+        assert_eq!(n.shown(DOC[2]), None, "in code it stays");
         assert_eq!(n.shown(DOC[3]), None);
         assert!(definitions(DOC[1]).is_some());
         assert!(definitions(DOC[0]).is_none());
-        assert_eq!(Notes::of(["niente note"].into_iter()), Notes::default());
+        assert_eq!(Notes::of(["no notes"].into_iter()), Notes::default());
         assert_eq!(superscript(12), "¹²");
     }
 
@@ -206,10 +206,10 @@ mod tests {
         let n = Notes::of(DOC.iter().copied());
         let e = n.shown(DOC[0]).unwrap();
         let src = DOC[0];
-        let r = src.find("poi").unwrap()..src.find("poi").unwrap() + 3;
-        assert_eq!(&e.text[e.map(&r)], "poi");
-        let r = src.find("ancora").unwrap()..src.len();
-        assert_eq!(&e.text[e.map(&r)], "ancora¹, e[^manca].");
-        assert_eq!(&e.text[e.map(&(5..9))], "¹", "dentro il riferimento");
+        let r = src.find("now").unwrap()..src.find("now").unwrap() + 3;
+        assert_eq!(&e.text[e.map(&r)], "now");
+        let r = src.find("again").unwrap()..src.len();
+        assert_eq!(&e.text[e.map(&r)], "again¹, so[^missing].");
+        assert_eq!(&e.text[e.map(&(5..9))], "¹", "inside the reference");
     }
 }
