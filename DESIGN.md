@@ -244,6 +244,8 @@ linee solo decorative e i riempimenti. I test falliscono se un minimo non è ris
 | Pulsante ↔ della larghezza (`fg-2`) su panel + `sel` (hover, popover aperto) | — | 8,30 | — | 9,38 | 3 |
 | Popover della larghezza: titolo (`fg-2`) e valore (`fg`) su panel | — | 11,19 / 16,89 | — | 10,71 / 17,07 | 4,5 |
 | Popover della larghezza: scorciatoie e binario (`fg-3`) su panel | — | 7,88 | — | 7,34 | 4,5 |
+| Pulsante ⌘ delle scorciatoie (`fg-2`) su panel / panel + `sel` | — | 11,19 / 8,30 | — | 10,71 / 9,38 | 3 |
+| Popover delle scorciatoie: righe, tasti (`fg-2`) e gruppi (`fg-3`) su panel | — | 11,19 / 7,88 | — | 10,71 / 7,34 | 4,5 |
 | `line` su panel (linee decorative) | 1,19 | 1,44 | 1,22 | 1,22 | — |
 | `line` su vetro (bordo dei campi) | 1,28 | 1,52 | 1,21 | 1,19 | — |
 | `sel` su panel | 1,23 | 1,35 | 1,14 | 1,14 | — |
@@ -386,6 +388,14 @@ impostazioni e "⌘⌥+ e ⌘⌥− un passo alla volta" (12 in `fg-3`). Il valo
 impostazioni e scorciatoie lo cambiano insieme e si salva. Esc, un clic fuori o il pulsante lo chiudono.
 ⌘⌥+ (anche ⌘⌥=) e ⌘⌥− fanno un passo anche col popover chiuso. Contrasto: glifo 11,19 / 10,71 su panel e
 8,30 / 9,38 su `sel`; scorciatoie 7,88 / 7,34.
+
+**Scorciatoie (pulsante ⌘).** Subito a sinistra di ↔, uguale a lui: 28 × 28, glifo "⌘" 15 in `fg-2`, hover
+`sel`, `sel` pieno col popover aperto, tooltip ed etichetta "Scorciatoie" (anche ↔ ha il suo tooltip, "Larghezza
+del testo"). Un clic apre sotto il pulsante il popover della larghezza con un altro contenuto: largo 300, margini
+12 / 14, "Scorciatoie" (13 in `fg-2`), i gruppi File, Schede, Lettura, App (12 peso 500 in `fg-3`) e righe da 24
+con l'azione (13 in `fg-2`) e i tasti a destra (11,5 in `fg-2`, bordo `line` 0,5, raggio 4). Esc, un clic fuori o
+il pulsante lo chiudono; aprire ⌘ chiude ↔ e viceversa. L'elenco è `ui::shortcuts::GROUPS`
+(docs/decisions/2026-11-15-scorciatoie-popover.md).
 
 **Cerca nel file (⌘F).** Solo in lettura. Il campo sta nella barra delle schede, a destra delle schede e prima
 di "⌘E sorgente", così il documento non si sposta: largo 240 (`find-field`), alto 30, raggio 7, riempimento

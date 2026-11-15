@@ -66,13 +66,22 @@ fn width_button(s: &App, theme: &Theme, motion: Motion) -> El {
         .label(super::settings::WIDTH)
         .expanded(s.width_popover)
         .child(glyph)
-        .on_press(|s: &mut App| s.width_popover = !s.width_popover);
+        .help(super::settings::WIDTH)
+        .on_press(toggle_width);
     if s.width_popover {
         b = b.fill(theme.sel);
     } else if motion.hover {
         b = b.hover(theme.sel);
     }
     b
+}
+
+/// Apre o chiude il popover della larghezza; aprendolo chiude quello delle scorciatoie.
+pub fn toggle_width(s: &mut App) {
+    s.width_popover = !s.width_popover;
+    if s.width_popover {
+        s.keys_popover = false;
+    }
 }
 
 /// Il popover della larghezza, da montare alla radice dopo la barra: un fondo trasparente che
@@ -119,7 +128,7 @@ pub fn view(s: &App, hooks: Hooks<App>, theme: &Theme, reduced: bool, hover: boo
     if s.find.open {
         bar = bar.child(super::find::field(s, theme).mr(ROW_GAP));
     }
-    let bar = bar.child(width_button(s, theme, motion)).child(key);
+    let bar = bar.child(super::shortcuts::button(s, theme, motion)).child(width_button(s, theme, motion)).child(key);
     rune::col().w_full().child(bar).child(el().key("tab-bar-line").w_full().h(HAIRLINE).fill(theme.line))
 }
 

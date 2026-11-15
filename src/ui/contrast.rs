@@ -122,6 +122,13 @@ pub fn rows(t: &Theme, rings: &Rings, glass: Color) -> Vec<Row> {
         row("popover della larghezza: valore (fg) su panel", t.fg, panel, 4.5),
         row("popover della larghezza: scorciatoie (fg3) su panel", t.fg3, panel, 4.5),
         row("popover della larghezza: binario (fg3) su panel", t.fg3, panel, mark),
+        // Scorciatoie (pulsante ⌘ e popover, `ui::shortcuts`), sul pannello.
+        row("pulsante ⌘ delle scorciatoie (fg2) su panel", t.fg2, panel, mark),
+        row("pulsante ⌘ delle scorciatoie (fg2) su panel + sel (hover, popover aperto)", t.fg2, panel_sel, mark),
+        row("popover delle scorciatoie: titolo e righe (fg2) su panel", t.fg2, panel, 4.5),
+        row("popover delle scorciatoie: gruppi (fg3) su panel", t.fg3, panel, 4.5),
+        row("popover delle scorciatoie: tasti (fg2) su panel", t.fg2, panel, 4.5),
+        row("popover delle scorciatoie: bordo dei tasti (line) su panel, decorativo", t.line, panel, 1.0),
         row("line su panel (linee decorative)", t.line, panel, 1.0),
         row("line su vetro (bordo campi, decorativo)", t.line, glass, 1.0),
         row("sel su panel (selezione, hover)", t.sel, panel, 1.0),

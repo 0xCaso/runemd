@@ -169,6 +169,7 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
     let tint = el().key("glass-tint").pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0)).fill(theme.glass);
     rune::row().key("app").on_layout_tx(width).w_full().h_full().system_material(rune::SystemMaterial::Glass).fill(theme.glass_fallback()).child(tint).child(sidebar).child(main).child(sidebar_edge)
         .children(ui::tabs::width_popover(s, &theme))
+        .children(ui::shortcuts::popover(s, &theme))
         .on_window_focus(|s: &mut App, focused, _| s.window_active = focused)
 }
 
@@ -252,10 +253,11 @@ fn on_key(s: &mut App, key: &rune::KeyEvent, tx: &mut Tx) -> bool {
         s.toggle_settings();
         return true;
     }
-    // Esc chiude prima il popover della larghezza, poi le impostazioni.
+    // Esc chiude prima il popover della larghezza o delle scorciatoie, poi le impostazioni.
     let esc = matches!(key.key, rune::Key::Escape) && !key.mods.cmd && !key.mods.shift && !key.mods.alt && !key.mods.ctrl;
-    if esc && s.width_popover {
+    if esc && (s.width_popover || s.keys_popover) {
         s.width_popover = false;
+        s.keys_popover = false;
         return true;
     }
     if esc && s.settings_panel.close() {
