@@ -843,6 +843,7 @@ impl App {
     /// At startup: the recovery copies written at the last quit open in a tab.
     pub fn open_recovered(&mut self) {
         let Some(dir) = self.recovery.as_deref() else { return };
+        edit::recovery::migrate(dir);
         let copies = edit::recovery::take_pending(dir);
         self.open_paths(copies);
     }
@@ -1897,7 +1898,7 @@ mod tests {
     fn quitting_with_a_conflict_keeps_a_recovery_copy() {
         let (_dir, p) = files(&["a.md"]);
         let support = tempfile::tempdir().unwrap();
-        let rec = support.path().join("Recuperati");
+        let rec = support.path().join("Recovered");
         let mut app = empty_app();
         app.recovery = Some(rec.clone());
         app.open_paths(p.clone());
@@ -1910,7 +1911,7 @@ mod tests {
         assert_eq!(found.len(), 1, "only one copy: {found:?}");
         assert_eq!(fs::read_to_string(&found[0]).unwrap(), "# a.md\n\nmine\n", "the exact text");
         let name = found[0].file_name().unwrap().to_string_lossy().into_owned();
-        assert!(name.starts_with("a-") && name.len() == "a-AAAAMMGG-HHMMSS.md".len(), "{name}");
+        assert!(name.starts_with("a-") && name.len() == "a-YYYYMMDD-HHMMSS.md".len(), "{name}");
         // The next startup: the copy opens in a tab and stays on disk.
         let mut next = empty_app();
         next.recovery = Some(rec.clone());
@@ -1934,7 +1935,7 @@ mod tests {
             return;
         }
         let support = tempfile::tempdir().unwrap();
-        let rec = support.path().join("Recuperati");
+        let rec = support.path().join("Recovered");
         let mut app = empty_app();
         app.recovery = Some(rec.clone());
         app.open_paths(p.clone());
