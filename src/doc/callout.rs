@@ -19,11 +19,11 @@ impl Kind {
     /// L'etichetta in parole.
     pub fn label(self) -> &'static str {
         match self {
-            Kind::Note => "Nota",
-            Kind::Tip => "Suggerimento",
-            Kind::Important => "Importante",
-            Kind::Warning => "Attenzione",
-            Kind::Caution => "Cautela",
+            Kind::Note => "Note",
+            Kind::Tip => "Tip",
+            Kind::Important => "Important",
+            Kind::Warning => "Warning",
+            Kind::Caution => "Caution",
         }
     }
 }

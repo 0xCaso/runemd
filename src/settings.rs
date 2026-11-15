@@ -22,10 +22,10 @@ pub const DEFAULT_SIZE: f32 = 15.5;
 /// Le dimensioni del corpo fra cui scelgono "−" e "+", pt. Contiene `DEFAULT_SIZE`.
 pub const SIZES: [f32; 7] = [13.0, 14.0, 15.5, 17.0, 18.5, 20.0, 22.0];
 
-/// "Intera": la colonna del testo segue la larghezza del pannello, meno i margini delle righe.
+/// "Full": la colonna del testo segue la larghezza del pannello, meno i margini delle righe.
 pub const COLUMN_FULL: f32 = 0.0;
 /// Le larghezze della colonna del testo fra cui sceglie il cursore "Larghezza del testo", pt:
-/// da 680 (DESIGN.md, `spacing.column`) a passi di 80, l'ultima "Intera".
+/// da 680 (DESIGN.md, `spacing.column`) a passi di 80, l'ultima "Full".
 pub const COLUMNS: [f32; 9] = [680.0, 760.0, 840.0, 920.0, 1000.0, 1080.0, 1160.0, 1240.0, COLUMN_FULL];
 /// La larghezza della colonna di default, pt.
 pub const DEFAULT_COLUMN: f32 = 680.0;
@@ -42,16 +42,16 @@ pub fn column_t(column: f32) -> f32 {
     at as f32 / (COLUMNS.len() - 1) as f32
 }
 
-/// Come il pannello scrive la larghezza: "680 pt", o "Intera".
+/// Come il pannello scrive la larghezza: "680 pt", o "Full".
 pub fn column_label(column: f32) -> String {
     if column == COLUMN_FULL {
-        "Intera".to_owned()
+        "Full".to_owned()
     } else {
         format!("{column:.0} pt")
     }
 }
 
-/// La larghezza massima della colonna: `None` con "Intera".
+/// La larghezza massima della colonna: `None` con "Full".
 pub fn max_width(column: f32) -> Option<f32> {
     (column != COLUMN_FULL).then_some(column)
 }
@@ -99,7 +99,7 @@ pub struct Settings {
     pub fire_speed: f32,
     /// Il colore delle fiamme.
     pub fire_color: FireColor,
-    /// La larghezza della colonna del testo, pt, uno di `COLUMNS` (`COLUMN_FULL` è "Intera").
+    /// La larghezza della colonna del testo, pt, uno di `COLUMNS` (`COLUMN_FULL` è "Full").
     pub column: f32,
     /// La sidebar e l'indice dei titoli: larghezza e larghezze imparate (`panes`).
     pub sidebar: Pane,
@@ -414,7 +414,7 @@ mod tests {
         );
     }
 
-    /// La larghezza del testo: 680 di default, passi da 80 fino a 1240 e poi "Intera" (0).
+    /// La larghezza del testo: 680 di default, passi da 80 fino a 1240 e poi "Full" (0).
     #[test]
     fn text_width_steps_from_680_to_full() {
         let mut s = Settings::default();
@@ -436,7 +436,7 @@ mod tests {
         assert_eq!(column_t(COLUMN_FULL), 1.0);
         assert_eq!(column_t(123.0), 0.0, "fuori passo: il primo");
         assert_eq!(column_label(680.0), "680 pt");
-        assert_eq!(column_label(COLUMN_FULL), "Intera");
+        assert_eq!(column_label(COLUMN_FULL), "Full");
         assert_eq!(max_width(680.0), Some(680.0));
         assert_eq!(max_width(COLUMN_FULL), None);
     }

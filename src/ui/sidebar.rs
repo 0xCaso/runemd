@@ -658,7 +658,7 @@ pub fn view<S: 'static>(s: &S, hooks: Hooks<S>, width: f32, theme: &Theme, reduc
         if let Some(cap) = cap {
             list = list.max_h(cap);
         }
-        side = side.child(section("Recenti", theme)).child(list);
+        side = side.child(section("Recent", theme)).child(list);
     }
     if !sb.folders.is_empty() {
         // Niente etichetta: le radici sono i titoli dei loro alberi, sotto una linea.
@@ -682,7 +682,7 @@ fn no_access<S: 'static>(sb: &Sidebar, hooks: Hooks<S>, theme: &Theme, motion: M
         .h(ROW)
         .px(ROW_PAD)
         .center_y()
-        .child(text("Apri Impostazioni di Sistema").font(small_font()).color(row_meta(theme)).truncate().shrink().min_w(0.0))
+        .child(text("Open System Settings").font(small_font()).color(row_meta(theme)).truncate().shrink().min_w(0.0))
         .on_press_tx(|_: &mut S, _: &mut Tx| {
             if let Err(e) = std::process::Command::new("open").arg(PRIVACY_URL).spawn() {
                 eprintln!("runemd: Impostazioni di Sistema non aperte: {e}");
@@ -692,7 +692,7 @@ fn no_access<S: 'static>(sb: &Sidebar, hooks: Hooks<S>, theme: &Theme, motion: M
     col()
         .key("no-access")
         .w_full()
-        .child(text("Nessun accesso a Desktop").font(ui_font()).color(theme.fg).px(ROW_PAD).pt(SECTION_PAD_BOTTOM).pb(SECTION_PAD_BOTTOM))
+        .child(text("No access to Desktop").font(ui_font()).color(theme.fg).px(ROW_PAD).pt(SECTION_PAD_BOTTOM).pb(SECTION_PAD_BOTTOM))
         .child(link)
 }
 
@@ -829,7 +829,7 @@ fn folder_row<S: 'static>(s: &S, hooks: Hooks<S>, k: usize, width: f32, theme: &
         .child(el().grow(1.0).min_w(0.0));
     let hovered = motion.hover && sb.hover_folder.as_ref() == Some(&f.root);
     if f.saved && hovered {
-        e = e.child(chip("Togli", format!("folder-remove-{k}"), f.root.clone(), hooks.unsave, theme));
+        e = e.child(chip("Remove", format!("folder-remove-{k}"), f.root.clone(), hooks.unsave, theme));
     } else if let Some(b) = &f.branch {
         let line = row()
             .gap(BRANCH_GAP)
@@ -841,7 +841,7 @@ fn folder_row<S: 'static>(s: &S, hooks: Hooks<S>, k: usize, width: f32, theme: &
         e = e.child(line);
     }
     if !f.saved {
-        e = e.child(chip("Salva", format!("folder-save-{k}"), f.root.clone(), hooks.save, theme));
+        e = e.child(chip("Save", format!("folder-save-{k}"), f.root.clone(), hooks.save, theme));
     }
     let root = f.root.clone();
     let e = e
@@ -862,10 +862,10 @@ fn add_folder<S: 'static>(sb: &Sidebar, hooks: Hooks<S>, theme: &Theme, motion: 
         .gap(ROW_GAP)
         .center_y()
         .child(icon(&PLUS_ICON, ICON).color(theme.fg3))
-        .child(text("Aggiungi cartella").font(ui_font()).color(row_meta(theme)).truncate().shrink().min_w(0.0))
+        .child(text("Add folder").font(ui_font()).color(row_meta(theme)).truncate().shrink().min_w(0.0))
         .on_press_tx(move |_: &mut S, tx: &mut Tx| {
             let directory = std::env::var_os("HOME").map(PathBuf::from);
-            tx.open_folder(rune::FileDialogOptions { title: "Aggiungi cartella".into(), directory, ..Default::default() }, move |s: &mut S, result, _: &mut Tx| match result {
+            tx.open_folder(rune::FileDialogOptions { title: "Add folder".into(), directory, ..Default::default() }, move |s: &mut S, result, _: &mut Tx| match result {
                 Ok(Some(path)) => (hooks.save)(s, path),
                 Ok(None) => {}
                 Err(e) => eprintln!("runemd: dialogo della cartella: {e}"),
@@ -1317,7 +1317,7 @@ mod tests {
     fn one_label_wake_per_change() {
         let mut sb = Sidebar { recent: vec![RecentRow { path: PathBuf::from("/a.md"), name: "a.md".into(), qualifier: None, mtime: at(0) }], ..Sidebar::default() };
         assert!(sb.tick(at(30)));
-        assert_eq!(sb.labels, ["ora"]);
+        assert_eq!(sb.labels, ["now"]);
         let wake = sb.label_wake(at(30), 100.0).expect("al minuto");
         assert_eq!(wake, Duration::from_secs(30) + Duration::from_millis(1));
         assert_eq!(sb.label_wake(at(31), 101.0), None, "un poll in mezzo");

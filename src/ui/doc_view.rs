@@ -1,9 +1,9 @@
-//! La colonna del documento: un blocco top-level per riga di `virtual_rows` dentro uno scroll.
+//! The document column: one top-level block per `virtual_rows` row inside a scroll.
 //!
-//! Le righe hanno la chiave dell'id del blocco, non dell'indice: quando il file cambia,
-//! Rune tiene ferma la riga in cima alla vista per chiave (`virtual_rows`: "inserting or
-//! prepending rows keeps the reader's row in place"); se quel blocco sparisce, l'ancora passa al
-//! primo blocco successivo che esiste ancora (`VirtualList::set_keys` → `first_visible`).
+//! Rows are keyed by the block id, not the index: when the file changes,
+//! Rune keeps the row at the top of the view still by key (`virtual_rows`: "inserting or
+//! prepending rows keeps the reader's row in place"); if that block disappears, the anchor moves to the
+//! first following block that still exists (`VirtualList::set_keys` → `first_visible`).
 
 use std::borrow::Cow;
 use std::collections::HashSet;
@@ -19,78 +19,78 @@ use crate::doc::select_all::{End, Ends, SelectAll, SelectAllFlag};
 
 use super::theme::{CHANGED_MARK_W, CHANGED_MARK_X, R_ROW, ROW_PAD_X, ROW_PAD_Y, UI_SMALL, UI_WEIGHT};
 
-/// Altezza dello spazio sotto l'ultima riga (il fuoco a riposo ci sta sotto).
+/// Height of the space below the last row (the resting fire sits under it).
 pub(crate) const BOTTOM: f32 = 48.0;
-/// Spazio sopra la prima riga (anche il sorgente parte da qui).
+/// Space above the first row (the source starts here too).
 pub(super) const TOP: f32 = 24.0;
 
-/// I segnali live dentro la colonna, che non spostano il testo.
+/// The live signals inside the column, which do not move the text.
 pub struct Signals<S> {
-    /// Se il blocco `id` ha il segno "cosa è cambiato" (a sinistra della riga, fuori dal flusso).
+    /// Whether block `id` has the "what changed" mark (left of the row, out of the flow).
     pub marked: fn(&S, u64) -> bool,
-    /// Colore del segno (`theme.mark`).
+    /// Mark color (`theme.mark`).
     pub mark: Color,
-    /// Il caret "sta scrivendo", se acceso: nella riga del blocco modificato, fuori dal flusso.
+    /// The "is writing" caret, if lit: in the row of the modified block, out of the flow.
     pub caret: Option<Caret>,
-    /// I segni di Cerca del blocco, la cui riga ha la chiave data (`ui::find`).
+    /// The block's Find marks, whose row has the given key (`ui::find`).
     pub hits: fn(&S, &Block, &str) -> super::find::Marks,
-    /// Dove sono la vista e la pagina del documento `id` (ognuna dal suo `on_layout`): servono a
-    /// sapere se lo scroll è in fondo. Vero se la vista deve rigirare.
+    /// Where the view and the page of document `id` are (each from its `on_layout`): used to
+    /// know whether the scroll is at the bottom. True if the view must run again.
     pub edge: fn(&mut S, u64, Edge) -> bool,
-    /// I colori del blocco del frontmatter YAML: testo (`fg2`) e riempimento.
+    /// The colors of the YAML frontmatter block: text (`fg2`) and fill.
     pub meta: Meta,
-    /// I font del documento, per misurare dove vanno a capo le parole lunghe (`doc::breaks`).
+    /// The document fonts, to measure where long words break (`doc::breaks`).
     pub fonts: super::markdown_style::Fonts,
-    /// Un clic su un link del documento (destinazione): i percorsi `runemd-open:` aprono il file.
+    /// A click on a document link (destination): `runemd-open:` paths open the file.
     pub open: fn(&mut S, &str, &mut rune::Tx),
-    /// La colonna del testo è larga almeno [`TWO_COLUMNS`]: i blocchi a etichetta vanno su due
-    /// colonne (`label_columns`).
+    /// The text column is at least [`TWO_COLUMNS`] wide: label blocks go on two
+    /// columns (`label_columns`).
     pub columns: bool,
 }
 
-/// Da quanto è larga la colonna del testo (senza i margini delle righe) i blocchi a etichetta
-/// vanno su due colonne (vincolo 4 del record dei registri, mockup t-mix).
+/// From how wide the text column is (without the row margins) label blocks
+/// go on two columns (constraint 4 of the logs record, mockup t-mix).
 pub const TWO_COLUMNS: f32 = 480.0;
 
-/// Il caret "sta scrivendo" (record 2026-11-15-caret-al-punto-modificato): il carattere della
-/// riga a cui si appoggia ha un'evidenziazione trasparente con la chiave [`caret_key`], la riga
-/// la sua chiave di sempre ([`caret_row_key`]); dai loro rect dell'ultimo layout (`Cx::layout`, che lo scroll non
-/// sposta) la vista sa dove metterlo, in `place`. Prima del primo layout non si vede.
+/// The "is writing" caret (record 2026-11-15-caret-at-the-edit-point): the character of the
+/// row it leans on has a transparent highlight with key [`caret_key`], the row
+/// its usual key ([`caret_row_key`]); from their rects in the last layout (`Cx::layout`, which scrolling does not
+/// move) the view knows where to put it, in `place`. Before the first layout it does not show.
 pub struct Caret {
     pub at: crate::live::caret::At,
-    /// `[x, y, h]` nella riga, in pt ([`caret_place`]).
+    /// `[x, y, h]` in the row, in pt ([`caret_place`]).
     pub place: Option<[f32; 3]>,
-    /// L'orologio a cui si è acceso, e il tema e "riduci movimento" del suo slot.
+    /// The clock it lit up at, and the theme and "reduce motion" of its slot.
     pub since: f64,
     pub dark: bool,
     pub reduced: bool,
 }
 
-/// La chiave dell'evidenziazione del carattere del caret nel documento `doc`.
+/// The key of the caret character's highlight in document `doc`.
 pub fn caret_key(doc: u64) -> String {
     format!("caret-{doc:x}")
 }
 
-/// La chiave dell'evidenziazione dell'ultimo carattere del blocco del caret (`At::end`) nel
-/// documento `doc`: se il carattere del caret non ha un rect, il caret va lì.
+/// The key of the highlight of the last character of the caret's block (`At::end`) in
+/// document `doc`: if the caret character has no rect, the caret goes there.
 pub fn caret_end_key(doc: u64) -> String {
     format!("caret-end-{doc:x}")
 }
 
-/// La chiave della riga del blocco `block` nel documento `doc` (quella di [`row_key`]).
+/// The row key of block `block` in document `doc` (the one from [`row_key`]).
 pub fn caret_row_key(doc: u64, block: u64) -> String {
     format!("{doc:x}-{block:x}")
 }
 
-/// Spazio fra il carattere e il caret, pt (mockup: `margin-left: 3px` su una barra di 2).
+/// Space between the character and the caret, pt (mockup: `margin-left: 3px` on a bar of 2).
 const CARET_GAP: f32 = 2.0;
-/// Altezza del caret rispetto alla riga di testo del carattere (mockup: 1,1 em su una riga di
-/// circa 1,5 em).
+/// Caret height relative to the character's text line (mockup: 1.1 em on a line of
+/// about 1.5 em).
 const CARET_LINE: f32 = 0.74;
 
-/// Dove va il caret nella riga, `[x, y, h]` in pt, dal rect `mark` del carattere e `row` della
-/// riga (stessi punti): a destra del carattere, o a sinistra con `Side::Before`; alto quanto la
-/// lettera, al centro della riga di testo.
+/// Where the caret goes in the row, `[x, y, h]` in pt, from the character's `mark` rect and the
+/// row's `row` rect (same points): right of the character, or left with `Side::Before`; as tall as the
+/// letter, centered on the text line.
 pub fn caret_place(mark: [f32; 4], row: [f32; 4], side: crate::live::caret::Side) -> [f32; 3] {
     let x = match side {
         crate::live::caret::Side::After => mark[0] + mark[2] + CARET_GAP,
@@ -100,9 +100,9 @@ pub fn caret_place(mark: [f32; 4], row: [f32; 4], side: crate::live::caret::Side
     [x, mark[1] - row[1] + (mark[3] - h) * 0.5, h]
 }
 
-/// Dove va il caret dai rect dell'ultimo layout: del suo carattere `mark`, dell'ultimo carattere
-/// del blocco `end` e della riga `row`. Senza `mark` (un carattere che non si vede) va dopo `end`,
-/// alla fine del blocco cambiato (record 2026-11-15-caret-al-punto-modificato, vincolo 2).
+/// Where the caret goes from the rects of the last layout: of its character `mark`, of the last character
+/// of block `end` and of row `row`. Without `mark` (a character that does not show) it goes after `end`,
+/// at the end of the changed block (record 2026-11-15-caret-at-the-edit-point, constraint 2).
 pub fn caret_point(mark: Option<[f32; 4]>, end: Option<[f32; 4]>, row: Option<[f32; 4]>, side: crate::live::caret::Side) -> Option<[f32; 3]> {
     let row = row?;
     match mark {
@@ -111,26 +111,26 @@ pub fn caret_point(mark: Option<[f32; 4]>, end: Option<[f32; 4]>, row: Option<[f
     }
 }
 
-/// Il blocco del frontmatter YAML in lettura (DESIGN.md, "Frontmatter"): monospaziato, piccolo,
-/// testo `text` su `fill`, come un blocco di codice ma più quieto; e i colori dei callout.
+/// The YAML frontmatter block in reading (DESIGN.md, "Frontmatter"): monospaced, small,
+/// text `text` on `fill`, like a code block but quieter; and the callout colors.
 #[derive(Clone, Copy, Debug)]
 pub struct Meta {
     pub text: Color,
     pub fill: Color,
-    /// I callout (`doc::callout`): etichetta (`fg`), icona (`fg2`) e linea della citazione.
+    /// Callouts (`doc::callout`): label (`fg`), icon (`fg2`) and quote line.
     pub label: Color,
     pub icon: Color,
     pub rule: Color,
-    /// La linea sopra le note a piè di pagina (`line`).
+    /// The line above the footnotes (`line`).
     pub line: Color,
-    /// Il colore dei titoli 4, 5 e 6 (`body` come i titoli 1–3, `fg2`, `fg3`).
+    /// The color of headings 4, 5 and 6 (`body` like headings 1–3, `fg2`, `fg3`).
     pub headings: [Color; 3],
-    /// I percorsi (`doc::paths`): nome del file (`fg`), cartelle, `:riga` e puntini (`fg3`), linea
-    /// in hover (`fg2`) e fondo in hover (`sel`).
+    /// Paths (`doc::paths`): file name (`fg`), folders, `:line` and dots (`fg3`), line
+    /// on hover (`fg2`) and ground on hover (`sel`).
     pub path: PathColors,
 }
 
-/// I colori dei percorsi nel testo (record 2026-11-16-percorsi-nome-e-link, mockup p-mix).
+/// The colors of paths in the text (record 2026-11-16-paths-name-and-link, mockup p-mix).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PathColors {
     pub name: Color,
@@ -139,45 +139,45 @@ pub struct PathColors {
     pub hover_bg: Color,
 }
 
-/// Un rettangolo della vista del documento, in punti della finestra.
+/// A rectangle of the document view, in window points.
 #[derive(Clone, Copy, Debug)]
 pub enum Edge {
-    /// La vista che scorre (`doc`): cambia solo con la finestra.
+    /// The scrolling view (`doc`): it changes only with the window.
     Viewport([f32; 4]),
-    /// La pagina dentro la vista: si muove a ogni frame di scroll.
+    /// The page inside the view: it moves on every scroll frame.
     Page([f32; 4]),
 }
 
-/// Chiave della riga `i`: id del documento + id del blocco. Gli id dei blocchi ripartono da 1 a
-/// ogni `Document`, l'id del documento no ed è unico nell'app: senza, una scheda o un file
-/// riaperto erediterebbe le altezze misurate di un altro.
+/// Key of row `i`: document id + block id. Block ids restart from 1 in
+/// every `Document`, the document id does not and is unique in the app: without it, a tab or a
+/// reopened file would inherit the measured heights of another.
 pub fn row_key(i: usize, doc: &Document) -> String {
     match doc.blocks.get(i) {
         Some(b) => format!("{:x}-{:x}", doc.id, b.id),
-        // Le closure di `virtual_rows` girano con lo stato di adesso: se il documento è cambiato
-        // dopo l'ultima vista, una chiave unica qualsiasi finché la vista non rigira.
+        // The `virtual_rows` closures run with the current state: if the document changed
+        // after the last view, any unique key until the view runs again.
         None => format!("{:x}-i{i:x}", doc.id),
     }
 }
 
-/// Ciò che dice a Rune se le chiavi delle righe sono cambiate: un altro documento (`id`, anche
-/// se è lo stesso file invariato), un update (`revision`), un altro contenuto a parità di
-/// revisione (`file_hash`).
+/// What tells Rune whether the row keys changed: another document (`id`, even
+/// if it is the same unchanged file), an update (`revision`), other content at the same
+/// revision (`file_hash`).
 pub fn rows_version(doc: &Document) -> (u64, u64, u64) {
     (doc.id, doc.revision, doc.file_hash)
 }
 
-/// La vista scorrevole del documento `doc_of(s)`. Le closure di `virtual_rows` non possono
-/// tenere prestiti: a layout ricevono lo stato della finestra e ritrovano il documento con lo
-/// stesso `doc_of`, così numero di righe, versione, chiavi e contenuto vengono tutti dallo stesso
-/// documento.
+/// The scrolling view of document `doc_of(s)`. The `virtual_rows` closures cannot
+/// hold borrows: at layout they receive the window state and find the document again with the
+/// same `doc_of`, so row count, version, keys and content all come from the same
+/// document.
 ///
-/// Ogni documento ha un elemento suo (chiave `tab-<id>` attorno allo scroll `doc`): una scheda
-/// che torna davanti parte da uno scroll nuovo, non da quello della scheda di prima.
+/// Each document has its own element (key `tab-<id>` around the `doc` scroll): a tab
+/// that comes back to the front starts from a new scroll, not from the previous tab's.
 ///
-/// `on_rows` riceve l'id del documento e gli indici delle righe visibili (`on_visible_rows` di
-/// Rune: `start..end`, righe anche solo in parte nella vista) dopo il primo layout e a ogni loro
-/// cambio; ritorna vero se ha cambiato stato che la vista legge.
+/// `on_rows` receives the document id and the indices of the visible rows (Rune's
+/// `on_visible_rows`: `start..end`, rows even partly in view) after the first layout and on every
+/// change; it returns true if it changed state that the view reads.
 pub fn view<S: 'static>(s: &S, doc_of: fn(&S) -> &Document, style: &MarkdownStyle, column: f32, on_rows: fn(&mut S, u64, Range<usize>) -> bool, signals: Signals<S>) -> El {
     let doc = doc_of(s);
     let generation = doc.id;
@@ -189,7 +189,7 @@ pub fn view<S: 'static>(s: &S, doc_of: fn(&S) -> &Document, style: &MarkdownStyl
     let flag = select_all.clone();
     let order = blocks.clone();
     let places = Arc::new(crate::doc::paths::Places::of(&doc.path));
-    // La colonna è larga al massimo `column` ("Larghezza del testo"; "Intera" segue il pannello).
+    // The column is at most `column` wide ("Text width"; "Full" follows the panel).
     let rows = super::theme::column(col().key("rows").w_full(), column).self_center().selection_group(true)
         .growth(GrowthSpec::default())
         .selection_copy(move |sel| copy_source(sel, generation, &file, &select_all, &blocks))
@@ -200,7 +200,7 @@ pub fn view<S: 'static>(s: &S, doc_of: fn(&S) -> &Document, style: &MarkdownStyl
             move |s: &S, i| Cow::Owned(row_key(i, doc_of(s))),
             move |s: &S, i| match doc_of(s).blocks.get(i) {
                 Some(b) if i == 0 && crate::doc::frontmatter::is_block(&b.source) => frontmatter_row(&b.source, signals.meta),
-                // Le definizioni delle note si disegnano in fondo (`footnotes`).
+                // Footnote definitions are drawn at the bottom (`footnotes`).
                 Some(b) if crate::doc::footnotes::definitions(&b.source).is_some() => el().w_full(),
                 Some(b) => {
                     let doc = doc_of(s);
@@ -225,8 +225,8 @@ pub fn view<S: 'static>(s: &S, doc_of: fn(&S) -> &Document, style: &MarkdownStyl
         .on_visible_rows(move |s: &mut S, rows| on_rows(s, generation, rows));
     let bottom = col().w_full().h(BOTTOM);
     let edge = signals.edge;
-    // Gli `on_layout` dicono solo dove sono vista e pagina: la vista rigira solo se cambia ciò
-    // che mostra (`live_only` altrimenti), non a ogni frame di scroll.
+    // The `on_layout`s only say where view and page are: the view runs again only if what it
+    // shows changes (`live_only` otherwise), not on every scroll frame.
     let page = col().w_full().child(el().h(TOP)).child(rows).children(notes).child(bottom).on_layout_tx(move |s: &mut S, r, tx: &mut rune::Tx| {
         if !edge(s, generation, Edge::Page(r)) {
             tx.live_only();
@@ -240,24 +240,24 @@ pub fn view<S: 'static>(s: &S, doc_of: fn(&S) -> &Document, style: &MarkdownStyl
     el().key(format!("tab-{generation:x}")).w_full().grow(1.0).min_h(0.0).child(scroll)
 }
 
-/// L'etichetta del fuoco: quanti blocchi nuovi ci sono sotto la vista (testo approvato, spec).
+/// The fire label: how many new blocks there are below the view (approved text, spec).
 pub fn fire_label(n: usize) -> String {
-    if n == 1 { "1 paragrafo nuovo più in basso".to_owned() } else { format!("{n} paragrafi nuovi più in basso") }
+    if n == 1 { "1 new paragraph below".to_owned() } else { format!("{n} new paragraphs below") }
 }
 
-/// I tetti della selezione ricostruita fuori vista (rune `MAX_VIRTUAL_COPY_BYTES` e
-/// `MAX_VIRTUAL_COPY_ROWS`, `pub(crate)` in Rune): oltre, `TextSelection` si ferma prima della
-/// fine. Il tetto delle righe conta anche le righe senza testo (`---`).
+/// The caps of the selection rebuilt out of view (rune `MAX_VIRTUAL_COPY_BYTES` and
+/// `MAX_VIRTUAL_COPY_ROWS`, `pub(crate)` in Rune): past them, `TextSelection` stops before the
+/// end. The row cap also counts rows without text (`---`).
 const COPY_CAP_BYTES: usize = 4 * 1024 * 1024;
 const COPY_CAP_ROWS: usize = 10_000;
-/// Il testo troncato può fermarsi poco prima del tetto (righe vuote e prefisso tra due pezzi).
+/// Truncated text can stop a little before the cap (empty rows and the prefix between two pieces).
 const COPY_CAP_SLACK: usize = 1024;
 
-/// Da chiamare con ogni tasto che l'app riceve (`AppSpec::on_key`, prima della selezione di
-/// Rune): un Cmd+A segna che la selezione che ne segue è "tutto il file".
+/// To call with every key the app receives (`AppSpec::on_key`, before Rune's
+/// selection): a Cmd+A marks that the selection that follows is "the whole file".
 ///
-/// Vale solo il tasto che Rune prende per sé: Cmd+A semplice (come `selection_key`: niente Shift,
-/// Option, né Control con Logo) e non ripetuto.
+/// Only the key Rune takes for itself counts: plain Cmd+A (like `selection_key`: no Shift,
+/// Option, nor Control with Logo) and not repeated.
 pub fn note_key(doc: &Document, key: &KeyEvent, repeat: bool) {
     let m = key.mods;
     let plain = m.cmd && !m.shift && !m.alt && !(m.ctrl && m.logo);
@@ -266,7 +266,7 @@ pub fn note_key(doc: &Document, key: &KeyEvent, repeat: bool) {
     }
 }
 
-/// I capi di `sel`; `None` se nessun testo selezionato sta in una riga del documento.
+/// The ends of `sel`; `None` if no selected text is in a document row.
 fn ends(sel: &TextSelection, generation: u64, blocks: &[(u64, Arc<str>)]) -> Option<Ends> {
     let texts: Vec<_> = sel.texts().iter().filter(|t| !t.range().is_empty()).collect();
     let end = |t: &SelectedText| Some(End { row: row_id(t.path(), generation)?, range: t.range(), whole: t.is_whole() });
@@ -280,17 +280,17 @@ fn ends(sel: &TextSelection, generation: u64, blocks: &[(u64, Arc<str>)]) -> Opt
     Some(Ends { first, last, capped })
 }
 
-/// Ogni cambio di selezione. Un Cmd+A in attesa scade al primo cambio che non è di Rune: una
-/// selezione fatta col puntatore (`dragging`) o svuotata. Dopo un Cmd+A la prima selezione vale
-/// "tutto" e se ne ricordano i capi. Rune poi la completa con le righe che ricostruisce, senza
-/// `started` (oltre il tetto di copia la lunghezza oscilla col layout): resta "tutto" finché i
-/// capi tengono ([`End::holds`]). Se la selezione è troncata l'ultima riga vista non è la fine e
-/// non si confronta. Un clic, uno svuotamento, una selezione nuova o con un capo spostato
-/// (Shift+clic) la tolgono.
+/// Every selection change. A pending Cmd+A expires at the first change that is not Rune's: a
+/// selection made with the pointer (`dragging`) or emptied. After a Cmd+A the first selection counts as
+/// "all" and its ends are remembered. Rune then completes it with the rows it rebuilds, without
+/// `started` (past the copy cap the length swings with the layout): it stays "all" as long as the
+/// ends hold ([`End::holds`]). If the selection is truncated the last row seen is not the end and
+/// is not compared. A click, an emptying, a new selection or one with a moved end
+/// (Shift+click) remove it.
 ///
-/// Caso residuo: su una selezione troncata (oltre 4 MiB o 10 000 righe) un Shift+clic che
-/// accorcia la fine senza scendere sotto il tetto non si vede, e Cmd+C copia ancora tutto il
-/// file. Lo fissa `a_shift_trim_after_cmd_a_over_the_copy_cap_still_copies_the_file`.
+/// Leftover case: on a truncated selection (over 4 MiB or 10 000 rows) a Shift+click that
+/// shortens the end without going below the cap does not show, and Cmd+C still copies the whole
+/// file. `a_shift_trim_after_cmd_a_over_the_copy_cap_still_copies_the_file` pins it.
 fn selection_changed(flag: &SelectAllFlag, change: &rune::SelectionChange, generation: u64, blocks: &[(u64, Arc<str>)]) {
     let now = change.selection().filter(|t| !t.text().is_empty()).and_then(|t| ends(t, generation, blocks));
     let next = match (flag.get(), now) {
@@ -306,13 +306,13 @@ fn selection_changed(flag: &SelectAllFlag, change: &rune::SelectionChange, gener
     flag.set(next);
 }
 
-/// Ciò che copiano Cmd+C e il menu Copia: il Markdown sorgente dei blocchi toccati dalla
-/// selezione, uniti da una riga vuota, non il testo disegnato. Le righe fuori vista non hanno
-/// testo in layout, ma Rune le ricostruisce per la selezione e `sel.texts()` le contiene (fino a
-/// 10 000 righe e 4 MiB per copia: oltre, la selezione arriva troncata e senza segno).
+/// What Cmd+C and the Copy menu copy: the Markdown source of the blocks the
+/// selection touches, joined by an empty line, not the drawn text. Rows out of view have no
+/// text in layout, but Rune rebuilds them for the selection and `sel.texts()` contains them (up to
+/// 10 000 rows and 4 MiB per copy: past that, the selection arrives truncated and unmarked).
 ///
-/// Per questo "tutto il file" non si deduce dalla selezione: lo dice il Cmd+A (`select_all`). Allora
-/// si copia il file letto dal disco, che conserva le righe vuote in più tra i blocchi.
+/// That is why "the whole file" is not inferred from the selection: the Cmd+A says it (`select_all`). Then
+/// the file read from disk is copied, which keeps the extra empty lines between blocks.
 fn copy_source(sel: &TextSelection, generation: u64, file: &File, select_all: &SelectAllFlag, blocks: &[(u64, Arc<str>)]) -> Option<String> {
     if matches!(select_all.get(), SelectAll::All(_)) && !blocks.is_empty() {
         return file.read().or_else(|| Some(join(blocks.iter().map(|(_, s)| &**s))));
@@ -327,7 +327,7 @@ fn join<'a>(sources: impl Iterator<Item = &'a str>) -> String {
     sources.collect::<Vec<_>>().join("\n\n")
 }
 
-/// Il file aperto: si rilegge dal disco solo se è ancora quello da cui vengono i blocchi.
+/// The open file: it is read again from disk only if it is still the one the blocks come from.
 #[derive(Clone)]
 struct File {
     path: PathBuf,
@@ -341,15 +341,15 @@ impl File {
     }
 }
 
-/// L'id del blocco nel percorso di un testo: il segmento `<id documento>-<id>` della sua riga.
+/// The block id in a text's path: the `<document id>-<id>` segment of its row.
 fn row_id(path: &str, generation: u64) -> Option<u64> {
     let prefix = format!("{generation:x}-");
     path.split('/').find_map(|seg| u64::from_str_radix(seg.strip_prefix(&prefix)?, 16).ok())
 }
 
-/// Il frontmatter YAML: il testo fra le due righe `---`, così com'è, in un blocco di metadati
-/// (`UI_SMALL` mono in `meta.text` su `meta.fill`, raggio `R_ROW`). Selezionabile come il resto:
-/// la copia dà il sorgente del blocco, `---` compresi.
+/// The YAML frontmatter: the text between the two `---` lines, as it is, in a metadata block
+/// (`UI_SMALL` mono in `meta.text` on `meta.fill`, radius `R_ROW`). Selectable like the rest:
+/// copying gives the block source, `---` included.
 fn frontmatter_row(source: &str, meta: Meta) -> El {
     let body = source.split_once('\n').map_or("", |(_, rest)| rest);
     let body = body.rsplit_once('\n').map_or("", |(yaml, _)| yaml);
@@ -358,17 +358,17 @@ fn frontmatter_row(source: &str, meta: Meta) -> El {
     col().w_full().px(ROW_PAD_X).py(ROW_PAD_Y).child(block)
 }
 
-/// Il margine interno del blocco del frontmatter.
+/// The inner margin of the frontmatter block.
 const FRONTMATTER_PAD_X: f32 = 12.0;
 const FRONTMATTER_PAD_Y: f32 = 10.0;
 
-/// Una riga del documento, con i segni di Cerca `hits`; con `mark` ha il segno "cosa è cambiato"
-/// nel margine sinistro, fuori dal flusso (il testo non si sposta), alto quanto il testo del blocco.
+/// A document row, with the Find marks `hits`; with `mark` it has the "what changed" mark
+/// in the left margin, out of the flow (the text does not move), as tall as the block's text.
 #[allow(clippy::too_many_arguments)]
 fn block_row<S: 'static>(source: &str, style: &MarkdownStyle, notes: &crate::doc::footnotes::Notes, places: &crate::doc::paths::Places, progress: Option<(u32, u32)>, columns: bool, open: fn(&mut S, &str, &mut rune::Tx), fonts: super::markdown_style::Fonts, meta: Meta, mark: Option<Color>, hits: super::find::Marks) -> El {
-    // Un paragrafo a etichetta (registri, piani) tiene i suoi a capo, etichette in grassetto
-    // (`doc::labels`); con la colonna larga, etichette e testo su due colonne. Gli altri
-    // paragrafi restano Markdown standard.
+    // A label paragraph (logs, plans) keeps its line breaks, labels in bold
+    // (`doc::labels`); with a wide column, labels and text on two columns. Other
+    // paragraphs stay standard Markdown.
     let body = match crate::doc::labels::block(source) {
         Some(lines) if columns => label_columns(source, &lines, hits, fonts, |src, hits| block_body(src, style, notes, places, None, open, fonts, meta, hits)),
         Some(lines) => {
@@ -377,7 +377,7 @@ fn block_row<S: 'static>(source: &str, style: &MarkdownStyle, notes: &crate::doc
         }
         None => block_body(source, style, notes, places, progress, open, fonts, meta, hits),
     };
-    // Le righe virtuali vogliono padding interno, non gap tra righe.
+    // Virtual rows want inner padding, not gaps between rows.
     let row = col().w_full().px(ROW_PAD_X).py(ROW_PAD_Y).child(body);
     match mark {
         Some(c) => row.child(el().key("changed").pin(Some(CHANGED_MARK_X), Some(ROW_PAD_Y), None, Some(ROW_PAD_Y)).w(CHANGED_MARK_W).fill(c)),
@@ -385,12 +385,12 @@ fn block_row<S: 'static>(source: &str, style: &MarkdownStyle, notes: &crate::doc
     }
 }
 
-/// I segni di Cerca `hits` con ogni intervallo passato per `f`.
+/// The Find marks `hits` with each range passed through `f`.
 fn remap(hits: super::find::Marks, f: impl Fn(&Range<usize>) -> Range<usize>) -> super::find::Marks {
     hits.into_iter().map(|(ranges, hl)| (ranges.iter().map(&f).collect(), hl)).collect()
 }
 
-/// I segni di Cerca dentro `r` del sorgente, contati da `r.start`.
+/// The Find marks inside `r` of the source, counted from `r.start`.
 fn clip(hits: &super::find::Marks, r: &Range<usize>) -> super::find::Marks {
     hits.iter()
         .filter_map(|(ranges, hl)| {
@@ -400,9 +400,9 @@ fn clip(hits: &super::find::Marks, r: &Range<usize>) -> super::find::Marks {
         .collect()
 }
 
-/// Un blocco a etichetta su due colonne (vincolo 4 del record dei registri, mockup t-mix larga):
-/// a sinistra le etichette in grassetto senza i `:`, larghe quanto la più larga e al massimo
-/// 10 em, a destra il testo, allineati riga per riga; una riga senza etichetta sta a destra.
+/// A label block on two columns (constraint 4 of the logs record, wide mockup t-mix):
+/// on the left the labels in bold without the `:`, as wide as the widest and at most
+/// 10 em, on the right the text, aligned row by row; a row without a label sits on the right.
 fn label_columns(source: &str, lines: &[crate::doc::labels::Line], hits: super::find::Marks, fonts: super::markdown_style::Fonts, body: impl Fn(&str, super::find::Marks) -> El) -> El {
     let bold = TextStyle { weight: LABEL_WEIGHT, ..fonts.body };
     let widest = lines.iter().filter_map(|l| l.name()).map(|r| rune::text::advance(&source[r], bold)).fold(0.0, f32::max);
@@ -421,37 +421,37 @@ fn label_columns(source: &str, lines: &[crate::doc::labels::Line], hits: super::
     }))
 }
 
-/// Peso delle etichette nella colonna (quello del grassetto del documento, `strong_weight`).
+/// Weight of the labels in the column (the document's bold, `strong_weight`).
 const LABEL_WEIGHT: f32 = 620.0;
-/// La colonna delle etichette è larga al massimo 10 em (vincolo 4).
+/// The label column is at most 10 em wide (constraint 4).
 const LABEL_MAX_EM: f32 = 10.0;
-/// Fra etichetta e testo.
+/// Between label and text.
 const LABEL_GAP: f32 = 16.0;
 
-/// Il Markdown di un blocco (o di un suo pezzo) come si disegna, con i segni di Cerca `hits`.
+/// The Markdown of a block (or of a piece of it) as it is drawn, with the Find marks `hits`.
 #[allow(clippy::too_many_arguments)]
 fn block_body<S: 'static>(source: &str, style: &MarkdownStyle, notes: &crate::doc::footnotes::Notes, places: &crate::doc::paths::Places, progress: Option<(u32, u32)>, open: fn(&mut S, &str, &mut rune::Tx), fonts: super::markdown_style::Fonts, meta: Meta, hits: super::find::Marks) -> El {
-    // Un titolo `Task N`: il numero fuori dal Markdown, in `fg3`, e l'avanzamento a destra.
+    // A `Task N` heading: the number outside the Markdown, in `fg3`, and the progress on the right.
     let task = crate::doc::labels::task_head(source);
     let untasked = task.as_ref().map(|t| crate::doc::footnotes::Edited::new(source, vec![(t.hashes.end + 1..t.prefix.end, String::new())]));
     let (source, hits) = match &untasked {
         Some(e) => (e.text.as_str(), hits.into_iter().map(|(ranges, hl)| (ranges.iter().map(|r| e.map(r)).collect(), hl)).collect()),
         None => (source, hits),
     };
-    // Un callout (`> [!NOTE]`) si disegna senza la riga del segno, con l'etichetta sopra.
+    // A callout (`> [!NOTE]`) is drawn without the marker line, with the label above.
     let callout = crate::doc::callout::of(source);
     let (source, hits) = match &callout {
         Some(c) => (c.text.as_str(), hits.into_iter().map(|(ranges, hl)| (ranges.iter().map(|r| c.map(r)).collect(), hl)).collect()),
         None => (source, hits),
     };
-    // Le note a piè di pagina: il numero in apice al posto di `[^1]`.
+    // Footnotes: the number in superscript in place of `[^1]`.
     let numbered = notes.shown(source);
     let (source, hits) = match &numbered {
         Some(e) => (e.text.as_str(), hits.into_iter().map(|(ranges, hl)| (ranges.iter().map(|r| e.map(r)).collect(), hl)).collect()),
         None => (source, hits),
     };
-    // I percorsi: link in monospaziato con il nome del file in grassetto (`doc::paths`); il nome
-    // prende il suo colore da un segno senza fondo, come quelli di Cerca.
+    // Paths: monospaced links with the file name in bold (`doc::paths`); the name
+    // takes its color from a mark without a ground, like the Find ones.
     let linked = crate::doc::paths::shown(source, places);
     let (source, hits) = match &linked {
         Some(sh) => {
@@ -464,8 +464,8 @@ fn block_body<S: 'static>(source: &str, style: &MarkdownStyle, notes: &crate::do
         }
         None => (source, hits),
     };
-    // Le parole lunghe vanno a capo dopo `/ - _ .`, e ovunque solo se più larghe di una riga: il
-    // testo disegnato ha degli U+200B in più, i segni di Cerca si spostano con loro.
+    // Long words break after `/ - _ .`, and anywhere only if wider than a line: the
+    // drawn text has extra U+200Bs, the Find marks move with them.
     let (shown, hits) = match crate::doc::breaks::soft_breaks(source, line_limit, |t, kind| rune::text::advance(t, font_of(&fonts, kind))) {
         Some(b) => {
             let hits = hits.into_iter().map(|(ranges, hl)| (ranges.iter().map(|r| b.map(r)).collect(), hl)).collect();
@@ -473,21 +473,21 @@ fn block_body<S: 'static>(source: &str, style: &MarkdownStyle, notes: &crate::do
         }
         None => (source.to_owned(), hits),
     };
-    // `selectable` fa di ogni blocco un selection_group a sé, che fermerebbe un trascinamento
-    // al bordo del blocco: si toglie il flag e vale il gruppo unico sulle righe.
+    // `selectable` makes each block a selection_group of its own, which would stop a drag
+    // at the block edge: the flag is removed and the single group on the rows applies.
     let level = heading_level(source);
     let style = match level {
         Some(n @ 4..=6) => Cow::Owned(style.clone().heading_font(4, fonts.headings[n as usize - 1]).muted(meta.headings[n as usize - 4])),
         _ => Cow::Borrowed(style),
     };
-    // I percorsi che non esistono sono codice in linea: senza pastiglia se è il solo del blocco.
+    // Paths that do not exist are inline code: without a pill if it is the only one in the block.
     let style = match &linked {
         Some(sh) if sh.bare => Cow::Owned(style.into_owned().inline_code_bg(Color::TRANSPARENT).inline_code_pad(0.0)),
         _ => style,
     };
     let md = rune_kit::Markdown::new(shown).highlights(hits).selectable(true);
     let md = if linked.is_some() { path_links(md, &meta, fonts) } else { md };
-    // Ogni link si apre (`App::open_link`): percorsi, URL e `#titolo`.
+    // Every link opens (`App::open_link`): paths, URLs and `#heading`.
     let md = md.on_link_tx(move |s: &mut S, url, tx| open(s, url, tx));
     let body = md.render(&style).selection_group(false);
     let body = match callout {
@@ -500,30 +500,30 @@ fn block_body<S: 'static>(source: &str, style: &MarkdownStyle, notes: &crate::do
     }
 }
 
-/// Un titolo `Task N` (mockup t-sezioni): il numero nel font del titolo in `fg3` a sinistra, il
-/// titolo, e a destra "2 di 4" dalle caselle del task, piccolo in `fg3`, sulla linea di base della
-/// prima riga: riga alta quanto quella del titolo, abbassata di quanto la base del corpo piccolo
-/// sta più in alto (`BASELINE_EM`).
+/// A `Task N` heading (mockup t-sezioni): the number in the heading font in `fg3` on the left, the
+/// heading, and on the right "2 of 4" from the task's checkboxes, small in `fg3`, on the baseline of the
+/// first line: a row as tall as the heading's, lowered by how much higher the small body's baseline
+/// sits (`BASELINE_EM`).
 fn task_heading(body: El, t: &crate::doc::labels::TaskHead, progress: Option<(u32, u32)>, fonts: super::markdown_style::Fonts, meta: &Meta) -> El {
     let font = fonts.headings[t.level as usize - 1];
     let number = rune::text(t.number.clone()).font(font).color(meta.path.dim).selectable(false);
     let small = super::sidebar::small_font().lh(font.line_height);
     let drop = (BASELINE_EM * (font.size - small.size)).max(0.0);
-    let done = progress.map(|(d, n)| rune::text(format!("{d} di {n}")).font(small).color(meta.path.dim).selectable(false).pt(drop));
+    let done = progress.map(|(d, n)| rune::text(format!("{d} of {n}")).font(small).color(meta.path.dim).selectable(false).pt(drop));
     rune::row().w_full().gap(TASK_GAP).child(number).child(el().grow(1.0).min_w(0.0).child(body)).children(done)
 }
 
-/// Da metà riga alla linea di base, per corpo: (ascendente − discendente) / 2 di Inter (0,969 e
-/// 0,242 per em). Il testo sta al centro della sua riga, quindi due corpi su righe alte uguali
-/// hanno le basi distanti `BASELINE_EM` per la differenza dei corpi.
+/// From mid-line to the baseline, per font size: (ascender − descender) / 2 of Inter (0.969 and
+/// 0.242 per em). The text sits in the middle of its row, so two sizes on rows of equal height
+/// have baselines `BASELINE_EM` apart times the size difference.
 const BASELINE_EM: f32 = 0.363;
 
-/// Fra numero, titolo e avanzamento di un titolo `Task N`.
+/// Between number, heading and progress of a `Task N` heading.
 const TASK_GAP: f32 = 10.0;
 
-/// L'aspetto dei link dei percorsi a file che esistono (mockup p-mix): monospaziato a 13,5 in
-/// `fg3`, sottolineato in `fg3` (il kit non ha la linea a puntini) e in hover fondo `sel`, linea
-/// `fg2` e "Apri in RuneMD". Quelli che non esistono non sono link (`doc::paths::shown`).
+/// The look of path links to files that exist (mockup p-mix): monospaced at 13.5 in
+/// `fg3`, underlined in `fg3` (the kit has no dotted line) and on hover a `sel` ground, a
+/// `fg2` line and "Open in RuneMD". Those that do not exist are not links (`doc::paths::shown`).
 fn path_links(md: rune_kit::Markdown, meta: &Meta, fonts: super::markdown_style::Fonts) -> rune_kit::Markdown {
     use crate::doc::paths::OPEN;
     let c = meta.path;
@@ -539,11 +539,11 @@ fn path_links(md: rune_kit::Markdown, meta: &Meta, fonts: super::markdown_style:
     .link_help(|url| url.starts_with(OPEN).then(|| OPEN_HELP.to_owned()))
 }
 
-/// Il suggerimento sui percorsi che si aprono (mockup p-mix).
-pub const OPEN_HELP: &str = "Apri in RuneMD";
+/// The hint on paths that open (mockup p-mix).
+pub const OPEN_HELP: &str = "Open in RuneMD";
 
-/// Il livello di un blocco che è un titolo ATX (`#` … `######`). Il kit porta i livelli dal 4 in giù
-/// a uno solo, in `muted`: per il loro blocco la vista gli dà il font e il colore del livello vero.
+/// The level of a block that is an ATX heading (`#` … `######`). The kit folds levels from 4 down
+/// into one, in `muted`: for their block the view gives them the font and color of the real level.
 fn heading_level(source: &str) -> Option<u8> {
     match crate::doc::breaks::Kind::of(source) {
         crate::doc::breaks::Kind::Heading(n) if !source.contains('\n') => Some(n),
@@ -551,8 +551,8 @@ fn heading_level(source: &str) -> Option<u8> {
     }
 }
 
-/// Le note a piè di pagina in fondo al file: una linea in `line`, poi le note numerate a 13,5 in
-/// `fg2`, nella colonna del testo, con i segni di Cerca.
+/// The footnotes at the end of the file: a line in `line`, then the numbered notes at 13.5 in
+/// `fg2`, in the text column, with the Find marks.
 fn footnotes(notes: &crate::doc::document::Block, hits: super::find::Marks, style: &MarkdownStyle, fonts: super::markdown_style::Fonts, meta: Meta, column: f32) -> El {
     let size = super::theme::CODE_TEXT * fonts.body.size / super::theme::BODY_TEXT;
     let font = TextStyle { size, line_height: size * super::theme::BODY_LEADING, ..fonts.body };
@@ -561,24 +561,24 @@ fn footnotes(notes: &crate::doc::document::Block, hits: super::find::Marks, styl
     super::theme::column(col().key(crate::doc::footnotes::KEY).w_full(), column).self_center().child(block)
 }
 
-/// Fra la linea e le note.
+/// Between the line and the notes.
 const FOOTNOTES_GAP: f32 = 12.0;
 
-/// L'etichetta di un callout: icona 14 in `fg2` e parola 13/600 in `fg`, sulla linea della
-/// citazione (2 pt, 12 prima del testo, come quella del kit), senza colori (DESIGN.md).
+/// A callout's label: icon 14 in `fg2` and word 13/600 in `fg`, on the quote
+/// line (2 pt, 12 before the text, like the kit's), without colors (DESIGN.md).
 fn callout_head(kind: crate::doc::callout::Kind, meta: &Meta) -> El {
     let label = rune::text(kind.label()).font(TextStyle::new(UI_SMALL, 600.0)).color(meta.label);
     let head = rune::row().gap(CALLOUT_GAP).center_y().pl(QUOTE_PAD).pb(CALLOUT_GAP).child(rune::icon(callout_icon(kind), super::theme::ICON).color(meta.icon)).child(label);
     rune::row().key("callout").w_full().child(el().w(QUOTE_RULE).h_full().radius(QUOTE_RULE / 2.0).fill(meta.rule)).child(head)
 }
 
-/// La linea della citazione del kit e lo spazio prima del testo (`QuoteLook` di Rune Kit).
+/// The kit's quote line and the space before the text (Rune Kit's `QuoteLook`).
 const QUOTE_RULE: f32 = 2.0;
 const QUOTE_PAD: f32 = 12.0;
-/// Fra icona ed etichetta, e sotto l'etichetta.
+/// Between icon and label, and below the label.
 const CALLOUT_GAP: f32 = 6.0;
 
-/// L'icona di un callout, disegnata come quelle del kit (viewBox 16, tratto 1, giunti tondi).
+/// A callout's icon, drawn like the kit's (viewBox 16, stroke 1, round joins).
 fn callout_icon(kind: crate::doc::callout::Kind) -> &'static rune::Icon {
     use crate::doc::callout::Kind;
     match kind {
@@ -590,39 +590,39 @@ fn callout_icon(kind: crate::doc::callout::Kind) -> &'static rune::Icon {
     }
 }
 
-/// Nota: una "i" in un cerchio.
+/// Note: an "i" in a circle.
 static NOTE_ICON: rune::Icon = rune::Icon {
     name: "runemd-note",
     view: 16.0,
     body: r#"<circle cx="8" cy="8" r="6" stroke="currentColor"/><path d="M8 7.2V11" stroke="currentColor" stroke-linecap="round"/><circle cx="8" cy="5.1" r="0.6" fill="currentColor"/>"#,
 };
-/// Suggerimento: una lampadina.
+/// Tip: a light bulb.
 static TIP_ICON: rune::Icon = rune::Icon {
     name: "runemd-tip",
     view: 16.0,
     body: r#"<path d="M6 11.5C6 10 4 9 4 6.5a4 4 0 0 1 8 0C12 9 10 10 10 11.5Z" stroke="currentColor" stroke-linejoin="round"/><path d="M6.3 13.5H9.7" stroke="currentColor" stroke-linecap="round"/>"#,
 };
-/// Importante: un fumetto con "!".
+/// Important: a speech bubble with "!".
 static IMPORTANT_ICON: rune::Icon = rune::Icon {
     name: "runemd-important",
     view: 16.0,
     body: r#"<path d="M3.2 2.5H12.8a1.2 1.2 0 0 1 1.2 1.2V10a1.2 1.2 0 0 1-1.2 1.2H7L4.5 13.5V11.2H3.2A1.2 1.2 0 0 1 2 10V3.7a1.2 1.2 0 0 1 1.2-1.2Z" stroke="currentColor" stroke-linejoin="round"/><path d="M8 4.8V7.6" stroke="currentColor" stroke-linecap="round"/><circle cx="8" cy="9.3" r="0.6" fill="currentColor"/>"#,
 };
-/// Attenzione: un triangolo con "!".
+/// Warning: a triangle with "!".
 static WARNING_ICON: rune::Icon = rune::Icon {
     name: "runemd-warning",
     view: 16.0,
     body: r#"<path d="M7.13 2.5a1 1 0 0 1 1.74 0l5.5 9.75a1 1 0 0 1-.87 1.5H2.5a1 1 0 0 1-.87-1.5Z" stroke="currentColor" stroke-linejoin="round"/><path d="M8 6.2V9" stroke="currentColor" stroke-linecap="round"/><circle cx="8" cy="11.1" r="0.6" fill="currentColor"/>"#,
 };
-/// Cautela: un ottagono con "!".
+/// Caution: an octagon with "!".
 static CAUTION_ICON: rune::Icon = rune::Icon {
     name: "runemd-caution",
     view: 16.0,
     body: r#"<path d="M5.5 2H10.5L14 5.5V10.5L10.5 14H5.5L2 10.5V5.5Z" stroke="currentColor" stroke-linejoin="round"/><path d="M8 5V8.4" stroke="currentColor" stroke-linecap="round"/><circle cx="8" cy="10.6" r="0.6" fill="currentColor"/>"#,
 };
 
-/// La riga del blocco con il caret: il caret fissato al punto, fuori dal flusso, così il testo
-/// non si sposta.
+/// The row of the block with the caret: the caret pinned at the point, out of the flow, so the text
+/// does not move.
 fn caret_row(row: El, c: &Caret) -> El {
     match c.place {
         Some([x, y, h]) => {
@@ -633,9 +633,9 @@ fn caret_row(row: El, c: &Caret) -> El {
     }
 }
 
-/// La riga più stretta che ha un blocco di tipo `kind` con la colonna più stretta (`COLUMN`
-/// meno i margini): un titolo la prende tutta, un paragrafo ne lascia per due livelli di lista,
-/// una cella per tre colonne. Oltre, una parola si spezza ovunque (`doc::breaks`).
+/// The narrowest row a block of kind `kind` has with the narrowest column (`COLUMN`
+/// minus the margins): a heading takes all of it, a paragraph leaves room for two list levels,
+/// a cell for three columns. Past that, a word breaks anywhere (`doc::breaks`).
 fn line_limit(kind: crate::doc::breaks::Kind) -> f32 {
     use crate::doc::breaks::Kind;
     let line = super::theme::COLUMN - 2.0 * ROW_PAD_X;
@@ -646,7 +646,7 @@ fn line_limit(kind: crate::doc::breaks::Kind) -> f32 {
     }
 }
 
-/// Il font di un blocco di tipo `kind`.
+/// The font of a block of kind `kind`.
 fn font_of(fonts: &super::markdown_style::Fonts, kind: crate::doc::breaks::Kind) -> TextStyle {
     use crate::doc::breaks::Kind;
     match kind {
@@ -658,8 +658,8 @@ fn font_of(fonts: &super::markdown_style::Fonts, kind: crate::doc::breaks::Kind)
 
 #[cfg(test)]
 mod tests {
-    //! L'ancora di lettura su un runtime Rune headless: stessa vista dell'app (`crate::view`),
-    //! `Document::update` come lo chiamerà il ricaricamento.
+    //! The reading anchor on a headless Rune runtime: same view as the app (`crate::view`),
+    //! `Document::update` as reloading will call it.
 
     use std::path::Path;
 
@@ -677,9 +677,9 @@ mod tests {
         (0..12 + (n * 7) % 60).map(|k| words[(n + k) % words.len()]).collect::<Vec<_>>().join(" ")
     }
 
-    /// 120 blocchi di altezze diverse: titoli ogni 10, paragrafi lunghi da 12 a 71 parole.
+    /// 120 blocks of different heights: headings every 10, long paragraphs from 12 to 71 words.
     fn sample() -> Vec<String> {
-        (0..120).map(|n| if n % 10 == 0 { format!("## Sezione {n}") } else { format!("{n}. {}", paragraph(n)).replacen(". ", " ", 1) }).collect()
+        (0..120).map(|n| if n % 10 == 0 { format!("## Section {n}") } else { format!("{n}. {}", paragraph(n)).replacen(". ", " ", 1) }).collect()
     }
 
     fn join(blocks: &[String]) -> String {
@@ -690,7 +690,7 @@ mod tests {
         for _ in 0..4000 {
             if !rt.frame(1.0 / 120.0) { return; }
         }
-        panic!("la vista non si ferma");
+        panic!("the view does not settle");
     }
 
     fn open(source: &str) -> Runtime<Doc> {
@@ -713,18 +713,18 @@ mod tests {
         settle(rt);
     }
 
-    /// Il primo blocco visibile (id) e il suo offset dal bordo alto della vista, in pt.
+    /// The first visible block (id) and its offset from the top edge of the view, in pt.
     fn anchor(rt: &Runtime<Doc>) -> (u64, f32) {
         let els = rt.elements();
-        let top = els.iter().find(|e| e.key.as_deref() == Some("doc")).expect("vista doc").rect[1];
+        let top = els.iter().find(|e| e.key.as_deref() == Some("doc")).expect("doc view").rect[1];
         let s = &rt.state;
         let doc = s.active_document();
         let (key, y) = els.iter()
             .filter(|e| !e.exiting && e.rect[1] + e.rect[3] > top + 0.5)
             .filter_map(|e| { let k = e.key.as_deref()?; e.path.ends_with(&format!("rows/{k}")).then_some((k, e.rect[1])) })
             .min_by(|a, b| a.1.total_cmp(&b.1))
-            .expect("nessuna riga visibile");
-        let i = (0..doc.blocks.len()).find(|&i| row_key(i, doc) == key).expect("chiave senza blocco");
+            .expect("no visible row");
+        let i = (0..doc.blocks.len()).find(|&i| row_key(i, doc) == key).expect("key without a block");
         (doc.blocks[i].id, y - top)
     }
 
@@ -747,28 +747,28 @@ mod tests {
         settle(rt);
     }
 
-    /// Apre il campione e scorre a metà, con il bordo alto a metà di un blocco.
+    /// Opens the sample and scrolls to the middle, with the top edge halfway through a block.
     fn reading() -> (Runtime<Doc>, (u64, f32)) {
         let mut rt = open(&join(&sample()));
         scroll_to(&mut rt, 6000.0);
         let a = anchor(&rt);
-        assert!(a.1 < -1.0, "il bordo alto taglia il primo blocco: {a:?}");
+        assert!(a.1 < -1.0, "the top edge cuts the first block: {a:?}");
         (rt, a)
     }
 
     fn assert_still(case: &str, before: (u64, f32), after: (u64, f32)) {
-        eprintln!("{case}: prima {before:?}, dopo {after:?}, scarto {:.2} pt", after.1 - before.1);
-        assert_eq!(before.0, after.0, "{case}: il primo blocco visibile cambia");
+        eprintln!("{case}: before {before:?}, after {after:?}, drift {:.2} pt", after.1 - before.1);
+        assert_eq!(before.0, after.0, "{case}: the first visible block changes");
         assert!((before.1 - after.1).abs() <= 1.0, "{case}: offset {} → {}", before.1, after.1);
     }
 
     #[test]
     fn insert_five_paragraphs_at_top_keeps_reading_position() {
         let (mut rt, before) = reading();
-        let mut blocks: Vec<String> = (0..5).map(|n| format!("Nuovo {n}: {}", paragraph(n + 3))).collect();
+        let mut blocks: Vec<String> = (0..5).map(|n| format!("New {n}: {}", paragraph(n + 3))).collect();
         blocks.extend(source(&rt));
         edit(&mut rt, &blocks);
-        assert_still("inserisci in testa", before, anchor(&rt));
+        assert_still("insert at the top", before, anchor(&rt));
     }
 
     #[test]
@@ -1042,8 +1042,8 @@ mod tests {
 
     #[test]
     fn fire_label() {
-        assert_eq!(super::fire_label(1), "1 paragrafo nuovo più in basso");
-        assert_eq!(super::fire_label(4), "4 paragrafi nuovi più in basso");
+        assert_eq!(super::fire_label(1), "1 new paragraph below");
+        assert_eq!(super::fire_label(4), "4 new paragraphs below");
     }
 
     // --- selezione e copia ---
@@ -1137,7 +1137,7 @@ mod tests {
         // b.md è davanti (l'ultima aperta), t.md dietro.
         assert_eq!(rt.state.active, 1);
         let close = el(&rt, &key(1, "-close"));
-        assert_eq!((close.role, close.label.as_deref()), ("button", Some("Chiudi b.md")));
+        assert_eq!((close.role, close.label.as_deref()), ("button", Some("Close b.md")));
         assert!(close.rect[2] >= 16.0 && close.rect[3] >= 16.0, "area di 16 pt: {:?}", close.rect);
         assert!(el(&rt, &key(1, "-close")).opacity > 0.99, "davanti: visibile");
         assert!(el(&rt, &key(0, "-close")).opacity < 0.01, "dietro: nascosta");
@@ -1497,7 +1497,7 @@ mod tests {
             let rt = open_themed(src, dark);
             let texts: Vec<String> = rt.elements().into_iter().filter_map(|e| e.text).collect();
             assert!(!texts.iter().any(|t| t.contains("[!")), "il segno si vede: {texts:?}");
-            for label in ["Nota", "Suggerimento", "Importante", "Attenzione", "Cautela"] {
+            for label in ["Note", "Tip", "Important", "Warning", "Caution"] {
                 assert!(texts.iter().any(|t| t == label), "manca {label}: {texts:?}");
             }
             assert!(texts.iter().any(|t| t.contains("Un avviso.")), "{texts:?}");
@@ -1654,7 +1654,7 @@ mod tests {
             let rt = open_themed("### Task 12: Fuoco\n\n- [x] uno\n- [x] due\n- [ ] tre\n- [ ] quattro\n\n### Task 13: Dither\n\nTesto.\n", dark);
             let els = rt.elements();
             let find = |s: &str| els.iter().find(|e| e.text.as_deref() == Some(s)).unwrap_or_else(|| panic!("manca {s:?}")).clone();
-            let (number, title, done) = (find("12"), find("Fuoco"), find("2 di 4"));
+            let (number, title, done) = (find("12"), find("Fuoco"), find("2 of 4"));
             assert_eq!(number.text_color, Some(t.fg3));
             assert_eq!(done.text_color, Some(t.fg3));
             assert!(number.rect[0] < title.rect[0] && title.rect[0] < done.rect[0], "{number:?} {title:?} {done:?}");
@@ -1670,7 +1670,7 @@ mod tests {
         let rt = open_themed("### Task 12: Fuoco\n\n- [x] uno\n- [ ] due\n", false);
         let els = rt.elements();
         let find = |s: &str| els.iter().find(|e| e.text.as_deref() == Some(s)).unwrap_or_else(|| panic!("manca {s:?}")).rect;
-        let (title, done) = (find("Fuoco"), find("1 di 2"));
+        let (title, done) = (find("Fuoco"), find("1 of 2"));
         let h3 = crate::ui::markdown_style::fonts(crate::fonts::Typeface { family: rune::Family::Sans, size: crate::ui::theme::BODY_TEXT }).headings[2];
         let small = crate::ui::sidebar::small_font();
         let title_base = title[1] + h3.line_height / 2.0 + super::BASELINE_EM * h3.size;

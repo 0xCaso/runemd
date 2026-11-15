@@ -1,9 +1,9 @@
-//! Apri veloce (Cmd+P): un pannello largo 560 al centro della finestra, sopra il contenuto
-//! (docs/decisions/2026-11-15-quick-open-compatto.md; mockup `2026-11-15-quick-open-raycast`,
-//! variante "compatto"). In alto il campo, sotto i risultati su due righe come Recenti (nome;
-//! repo o cartella e ora), in fondo i tasti. Con la ricerca vuota mostra Recenti. Il campo
-//! "Apri file ⌘P" della sidebar apre il pannello. Clic singolo: anteprima, il pannello resta;
-//! doppio clic: scheda fissa e il pannello si chiude. Esc o un clic fuori lo chiudono.
+//! Quick open (Cmd+P): a 560-wide panel in the middle of the window, above the content
+//! (docs/decisions/2026-11-15-compact-quick-open.md; mockup `2026-11-15-quick-open-raycast`,
+//! variant "compatto"). The field at the top, below it the results on two lines like Recent (name;
+//! repo or folder and time), the keys at the bottom. With an empty query it shows Recent. The sidebar's
+//! "Open file ⌘P" field opens the panel. Single click: preview, the panel stays;
+//! double click: pinned tab and the panel closes. Esc or a click outside close it.
 
 use std::cmp::Reverse;
 use std::os::unix::ffi::OsStrExt;
@@ -15,54 +15,54 @@ use rune_kit::glyphs;
 use super::sidebar::{Hooks, Motion, pressable, row_meta, small_font, ui_font};
 use super::theme::{FIELD_H, FIELD_MARGIN_BOTTOM, FIELD_MARGIN_X, HAIRLINE, ICON, KBD_PAD_X, KBD_PAD_Y, KBD_TEXT, KBD_WEIGHT, R_FIELD, R_KBD, R_PANEL, R_ROW, ROW_GAP, ROW_PAD, SECTION_PAD_BOTTOM, SECTION_PAD_TOP, TAB_BAR_H, FRAME, Theme, UI_SMALL, UI_WEIGHT};
 
-/// Risultati al massimo (ipotesi: oltre non si scorre, si scrive di più).
+/// Maximum results (assumption: past this you do not scroll, you type more).
 pub const MAX_RESULTS: usize = 50;
 
-/// Il pannello: largo 560 (meno con la finestra stretta, `QUICK_SIDE` dai bordi), in alto a
-/// `QUICK_TOP` dalla finestra, sotto la barra delle schede (mockup: 72).
+/// The panel: 560 wide (less with a narrow window, `QUICK_SIDE` from the edges), at the top,
+/// `QUICK_TOP` from the window, below the tab bar (mockup: 72).
 pub const QUICK_W: f32 = 560.0;
 const QUICK_TOP: f32 = FRAME + TAB_BAR_H + 20.0;
 const QUICK_SIDE: f32 = 16.0;
-/// Il campo in alto (48, testo 15), le righe (`QUICK_ROW`, margine 6, 2 fra le righe), il fondo (36).
+/// The field at the top (48, text 15), the rows (`QUICK_ROW`, margin 6, 2 between rows), the footer (36).
 const QUICK_HEAD: f32 = 48.0;
 const QUICK_TEXT: f32 = 15.0;
 const QUICK_PAD: f32 = 6.0;
 const QUICK_ROW_GAP: f32 = 2.0;
 const QUICK_FOOT: f32 = 36.0;
-/// Una riga dei risultati, su una riga sola (record 2026-11-15-quick-open-una-riga; mockup
-/// "compatto": `.qr` alta 40, margini 10, 10 fra icona, nome, repo o cartella e ora).
+/// A result row, on a single line (record 2026-11-15-quick-open-one-line; mockup
+/// "compatto": `.qr` 40 tall, margins 10, 10 between icon, name, repo or folder and time).
 pub const QUICK_ROW: f32 = 40.0;
 const ROW_PX: f32 = 10.0;
 const ROW_GAP_Q: f32 = 10.0;
-/// Il repo o cartella non scende sotto questo prima che si tagli il nome (mockup: `min-width: 40px`).
+/// The repo or folder does not shrink below this before the name is cut (mockup: `min-width: 40px`).
 const PLACE_MIN: f32 = 40.0;
-/// Righe in vista prima che la lista scorra.
+/// Rows in view before the list scrolls.
 const QUICK_VISIBLE: f32 = 8.0;
-/// Il velo sopra il contenuto: `panel` al 60 % (mockup).
+/// The veil over the content: `panel` at 60 % (mockup).
 const SCRIM: f32 = 0.6;
 
 
-/// Un nome che combacia vale sempre più di una cartella che combacia.
+/// A matching name always beats a matching folder.
 const BASENAME_BONUS: i32 = 10_000;
-/// Una cartella dal nome uguale alla ricerca, e una che la contiene come sottosequenza.
+/// A folder whose name equals the query, and one that contains it as a subsequence.
 const FOLDER_EXACT: i32 = 5_000;
 const FOLDER_FUZZY: i32 = 1_000;
-/// Ogni cartella fra quella che combacia e il file toglie questo: a parità vince il file più vicino.
+/// Each folder between the matching one and the file subtracts this: on a tie the nearest file wins.
 const DEPTH_COST: i32 = 100;
-/// Delle cartelle sopra il file se ne guardano al massimo queste: il resto (`/Users/…`) non dice cosa cercare.
+/// Of the folders above the file, at most this many are looked at: the rest (`/Users/…`) says nothing about what to look for.
 const FOLDER_PARTS: usize = 4;
-/// Un percorso con "/" nella ricerca si confronta con le ultime parti, come testo unico.
+/// A path with "/" in the query is compared with the last parts, as a single text.
 const TAIL_PARTS: usize = 3;
 
-/// Sottosequenza senza maiuscole, come `score` di `rune-kit/src/combobox.rs` (privata, quindi
-/// copiata): le corrispondenze contigue e a inizio parola valgono di più, ogni byte saltato toglie
-/// uno. `None` se il testo non contiene tutta la ricerca. Lavora sui byte (maiuscole ASCII): per
-/// 7000 percorsi a ogni tasto la versione a caratteri costava 4 ms (p95 5,1 ms).
+/// Case-insensitive subsequence, like `score` in `rune-kit/src/combobox.rs` (private, so
+/// copied): contiguous and word-start matches are worth more, each skipped byte subtracts
+/// one. `None` if the text does not contain the whole query. Works on bytes (ASCII case): for
+/// 7000 paths on every key the char version cost 4 ms (p95 5.1 ms).
 fn score(needle: &[u8], hay: &[u8]) -> Option<i32> {
     if hay.len() < needle.len() {
         return None;
     }
-    // Salta da una lettera cercata alla successiva: un percorso senza la ricerca finisce presto.
+    // Jumps from one query letter to the next: a path without the query ends early.
     let mut at = 0;
     let mut total = -((hay.len() - needle.len()) as i32);
     let mut last: Option<usize> = None;
@@ -76,9 +76,9 @@ fn score(needle: &[u8], hay: &[u8]) -> Option<i32> {
     Some(total)
 }
 
-/// Il punteggio di una parola della ricerca: il nome del file prima; poi la cartella che combacia
-/// (il nome intero meglio di una sottosequenza, la più vicina al file meglio della più lontana).
-/// Niente penalità per la lunghezza delle parti sopra la cartella che combacia.
+/// The score of one query word: the file name first; then the matching folder
+/// (the whole name beats a subsequence, the one nearest the file beats the farthest).
+/// No penalty for the length of the parts above the matching folder.
 fn score_token(needle: &[u8], full: &[u8]) -> Option<i32> {
     let name_at = full.iter().rposition(|&b| b == b'/').map_or(0, |i| i + 1);
     if let Some(s) = score(needle, &full[name_at..]) {
@@ -111,8 +111,8 @@ fn score_token(needle: &[u8], full: &[u8]) -> Option<i32> {
     best
 }
 
-/// Il punteggio di un percorso: ogni parola della ricerca (separate da spazi) deve combaciare,
-/// in qualsiasi ordine; il punteggio è la somma.
+/// The score of a path: every query word (separated by spaces) must match,
+/// in any order; the score is the sum.
 fn score_path(tokens: &[Vec<u8>], path: &Path) -> Option<i32> {
     let full = path.as_os_str().as_bytes();
     let mut total = 0;
@@ -122,9 +122,9 @@ fn score_path(tokens: &[Vec<u8>], path: &Path) -> Option<i32> {
     Some(total)
 }
 
-/// I `limit` percorsi che meglio combaciano con `query`, dal migliore; a parità il più corto e poi
-/// l'ordine alfabetico. Una ricerca vuota non dà niente. Gira sul thread della UI a ogni tasto:
-/// niente copie per i percorsi che non combaciano.
+/// The `limit` paths that best match `query`, best first; on a tie the shortest and then
+/// alphabetical order. An empty query gives nothing. Runs on the UI thread on every key:
+/// no copies for paths that do not match.
 pub fn rank<'a>(query: &str, paths: impl Iterator<Item = &'a Path>, limit: usize) -> Vec<PathBuf> {
     let lower = query.to_lowercase();
     let tokens: Vec<Vec<u8>> = lower.split_whitespace().map(|t| t.as_bytes().to_vec()).collect();
@@ -141,7 +141,7 @@ pub fn rank<'a>(query: &str, paths: impl Iterator<Item = &'a Path>, limit: usize
     hits.into_iter().map(|(_, p)| p.to_path_buf()).collect()
 }
 
-/// Lo stato di Cmd+P: il pannello aperto, il campo, i risultati e la riga scelta con le frecce.
+/// The Cmd+P state: the open panel, the field, the results and the row chosen with the arrows.
 #[derive(Default)]
 pub struct QuickOpen {
     pub open: bool,
@@ -151,23 +151,23 @@ pub struct QuickOpen {
 }
 
 impl QuickOpen {
-    /// Il pannello si vede.
+    /// The panel is visible.
     pub fn active(&self) -> bool {
         self.open
     }
 
-    /// La ricerca è vuota: il pannello mostra Recenti.
+    /// The query is empty: the panel shows Recent.
     pub fn empty_query(&self) -> bool {
         self.edit.text.trim().is_empty()
     }
 
-    /// Cmd+P o il campo della sidebar: il pannello si apre col fuoco nel campo.
+    /// Cmd+P or the sidebar field: the panel opens with focus in the field.
     pub fn show(&mut self) {
         self.open = true;
         self.edit.focused = true;
     }
 
-    /// Esc, un clic fuori o un file scelto: il pannello si chiude, ricerca vuota.
+    /// Esc, a click outside or a chosen file: the panel closes, empty query.
     pub fn close(&mut self) {
         self.open = false;
         self.edit = TextEdit::default();
@@ -175,29 +175,29 @@ impl QuickOpen {
         self.selected = 0;
     }
 
-    /// Dopo un cambio dell'indice con la ricerca vuota: i risultati sono `paths` (Recenti), la
-    /// riga scelta resta per percorso se `keep`.
+    /// After an index change with an empty query: the results are `paths` (Recent), the
+    /// chosen row stays by path if `keep`.
     pub fn set_hits(&mut self, paths: Vec<PathBuf>, keep: bool) {
         let before = self.chosen().map(Path::to_path_buf);
         self.hits = paths;
         self.selected = before.filter(|_| keep).and_then(|b| self.hits.iter().position(|h| *h == b)).unwrap_or(0);
     }
 
-    /// La ricerca è cambiata: nuovi risultati dai nomi dell'indice, scelta alla prima riga.
+    /// The query changed: new results from the index names, choice on the first row.
     pub fn requery<'a>(&mut self, names: impl Iterator<Item = &'a Path>) {
         self.hits = rank(&self.edit.text, names, MAX_RESULTS);
         self.selected = 0;
     }
 
-    /// È cambiato l'indice, non la ricerca: la riga scelta resta quella, per percorso (una
-    /// scrittura altrove non deve spostare ciò che Invio apre). Se non c'è più, torna alla prima.
+    /// The index changed, not the query: the chosen row stays the same, by path (a
+    /// write elsewhere must not move what Return opens). If it is gone, back to the first.
     pub fn refresh<'a>(&mut self, names: impl Iterator<Item = &'a Path>) {
         let before = self.chosen().map(Path::to_path_buf);
         self.hits = rank(&self.edit.text, names, MAX_RESULTS);
         self.selected = before.and_then(|b| self.hits.iter().position(|h| *h == b)).unwrap_or(0);
     }
 
-    /// Sposta la scelta di `delta` righe, da un capo all'altro.
+    /// Moves the choice by `delta` rows, wrapping around.
     pub fn step(&mut self, delta: isize) {
         if !self.hits.is_empty() {
             self.selected = (self.selected as isize + delta).rem_euclid(self.hits.len() as isize) as usize;
@@ -213,17 +213,17 @@ fn row_key(path: &Path) -> String {
     format!("quick-{}", path.display())
 }
 
-/// Il campo "Apri file ⌘P" della sidebar: un pulsante con l'aspetto del campo, che apre il pannello.
+/// The sidebar's "Open file ⌘P" field: a button that looks like the field and opens the panel.
 pub(super) fn launcher<S: 'static>(hooks: Hooks<S>, theme: &Theme) -> El {
     let kbd = kbd("⌘P", theme);
-    let hint = text("Apri file").key("quick-launch").font(ui_font()).color(theme.fg2).grow(1.0).shrink().min_w(0.0).truncate();
-    field_row(icon(&glyphs::SEARCH, ICON).color(theme.fg2), hint, kbd, theme).role("button").label("Apri file").on_press(move |s: &mut S| {
+    let hint = text("Open file").key("quick-launch").font(ui_font()).color(theme.fg2).grow(1.0).shrink().min_w(0.0).truncate();
+    field_row(icon(&glyphs::SEARCH, ICON).color(theme.fg2), hint, kbd, theme).role("button").label("Open file").on_press(move |s: &mut S| {
         (hooks.get_mut)(s).quick.show();
         (hooks.query)(s);
     })
 }
 
-/// La riga del campo della sidebar (Cmd+P e Cmd+N): icona, campo di testo e il tasto a destra.
+/// The sidebar field row (Cmd+P and Cmd+N): icon, text field and the key on the right.
 pub(super) fn field_row(lead: El, input: El, kbd: El, theme: &Theme) -> El {
     row()
         .key("open-file")
@@ -241,12 +241,12 @@ pub(super) fn field_row(lead: El, input: El, kbd: El, theme: &Theme) -> El {
         .child(kbd)
 }
 
-/// Il tasto scorciatoia a destra del campo ("⌘P").
+/// The shortcut key right of the field ("⌘P").
 pub(super) fn kbd(label: &'static str, theme: &Theme) -> El {
     el().key("kbd").border(HAIRLINE, theme.line).radius(R_KBD).px(KBD_PAD_X).py(KBD_PAD_Y).child(text(label).font(TextStyle::new(KBD_TEXT, KBD_WEIGHT)).color(theme.fg2))
 }
 
-/// I tasti del campo prima dell'editor. Vero se li prende.
+/// The field's keys, before the editor. True if it takes them.
 fn on_key<S: 'static>(s: &mut S, hooks: Hooks<S>, ev: &KeyEvent, tx: &mut Tx) -> bool {
     if (hooks.get)(s).quick.edit.preedit().is_some() {
         return false;
@@ -281,7 +281,7 @@ fn on_key<S: 'static>(s: &mut S, hooks: Hooks<S>, ev: &KeyEvent, tx: &mut Tx) ->
     }
 }
 
-/// Un tasto del fondo del pannello e cosa fa: tasti in `fg2` dentro un bordo `line`, parola in `fg3`.
+/// A key in the panel footer and what it does: keys in `fg2` inside a `line` border, word in `fg3`.
 fn hint(keys: &[&'static str], what: &'static str, theme: &Theme) -> El {
     let mut r = row().gap(4.0).center_y();
     for k in keys {
@@ -290,29 +290,29 @@ fn hint(keys: &[&'static str], what: &'static str, theme: &Theme) -> El {
     r.child(text(what).font(TextStyle::new(UI_SMALL, UI_WEIGHT)).color(theme.fg3).ml(2.0))
 }
 
-/// Lo spazio fisso di una riga larga `row_w` con l'ora larga `time_w`: margini, icona, lo spazio
-/// dopo l'icona e quello prima dell'ora.
+/// The fixed space of a row `row_w` wide with the time `time_w` wide: margins, icon, the space
+/// after the icon and the one before the time.
 fn row_fixed(time_w: f32) -> f32 {
     2.0 * ROW_PX + ICON + 2.0 * ROW_GAP_Q + time_w
 }
 
-/// Quanto è largo il nome (largo `name_w` intero) in una riga larga `row_w` con l'ora larga
-/// `time_w`: intero finché il repo o cartella ha almeno `PLACE_MIN`; poi si taglia il nome
-/// (vincolo 2 del record quick-open-una-riga: prima il repo o cartella, poi il nome).
+/// How wide the name is (`name_w` when whole) in a row `row_w` wide with the time
+/// `time_w` wide: whole as long as the repo or folder has at least `PLACE_MIN`; then the name is cut
+/// (constraint 2 of record quick-open-one-line: first the repo or folder, then the name).
 fn name_width(row_w: f32, name_w: f32, time_w: f32) -> f32 {
     name_w.min(row_w - row_fixed(time_w) - ROW_GAP_Q - PLACE_MIN).max(0.0)
 }
 
-/// Una riga dei risultati, su una riga sola (record 2026-11-15-quick-open-una-riga): icona del
-/// file, il nome (`fg`, tagliato in mezzo), repo o cartella (tagliato in fondo) e in fondo a destra
-/// l'ora (in [`row_meta`] anche in hover e scelta). `row_w` è la larghezza della riga. Clic:
-/// anteprima e la riga diventa la scelta, il pannello resta; doppio clic: scheda fissa e il
-/// pannello si chiude.
+/// A result row, on a single line (record 2026-11-15-quick-open-one-line): file
+/// icon, the name (`fg`, cut in the middle), repo or folder (cut at the end) and at the far right
+/// the time (in [`row_meta`] also on hover and when chosen). `row_w` is the row width. Click:
+/// preview and the row becomes the choice, the panel stays; double click: pinned tab and the
+/// panel closes.
 #[allow(clippy::too_many_arguments)]
 fn result_row<S: 'static>(sb: &super::sidebar::Sidebar, hooks: Hooks<S>, i: usize, r: &super::sidebar::RecentRow, label: &str, row_w: f32, theme: &Theme, motion: Motion) -> El {
     let selected = i == sb.quick.selected;
     let (name_font, place_font, time_font) = (ui_font(), TextStyle::new(UI_SMALL, UI_WEIGHT), small_font());
-    // Il nome si misura come lo misura la vista; il mezzo punto in più evita un taglio per arrotondamento.
+    // The name is measured as the view measures it; the extra half point avoids a cut from rounding.
     let name_w = name_width(row_w, (rune::text::advance(&r.name, name_font) + 0.5).ceil(), rune::text::advance(label, time_font).ceil());
     let name = text(r.name.clone()).font(name_font).color(theme.fg).truncate_middle().w(name_w);
     let place = text(r.qualifier.clone().unwrap_or_default()).font(place_font).color(row_meta(theme)).truncate().grow(1.0).shrink().min_w(0.0);
@@ -343,9 +343,9 @@ fn result_row<S: 'static>(sb: &super::sidebar::Sidebar, hooks: Hooks<S>, i: usiz
     pressable(e, key.clone(), sb, hooks, theme, motion, !selected).radius(R_ROW).key(key)
 }
 
-/// Il pannello di Cmd+P, da montare alla radice: un velo `panel` al 60 % su tutta la finestra e
-/// sopra, centrato, il pannello (`panel`, raggio `R_PANEL`, bordo e ombra del pannello). Il
-/// pannello è modale: un clic fuori o Esc lo chiudono. Vuoto se è chiuso.
+/// The Cmd+P panel, to mount at the root: a `panel` veil at 60 % over the whole window and
+/// above it, centered, the panel (`panel`, radius `R_PANEL`, panel border and shadow). The
+/// panel is modal: a click outside or Esc close it. Empty if closed.
 pub fn panel<S: 'static>(s: &S, hooks: Hooks<S>, list: Option<[f32; 4]>, theme: &Theme, reduced: bool, hover: bool) -> Vec<El> {
     let sb = (hooks.get)(s);
     if !sb.quick.active() {
@@ -359,19 +359,19 @@ pub fn panel<S: 'static>(s: &S, hooks: Hooks<S>, list: Option<[f32; 4]>, theme: 
         .shrink()
         .min_w(0.0)
         .color(theme.fg)
-        .placeholder("Apri file", theme.fg2)
+        .placeholder("Open file", theme.fg2)
         .caret(theme.fg, theme.sel)
-        .label("Apri file")
+        .label("Open file")
         .on_edit(move |s: &mut S| &mut (hooks.get_mut)(s).quick.edit)
         .on_input_change(move |s: &mut S, _: &mut Tx| (hooks.query)(s))
         .on_input_key(move |s: &mut S, ev: &KeyEvent, tx: &mut Tx| on_key(s, hooks, ev, tx));
     let head = row().key("quick-head").w_full().h(QUICK_HEAD).px(14.0).gap(10.0).center_y().child(icon(&glyphs::SEARCH, ICON).color(theme.fg2)).child(input);
     let line = || el().w_full().h(HAIRLINE).fill(theme.line);
-    // La riga è larga quanto la lista dell'ultimo layout meno i margini; prima del primo, il pannello pieno.
+    // The row is as wide as the list in the last layout minus the margins; before the first, the full panel.
     let row_w = list.map_or(QUICK_W, |r| r[2]) - 2.0 * QUICK_PAD;
     let mut rows = col().key("quick-rows").w_full().padding(QUICK_PAD).gap(QUICK_ROW_GAP);
     if sb.quick_rows.is_empty() {
-        let none = if sb.quick.empty_query() { "Nessun file recente" } else { "Nessun file" };
+        let none = if sb.quick.empty_query() { "No recent files" } else { "No matching files" };
         rows = rows.child(text(none).key("quick-none").font(small_font()).color(theme.fg3).px(ROW_PAD).pt(SECTION_PAD_TOP).pb(SECTION_PAD_BOTTOM));
     }
     for (i, r) in sb.quick_rows.iter().enumerate() {
@@ -382,7 +382,7 @@ pub fn panel<S: 'static>(s: &S, hooks: Hooks<S>, list: Option<[f32; 4]>, theme: 
     let list_max = QUICK_PAD * 2.0 + QUICK_VISIBLE * QUICK_ROW + (QUICK_VISIBLE - 1.0) * QUICK_ROW_GAP;
     let scroll = col().key("quick").w_full().max_h(list_max).shrink().min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(list);
     let n = sb.quick_rows.len();
-    let count = text(if n == 1 { "1 file".to_owned() } else { format!("{n} file") }).key("quick-count").font(small_font()).color(theme.fg3);
+    let count = text(if n == 1 { "1 file".to_owned() } else { format!("{n} files") }).key("quick-count").font(small_font()).color(theme.fg3);
     let foot = row()
         .key("quick-foot")
         .w_full()
@@ -390,15 +390,15 @@ pub fn panel<S: 'static>(s: &S, hooks: Hooks<S>, list: Option<[f32; 4]>, theme: 
         .px(14.0)
         .gap(16.0)
         .center_y()
-        .child(hint(&["↑", "↓"], "scegli", theme))
-        .child(hint(&["↵"], "apri", theme))
-        .child(hint(&["Esc"], "chiudi", theme))
+        .child(hint(&["↑", "↓"], "select", theme))
+        .child(hint(&["↵"], "open", theme))
+        .child(hint(&["Esc"], "close", theme))
         .child(el().grow(1.0))
         .child(count);
     let surface = col()
         .key("quick-panel")
         .role("dialog")
-        .label("Apri file")
+        .label("Open file")
         .w_full()
         .max_w(QUICK_W)
         .fill(theme.panel)
@@ -437,7 +437,7 @@ mod tests {
                     return;
                 }
             }
-            panic!("la vista non si ferma");
+            panic!("the view does not settle");
         }
 
         fn click(rt: &mut Runtime<App>, x: f32, y: f32) {
@@ -456,7 +456,7 @@ mod tests {
             KeyEvent { key: Key::Command('p'), mods: Mods { cmd: true, ..Mods::default() } }
         }
 
-        /// Un'app 1200 × 900 con alfa.md aperto e beta.md, gamma.md nell'indice.
+        /// A 1200 × 900 app with alfa.md open and beta.md, gamma.md in the index.
         fn open() -> (tempfile::TempDir, Runtime<App>) {
             let dir = tempfile::tempdir().unwrap();
             let root = dir.path().canonicalize().unwrap();
@@ -480,8 +480,8 @@ mod tests {
             rt.state.tabs.iter().map(|t| (t.title(), t.preview)).collect()
         }
 
-        /// Vincoli 1, 3, 6: ⌘P apre un pannello largo 560 al centro della finestra, sopra il
-        /// contenuto (il documento non si sposta); in fondo i tasti; Esc e il clic fuori chiudono.
+        /// Constraints 1, 3, 6: ⌘P opens a 560-wide panel in the middle of the window, above the
+        /// content (the document does not move); the keys at the bottom; Esc and a click outside close it.
         #[test]
         fn cmd_p_opens_a_560_panel_in_the_centre() {
             let (_d, mut rt) = open();
@@ -490,35 +490,35 @@ mod tests {
             settle(&mut rt);
             let p = find(&rt, "quick-panel").expect("pannello").rect;
             assert_eq!(p[2], super::super::QUICK_W);
-            assert!((p[0] + p[2] / 2.0 - 600.0).abs() < 1.0, "centrato: {p:?}");
-            assert!(p[1] > 44.0, "sotto la barra delle schede: {p:?}");
-            assert_eq!(find(&rt, "main").unwrap().rect, doc_before, "il documento non si sposta");
+            assert!((p[0] + p[2] / 2.0 - 600.0).abs() < 1.0, "centered: {p:?}");
+            assert!(p[1] > 44.0, "below the tab bar: {p:?}");
+            assert_eq!(find(&rt, "main").unwrap().rect, doc_before, "the document does not move");
             let foot: Vec<String> = rt.elements().into_iter().filter_map(|e| e.text).collect();
-            for k in ["↑", "↓", "↵", "Esc", "scegli", "apri", "chiudi"] {
-                assert!(foot.iter().any(|t| t == k), "manca {k} in fondo");
+            for k in ["↑", "↓", "↵", "Esc", "select", "open", "close"] {
+                assert!(foot.iter().any(|t| t == k), "missing {k} in the footer");
             }
-            assert!(rt.state.sidebar.quick.edit.focused, "fuoco nel campo");
+            assert!(rt.state.sidebar.quick.edit.focused, "focus in the field");
 
             rt.key(KeyEvent { key: Key::Escape, mods: Mods::default() });
             settle(&mut rt);
-            assert!(find(&rt, "quick-panel").is_none(), "Esc chiude");
+            assert!(find(&rt, "quick-panel").is_none(), "Esc closes");
 
             rt.key(cmd_p());
             settle(&mut rt);
             click(&mut rt, 600.0, 860.0);
             settle(&mut rt);
-            assert!(find(&rt, "quick-panel").is_none(), "il clic fuori chiude");
+            assert!(find(&rt, "quick-panel").is_none(), "a click outside closes");
 
-            // Il campo della sidebar apre lo stesso pannello.
+            // The sidebar field opens the same panel.
             let (x, y) = centre(&rt, "open-file");
             click(&mut rt, x, y);
             settle(&mut rt);
             assert!(find(&rt, "quick-panel").is_some());
         }
 
-        /// Record 2026-11-15-quick-open-una-riga, vincolo 1: ogni riga è su una riga sola, alta
-        /// `QUICK_ROW`: nome a sinistra, repo o cartella subito dopo, l'ora in fondo a destra,
-        /// tutti alla stessa altezza.
+        /// Record 2026-11-15-quick-open-one-line, constraint 1: each row is on a single line,
+        /// `QUICK_ROW` tall: name on the left, repo or folder right after, the time at the far right,
+        /// all at the same height.
         #[test]
         fn rows_are_on_one_line() {
             let (_d, mut rt) = open();
@@ -531,18 +531,18 @@ mod tests {
             settle(&mut rt);
             let key = rt.elements().into_iter().filter_map(|e| e.key).find(|k| k.starts_with("quick-/")).expect("riga");
             let row = find(&rt, &key).unwrap().rect;
-            assert_eq!(row[3], super::super::QUICK_ROW, "una riga sola");
+            assert_eq!(row[3], super::super::QUICK_ROW, "a single line");
             let (place, time) = (rt.state.sidebar.quick_rows[0].qualifier.clone().unwrap(), rt.state.sidebar.quick_labels[0].clone());
-            let at = |t: &str| rt.elements().into_iter().find(|e| e.text.as_deref() == Some(t) && e.rect[1] >= row[1] && e.rect[1] < row[1] + row[3]).unwrap_or_else(|| panic!("manca {t}")).rect;
+            let at = |t: &str| rt.elements().into_iter().find(|e| e.text.as_deref() == Some(t) && e.rect[1] >= row[1] && e.rect[1] < row[1] + row[3]).unwrap_or_else(|| panic!("missing {t}")).rect;
             let (n, p, t) = (at("beta.md"), at(&place), at(&time));
             let mid = |r: [f32; 4]| r[1] + r[3] / 2.0;
-            assert!((mid(n) - mid(p)).abs() < 1.5 && (mid(n) - mid(t)).abs() < 1.5, "stessa riga: {n:?} {p:?} {t:?}");
-            assert!(n[0] + n[2] < p[0] && p[0] + p[2] <= t[0], "nome, poi repo o cartella, poi l'ora: {n:?} {p:?} {t:?}");
-            assert!((t[0] + t[2] - (row[0] + row[2] - 10.0)).abs() < 1.0, "l'ora in fondo a destra: {t:?} {row:?}");
+            assert!((mid(n) - mid(p)).abs() < 1.5 && (mid(n) - mid(t)).abs() < 1.5, "same line: {n:?} {p:?} {t:?}");
+            assert!(n[0] + n[2] < p[0] && p[0] + p[2] <= t[0], "name, then repo or folder, then the time: {n:?} {p:?} {t:?}");
+            assert!((t[0] + t[2] - (row[0] + row[2] - 10.0)).abs() < 1.0, "the time at the far right: {t:?} {row:?}");
         }
 
-        /// Vincoli 2 e 4 del record compatto: clic singolo apre in anteprima e il pannello resta,
-        /// doppio clic fissa la scheda e chiude.
+        /// Constraints 2 and 4 of the compact record: a single click opens a preview and the panel stays,
+        /// a double click pins the tab and closes.
         #[test]
         fn a_double_click_pins_the_tab() {
             let (_d, mut rt) = open();
@@ -555,36 +555,36 @@ mod tests {
             settle(&mut rt);
             let rows: Vec<String> = rt.state.sidebar.quick_rows.iter().map(|r| r.name.clone()).collect();
             assert_eq!(rows, ["beta.md"]);
-            assert!(rt.state.sidebar.quick_rows[0].qualifier.is_some(), "repo o cartella");
-            assert!(!rt.state.sidebar.quick_labels[0].is_empty(), "l'ora");
+            assert!(rt.state.sidebar.quick_rows[0].qualifier.is_some(), "repo or folder");
+            assert!(!rt.state.sidebar.quick_labels[0].is_empty(), "the time");
             let key = rt.elements().into_iter().filter_map(|e| e.key).find(|k| k.starts_with("quick-/")).expect("riga");
 
             let (x, y) = centre(&rt, &key);
             click(&mut rt, x, y);
             settle(&mut rt);
-            assert_eq!(tabs(&rt), [("alfa.md".to_owned(), false), ("beta.md".to_owned(), true)], "clic singolo: anteprima");
-            assert!(find(&rt, "quick-panel").is_some(), "il pannello resta");
+            assert_eq!(tabs(&rt), [("alfa.md".to_owned(), false), ("beta.md".to_owned(), true)], "single click: preview");
+            assert!(find(&rt, "quick-panel").is_some(), "the panel stays");
 
             click(&mut rt, x, y);
             click(&mut rt, x, y);
             settle(&mut rt);
-            assert_eq!(tabs(&rt), [("alfa.md".to_owned(), false), ("beta.md".to_owned(), false)], "doppio clic: fissa");
-            assert!(find(&rt, "quick-panel").is_none(), "e chiude");
+            assert_eq!(tabs(&rt), [("alfa.md".to_owned(), false), ("beta.md".to_owned(), false)], "double click: pinned");
+            assert!(find(&rt, "quick-panel").is_none(), "and closes");
         }
     }
 
-    /// Vincolo 2 del record quick-open-una-riga: se lo spazio non basta si accorcia prima il repo o
-    /// cartella (fino a `PLACE_MIN`), poi il nome.
+    /// Constraint 2 of record quick-open-one-line: if there is not enough room, first the repo or
+    /// folder shrinks (down to `PLACE_MIN`), then the name.
     #[test]
     fn the_place_gives_way_before_the_name() {
-        // Ci sta tutto: il nome intero.
+        // Everything fits: the whole name.
         assert_eq!(name_width(500.0, 200.0, 30.0), 200.0);
-        // Il nome intero, il repo o cartella prende quello che resta, almeno PLACE_MIN.
+        // The whole name, the repo or folder takes what is left, at least PLACE_MIN.
         let room = 500.0 - row_fixed(30.0);
         assert_eq!(name_width(500.0, room - PLACE_MIN - ROW_GAP_Q, 30.0), room - PLACE_MIN - ROW_GAP_Q);
-        // Il nome più lungo: si taglia lui, il repo o cartella resta a PLACE_MIN.
+        // A longer name: it gets cut, the repo or folder stays at PLACE_MIN.
         assert_eq!(name_width(500.0, 1000.0, 30.0), room - PLACE_MIN - ROW_GAP_Q);
-        // Una riga strettissima: niente valori negativi.
+        // A very narrow row: no negative values.
         assert_eq!(name_width(40.0, 1000.0, 30.0), 0.0);
     }
 
@@ -610,7 +610,7 @@ mod tests {
         let owned: Vec<PathBuf> = (0..200).map(|i| PathBuf::from(format!("r/x{i}/file{i}.md"))).chain([PathBuf::from("r/zzz/f.md")]).collect();
         let hits = rank("f", owned.iter().map(PathBuf::as_path), 5);
         assert_eq!(hits.len(), 5);
-        assert_eq!(hits[0], Path::new("r/zzz/f.md"), "il nome più corto e più vicino vince");
+        assert_eq!(hits[0], Path::new("r/zzz/f.md"), "the shortest and nearest name wins");
     }
 
     #[test]
@@ -648,7 +648,7 @@ mod tests {
         assert_eq!(hits[2], Path::new("/Users/me/GitHub/runemd/docs/deep/more.md"));
         assert_eq!(hits[3], Path::new("/Users/me/GitHub/rune-md-spike/README.md"));
         let named = [Path::new("/x/runemd/a.md"), Path::new("/y/runemd.md")];
-        assert_eq!(rank("runemd", named.iter().copied(), 10)[0], Path::new("/y/runemd.md"), "il nome vince sulla cartella");
+        assert_eq!(rank("runemd", named.iter().copied(), 10)[0], Path::new("/y/runemd.md"), "the name beats the folder");
     }
 
     #[test]
@@ -668,11 +668,11 @@ mod tests {
         q.requery(names.iter().copied());
         q.step(2);
         let chosen = q.chosen().unwrap().to_path_buf();
-        // Un file nuovo entra davanti: la riga scelta resta lo stesso file.
+        // A new file comes in front: the chosen row stays the same file.
         let more = ["/r/a.md", "/r/0.md", "/r/b.md", "/r/c.md", "/r/d.md"].map(Path::new);
         q.refresh(more.iter().copied());
         assert_eq!(q.chosen(), Some(chosen.as_path()));
-        // Sparisce: torna alla prima. Con la ricerca cambiata si riparte dalla prima.
+        // It disappears: back to the first. With a changed query it starts again from the first.
         let fewer: Vec<&Path> = more.iter().copied().filter(|p| **p != *chosen).collect();
         q.refresh(fewer.iter().copied());
         assert_eq!(q.selected, 0);

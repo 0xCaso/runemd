@@ -61,11 +61,11 @@ pub enum FireColor {
 
 /// I colori nell'ordine del pannello, con il nome.
 pub const COLORS: [(FireColor, &str); 5] = [
-    (FireColor::Fire, "Fuoco"),
-    (FireColor::Blue, "Blu"),
-    (FireColor::Violet, "Viola"),
-    (FireColor::Green, "Verde"),
-    (FireColor::Accent, "Accento di sistema"),
+    (FireColor::Fire, "Fire"),
+    (FireColor::Blue, "Blue"),
+    (FireColor::Violet, "Violet"),
+    (FireColor::Green, "Green"),
+    (FireColor::Accent, "System accent"),
 ];
 
 /// L'aspetto del fuoco scelto nelle impostazioni. `accent`: il colore d'accento di sistema in

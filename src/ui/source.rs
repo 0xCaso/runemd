@@ -1,23 +1,23 @@
-//! La vista del sorgente (Cmd+E): tutto il file nella colonna del documento, un `text_input`
-//! multilinea per pezzo ([`crate::edit::blocks`]) dentro `virtual_rows`, così Rune impagina e
-//! colora solo le righe montate. I colori Markdown sono di rune-highlights (via
-//! `rune_kit::syntax`) sui grigi del tema: nessun accento (DESIGN.md). Ogni pezzo si colora da
-//! sé, quindi tutto il file ha colori (non solo i primi 128 KiB).
+//! The source view (Cmd+E): the whole file in the document column, one multiline `text_input`
+//! per piece ([`crate::edit::blocks`]) inside `virtual_rows`, so Rune lays out and
+//! colors only the mounted rows. Markdown colors come from rune-highlights (via
+//! `rune_kit::syntax`) on the theme greys: no accent (DESIGN.md). Each piece is colored on its
+//! own, so the whole file has colors (not just the first 128 KiB).
 //!
-//! Il sorgente si comporta come un campo solo: Invio va a capo nel pezzo (un `text_input`
-//! multilinea lo userebbe per inviare); Backspace all'inizio e Canc alla fine uniscono due pezzi;
-//! le frecce ai bordi passano al pezzo vicino (su e giù dalla prima e dall'ultima riga disegnata,
-//! che la vista legge da `Cx::caret`: [`caret_lines`]). Una selezione resta dentro un pezzo.
-//! Cmd+S e Cmd+E stanno in `main::on_key`: il campo non li prende.
+//! The source behaves as a single field: Return breaks the line in the piece (a multiline
+//! `text_input` would use it to submit); Backspace at the start and Delete at the end join two pieces;
+//! arrows at the edges move to the next piece (up and down from the first and last drawn line,
+//! which the view reads from `Cx::caret`: [`caret_lines`]). A selection stays inside one piece.
+//! Cmd+S and Cmd+E live in `main::on_key`: the field does not take them.
 //!
-//! Quando un salvataggio non scrive, sopra il sorgente compare una riga alta come la barra delle
-//! schede, con una linea sotto: "Il file è cambiato su disco" con "Ricarica" e "Tieni il mio"
-//! (righe premibili come le schede, testo `fg2`, hover `sel`), o "Salvataggio non riuscito" da
-//! sola. Testo UI in `fg`, nessun accento.
+//! When a save does not write, a row as tall as the tab bar appears above the source,
+//! with a line below: "The file changed on disk" with "Reload" and "Keep mine"
+//! (pressable rows like the tabs, text `fg2`, hover `sel`), or "Save failed" on
+//! its own. UI text in `fg`, no accent.
 //!
-//! Cmd+W o il clic centrale su una scheda con modifiche non salvate: al posto di quella riga, con
-//! lo stesso aspetto, "Salvare le modifiche a <nome>?" con "Salva" (anche Invio), "Non salvare" e
-//! "Annulla" (anche Esc). Il campo tiene il fuoco ([`App::answer_close`]).
+//! Cmd+W or a middle click on a tab with unsaved changes: in place of that row, with
+//! the same look, "Save changes to <name>?" with "Save" (also Return), "Don't save" and
+//! "Cancel" (also Esc). The field keeps focus ([`App::answer_close`]).
 
 use std::borrow::Cow;
 
@@ -31,43 +31,43 @@ use crate::app::{App, CloseAnswer, Mode, Tab};
 use crate::edit::blocks::{Edge, Pieces};
 use crate::edit::{Notice, SourceEdit};
 
-/// I testi della riga (spec, "Modifica"; "Salvataggio non riuscito": scelta del controller).
-pub const CONFLICT_TEXT: &str = "Il file è cambiato su disco";
-pub const RELOAD_TEXT: &str = "Ricarica";
-pub const KEEP_TEXT: &str = "Tieni il mio";
-pub const FAILED_TEXT: &str = "Salvataggio non riuscito";
-/// Cmd+E su un file che non è UTF-8.
-pub const NOT_UTF8_TEXT: &str = "Il file non è UTF-8: modifica disattivata";
-/// Le chiavi della riga e dei suoi due bottoni.
+/// The row texts (spec, "Editing"; "Save failed": the controller's choice).
+pub const CONFLICT_TEXT: &str = "The file changed on disk";
+pub const RELOAD_TEXT: &str = "Reload";
+pub const KEEP_TEXT: &str = "Keep mine";
+pub const FAILED_TEXT: &str = "Save failed";
+/// Cmd+E on a file that is not UTF-8.
+pub const NOT_UTF8_TEXT: &str = "This file is not UTF-8: editing is off";
+/// The keys of the row and its two buttons.
 pub const NOTICE_KEY: &str = "source-notice";
-/// La riga sopra la lettura quando Cmd+E non entra perché il file non è UTF-8.
+/// The row above the reading view when Cmd+E does not enter because the file is not UTF-8.
 pub const NOT_UTF8_KEY: &str = "read-not-utf8";
 pub const RELOAD_KEY: &str = "source-reload";
 pub const KEEP_KEY: &str = "source-keep";
-/// I bottoni della riga che chiede alla chiusura (record `2026-11-14-cmdw-modifiche-non-salvate`).
-pub const SAVE_TEXT: &str = "Salva";
-pub const DISCARD_TEXT: &str = "Non salvare";
-pub const CANCEL_TEXT: &str = "Annulla";
-/// Le chiavi della riga che chiede e dei suoi bottoni. Solo la scheda davanti la mostra: come
-/// quelle della riga del conflitto non portano l'id della scheda, così uno script le trova.
+/// The buttons of the row that asks on close (record `2026-11-14-cmdw-unsaved-changes`).
+pub const SAVE_TEXT: &str = "Save";
+pub const DISCARD_TEXT: &str = "Don't save";
+pub const CANCEL_TEXT: &str = "Cancel";
+/// The keys of the asking row and its buttons. Only the front tab shows it: like
+/// the conflict row's keys they do not carry the tab id, so a script can find them.
 pub const ASK_KEY: &str = "source-ask";
 pub const SAVE_KEY: &str = "source-ask-save";
 pub const DISCARD_KEY: &str = "source-ask-discard";
 pub const CANCEL_KEY: &str = "source-ask-cancel";
 
-/// La domanda della riga alla chiusura, con il nome del file.
+/// The row's question on close, with the file name.
 pub fn ask_text(name: &str) -> String {
-    format!("Salvare le modifiche a {name}?")
+    format!("Save changes to {name}?")
 }
 
-/// Il testo del sorgente: `typography.doc-code` (mono 13,5).
+/// Source text: `typography.doc-code` (mono 13.5).
 pub fn font() -> TextStyle {
     TextStyle::new(CODE_TEXT, 400.0).family(Family::Mono)
 }
 
-/// I colori dei token Markdown, tutti dai grigi del tema: titoli in `fg` e più pesanti, link in
-/// `fg`, codice in `fg2`, segni (`#`, `-`, `>`, fence, parentesi) e destinazioni dei link in `fg3`;
-/// il resto nel colore del corpo.
+/// Markdown token colors, all from the theme greys: headings in `fg` and heavier, links in
+/// `fg`, code in `fg2`, marks (`#`, `-`, `>`, fence, brackets) and link destinations in `fg3`;
+/// the rest in the body color.
 pub fn syntax_theme(theme: &Theme) -> SyntaxTheme {
     use Syntax::*;
     let mut t = SyntaxTheme::neutral(theme.dark);
@@ -101,14 +101,14 @@ pub fn syntax_theme(theme: &Theme) -> SyntaxTheme {
     t.with_weight(Heading, UI_STRONG_WEIGHT)
 }
 
-/// Gli span dei colori per `text` (un pezzo). `rune_kit::syntax` tiene in cache l'ultimo
-/// risultato e colora i primi 128 KiB: un pezzo è molto più corto.
+/// The color spans for `text` (one piece). `rune_kit::syntax` caches the last
+/// result and colors the first 128 KiB: a piece is much shorter.
 pub fn spans(text: &str, theme: &SyntaxTheme) -> Vec<Span> {
     theme.spans(&syntax::highlight(Some("markdown"), text), 0)
 }
 
-/// Dove sta il cursore nel pezzo `piece`, che ha il fuoco: sulla prima e/o sull'ultima riga
-/// disegnata. Decide se freccia su e giù passano al pezzo vicino.
+/// Where the cursor is in piece `piece`, which has focus: on the first and/or the last drawn
+/// line. Decides whether arrow up and down move to the next piece.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct CaretLines {
     pub piece: u64,
@@ -116,18 +116,18 @@ pub struct CaretLines {
     pub last: bool,
 }
 
-/// La chiave del campo del pezzo `piece` della scheda `id`.
+/// The field key of piece `piece` of tab `id`.
 pub fn input_key(id: u64, piece: u64) -> String {
     format!("src-{id:x}-{piece:x}")
 }
 
-/// La chiave della riga del pezzo: id della scheda e del pezzo (stabile mentre si scrive).
+/// The row key of the piece: tab id and piece id (stable while typing).
 fn row_key(id: u64, piece: u64) -> String {
     format!("{id:x}-p{piece:x}")
 }
 
-/// [`CaretLines`] del pezzo con il fuoco, dal cursore e dal campo come sono disegnati (punti
-/// della finestra, dopo lo scroll). Prima del primo layout: dalle righe del testo.
+/// [`CaretLines`] of the focused piece, from the cursor and the field as drawn (window
+/// points, after scrolling). Before the first layout: from the text lines.
 pub fn caret_lines(cx: &Cx<App>, tab: &Tab, src: &SourceEdit) -> Option<CaretLines> {
     let i = src.pieces.focused()?;
     let p = src.pieces.get(i)?;
@@ -149,7 +149,7 @@ fn pieces_of(s: &App, id: u64) -> Option<&Pieces> {
     }
 }
 
-/// Il bordo che il tasto `ev` tocca, se è uno di quelli che passano da un pezzo all'altro.
+/// The edge that key `ev` touches, if it is one of those that move from one piece to another.
 fn edge_of(ev: &KeyEvent) -> Option<Edge> {
     let m = ev.mods;
     let plain = !m.shift && !m.cmd && !m.alt && !m.ctrl;
@@ -164,8 +164,8 @@ fn edge_of(ev: &KeyEvent) -> Option<Edge> {
     }
 }
 
-/// Con la riga che chiede alla chiusura aperta, Invio risponde "Salva" ed Esc "Annulla", prima
-/// del campo (che andrebbe a capo). Vero se ha preso il tasto.
+/// With the close question row open, Return answers "Save" and Esc "Cancel", before
+/// the field (which would break the line). True if it took the key.
 pub fn ask_key(s: &mut App, id: u64, ev: &KeyEvent, tx: &mut Tx) -> bool {
     if !s.asking(id) || ev.mods != rune::Mods::default() {
         return false;
@@ -181,7 +181,7 @@ pub fn ask_key(s: &mut App, id: u64, ev: &KeyEvent, tx: &mut Tx) -> bool {
     true
 }
 
-/// La riga di un pezzo: il suo campo, con i colori, nella colonna.
+/// A piece's row: its field, with the colors, in the column.
 fn piece_row(id: u64, piece: u64, edit: &rune::TextEdit, style: &Style, lines: (bool, bool)) -> El {
     let (first, last) = lines;
     let input = text_input(edit, font())
@@ -201,7 +201,7 @@ fn piece_row(id: u64, piece: u64, edit: &rune::TextEdit, style: &Style, lines: (
     col().w_full().px(ROW_PAD_X).child(input)
 }
 
-/// Quello che serve per disegnare un pezzo, copiabile nelle closure delle righe.
+/// What it takes to draw a piece, copyable into the row closures.
 #[derive(Clone, Hash)]
 struct Style {
     syntax: SyntaxTheme,
@@ -211,12 +211,12 @@ struct Style {
     label: std::rc::Rc<str>,
 }
 
-/// L'altezza stimata di un pezzo non ancora misurato: qualche riga di `doc-code`.
+/// The estimated height of a piece not measured yet: a few `doc-code` lines.
 const PIECE_ESTIMATE: f32 = 80.0;
 
-/// La vista del sorgente della scheda `tab`, in modifica con `src`, con la riga sopra se
-/// l'ultimo salvataggio non ha scritto. `caret`: [`caret_lines`]. `hover`: il puntatore è fine
-/// e può passare sopra.
+/// The source view of tab `tab`, being edited with `src`, with the row above if
+/// the last save did not write. `caret`: [`caret_lines`]. `hover`: the pointer is a fine one
+/// and can hover.
 #[allow(clippy::too_many_arguments)]
 pub fn view(s: &App, hooks: Hooks<App>, tab: &Tab, src: &SourceEdit, caret: Option<CaretLines>, theme: &Theme, reduced: bool, hover: bool) -> El {
     let id = tab.doc.id;
@@ -247,7 +247,7 @@ pub fn view(s: &App, hooks: Hooks<App>, tab: &Tab, src: &SourceEdit, caret: Opti
     view.child(scroll)
 }
 
-/// La riga del conflitto o dell'errore (vedi [`alert_row`]).
+/// The conflict or error row (see [`alert_row`]).
 fn notice_row(s: &App, hooks: Hooks<App>, id: u64, notice: Notice, theme: &Theme, motion: Motion) -> El {
     let message = match notice {
         Notice::Conflict => CONFLICT_TEXT,
@@ -262,14 +262,14 @@ fn notice_row(s: &App, hooks: Hooks<App>, id: u64, notice: Notice, theme: &Theme
     alert_row(NOTICE_KEY, message, buttons, theme, s.settings.column)
 }
 
-/// La riga sopra la lettura dopo un Cmd+E su un file che non è UTF-8 (come quella del
-/// conflitto, senza bottoni).
+/// The row above the reading view after a Cmd+E on a file that is not UTF-8 (like the
+/// conflict one, without buttons).
 pub fn not_utf8_row(theme: &Theme, column: f32) -> El {
     alert_row(NOT_UTF8_KEY, NOT_UTF8_TEXT, Vec::new(), theme, column)
 }
 
-/// La riga che chiede alla chiusura con modifiche non salvate. "Salva" è il bottone di default
-/// della finestra: Invio lo preme anche quando il campo non ha il fuoco.
+/// The row that asks on close with unsaved changes. "Save" is the window's default
+/// button: Return presses it even when the field does not have focus.
 fn ask_row(s: &App, hooks: Hooks<App>, id: u64, name: &str, theme: &Theme, motion: Motion) -> El {
     let answer = |a: CloseAnswer| move |s: &mut App, tx: &mut Tx| s.answer_close_tx(id, a, tx);
     let buttons = vec![
@@ -280,9 +280,9 @@ fn ask_row(s: &App, hooks: Hooks<App>, id: u64, name: &str, theme: &Theme, motio
     alert_row(ASK_KEY, &ask_text(name), buttons, theme, s.settings.column)
 }
 
-/// Una riga sopra il sorgente, alta come la barra delle schede e annunciata come `alert`: il
-/// testo allineato a quello del sorgente, i bottoni a destra con il loro testo allineato al bordo
-/// destro della colonna; una linea di 0,5 in `line` sotto.
+/// A row above the source, as tall as the tab bar and announced as `alert`: the
+/// text aligned with the source text, the buttons on the right with their text aligned to the
+/// column's right edge; a 0.5 line in `line` below.
 fn alert_row(key: &str, message: &str, buttons: Vec<El>, theme: &Theme, column: f32) -> El {
     let line = super::theme::column(row().w_full(), column)
         .self_center()
@@ -296,8 +296,8 @@ fn alert_row(key: &str, message: &str, buttons: Vec<El>, theme: &Theme, column: 
     col().key(key).role("alert").label(message).w_full().child(line).child(el().w_full().h(HAIRLINE).fill(theme.line))
 }
 
-/// Un bottone della riga: come una scheda in secondo piano (alta `ROW`, `ROW_PAD` ai lati, testo
-/// `fg2`, hover `sel`, scala 0,98 premuta).
+/// A row button: like a background tab (`ROW` tall, `ROW_PAD` on the sides, text
+/// `fg2`, hover `sel`, scale 0.98 when pressed).
 fn button(s: &App, hooks: Hooks<App>, key: &str, label: &str, theme: &Theme, motion: Motion, on: impl Fn(&mut App, &mut Tx) + 'static) -> El {
     let e = row()
         .h(ROW)
@@ -333,7 +333,7 @@ mod tests {
                 return;
             }
         }
-        panic!("la vista non si ferma");
+        panic!("the view does not settle");
     }
 
     fn open(path: &Path) -> Runtime<App> {
@@ -353,27 +353,27 @@ mod tests {
         }
     }
 
-    /// Cmd+E apre il sorgente con il fuoco nel campo; si scrive, Invio va a capo, Cmd+E salva e
-    /// torna alla lettura con il testo salvato.
+    /// Cmd+E opens the source with focus in the field; you type, Return breaks the line, Cmd+E saves and
+    /// goes back to reading with the saved text.
     #[test]
     fn cmd_e_edits_and_saves() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("a.md");
-        std::fs::write(&path, "# a\n\nuno\n").unwrap();
+        std::fs::write(&path, "# a\n\none\n").unwrap();
         let mut rt = open(&path);
         rt.key(cmd('e'));
         settle(&mut rt);
-        assert_eq!(source_text(&rt).as_deref(), Some("# a\n\nuno\n"));
-        assert!(rt.elements().iter().any(|e| e.key.as_deref().is_some_and(|k| k.starts_with("src-"))), "il campo è nella vista");
+        assert_eq!(source_text(&rt).as_deref(), Some("# a\n\none\n"));
+        assert!(rt.elements().iter().any(|e| e.key.as_deref().is_some_and(|k| k.starts_with("src-"))), "the field is in the view");
         rt.key(typed("X"));
         rt.key(KeyEvent { key: Key::Enter, mods: Mods::default() });
         settle(&mut rt);
-        assert_eq!(source_text(&rt).as_deref(), Some("X\n# a\n\nuno\n"), "scrive al cursore, Invio va a capo");
+        assert_eq!(source_text(&rt).as_deref(), Some("X\n# a\n\none\n"), "types at the cursor, Return breaks the line");
         rt.key(cmd('e'));
         settle(&mut rt);
-        assert!(source_text(&rt).as_deref().is_none(), "di nuovo in lettura");
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), "X\n# a\n\nuno\n");
-        assert_eq!(rt.state.active_document().blocks.len(), 3, "la lettura mostra il testo salvato (X, titolo, uno)");
+        assert!(source_text(&rt).as_deref().is_none(), "back in reading");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "X\n# a\n\none\n");
+        assert_eq!(rt.state.active_document().blocks.len(), 3, "reading shows the saved text (X, heading, one)");
     }
 
     fn texts(rt: &Runtime<App>) -> Vec<String> {
@@ -385,66 +385,66 @@ mod tests {
     }
 
     fn tap(rt: &mut Runtime<App>, key: &str) {
-        let (x, y) = rt.find(key).unwrap_or_else(|| panic!("{key} non c'è"));
+        let (x, y) = rt.find(key).unwrap_or_else(|| panic!("{key} is missing"));
         rt.pointer_move(x, y);
         rt.pointer_down(x, y);
         rt.pointer_up(x, y);
         settle(rt);
     }
 
-    /// Cmd+E, si scrive, il file cambia su disco, Cmd+S: compare la riga e niente si scrive.
-    /// "Tieni il mio" scrive il testo locale e la riga sparisce.
+    /// Cmd+E, you type, the file changes on disk, Cmd+S: the row appears and nothing is written.
+    /// "Keep mine" writes the local text and the row disappears.
     #[test]
     fn conflict_row_and_keep_mine() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("a.md");
-        std::fs::write(&path, "# a\n\nuno\n").unwrap();
+        std::fs::write(&path, "# a\n\none\n").unwrap();
         let mut rt = open(&path);
         rt.key(cmd('e'));
         rt.key(typed("X"));
         settle(&mut rt);
-        assert!(!has(&rt, NOTICE_KEY), "nessuna riga prima del conflitto");
-        std::fs::write(&path, "# a\n\ndell'agente\n").unwrap();
+        assert!(!has(&rt, NOTICE_KEY), "no row before the conflict");
+        std::fs::write(&path, "# a\n\nfrom the agent\n").unwrap();
         rt.key(cmd('s'));
         settle(&mut rt);
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), "# a\n\ndell'agente\n", "non scrive");
-        assert!(has(&rt, NOTICE_KEY), "compare la riga");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "# a\n\nfrom the agent\n", "does not write");
+        assert!(has(&rt, NOTICE_KEY), "the row appears");
         let t = texts(&rt);
         for want in [CONFLICT_TEXT, RELOAD_TEXT, KEEP_TEXT] {
             assert!(t.iter().any(|x| x == want), "{want} in {t:?}");
         }
-        // Con la riga sopra il campo tiene il fuoco: si continua a scrivere.
+        // With the row above, the field keeps focus: you keep typing.
         rt.key(typed("Y"));
         settle(&mut rt);
-        assert_eq!(source_text(&rt).as_deref(), Some("XY# a\n\nuno\n"));
+        assert_eq!(source_text(&rt).as_deref(), Some("XY# a\n\none\n"));
         tap(&mut rt, KEEP_KEY);
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), "XY# a\n\nuno\n", "il disco ha il testo locale");
-        assert!(!has(&rt, NOTICE_KEY), "la riga sparisce");
-        assert_eq!(source_text(&rt).as_deref(), Some("XY# a\n\nuno\n"), "resta nel sorgente");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "XY# a\n\none\n", "the disk has the local text");
+        assert!(!has(&rt, NOTICE_KEY), "the row disappears");
+        assert_eq!(source_text(&rt).as_deref(), Some("XY# a\n\none\n"), "stays in the source");
     }
 
-    /// "Ricarica" scarta le modifiche: il sorgente mostra il testo dell'agente, il disco non cambia.
+    /// "Reload" discards the changes: the source shows the agent's text, the disk does not change.
     #[test]
     fn conflict_reload_discards() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("a.md");
-        std::fs::write(&path, "# a\n\nuno\n").unwrap();
+        std::fs::write(&path, "# a\n\none\n").unwrap();
         let mut rt = open(&path);
         rt.key(cmd('e'));
         rt.key(typed("X"));
         settle(&mut rt);
-        let agent = "# a\n\ndell'agente\n";
+        let agent = "# a\n\nfrom the agent\n";
         std::fs::write(&path, agent).unwrap();
         rt.key(cmd('e'));
         settle(&mut rt);
-        assert!(has(&rt, NOTICE_KEY), "Cmd+E non esce: riga");
+        assert!(has(&rt, NOTICE_KEY), "Cmd+E does not leave: row");
         tap(&mut rt, RELOAD_KEY);
         assert_eq!(source_text(&rt).as_deref(), Some(agent));
         assert!(!has(&rt, NOTICE_KEY));
         assert_eq!(std::fs::read_to_string(&path).unwrap(), agent);
         rt.key(cmd('e'));
         settle(&mut rt);
-        assert!(source_text(&rt).as_deref().is_none(), "senza modifiche Cmd+E torna alla lettura");
+        assert!(source_text(&rt).as_deref().is_none(), "without changes Cmd+E goes back to reading");
     }
 
     fn esc() -> KeyEvent {
@@ -452,12 +452,12 @@ mod tests {
     }
 
     fn element(rt: &Runtime<App>, key: &str) -> rune::ElementInfo {
-        rt.elements().into_iter().find(|e| e.key.as_deref() == Some(key)).unwrap_or_else(|| panic!("{key} non c'è"))
+        rt.elements().into_iter().find(|e| e.key.as_deref() == Some(key)).unwrap_or_else(|| panic!("{key} is missing"))
     }
 
-    /// Nel sorgente con modifiche: Cmd+E, si scrive "X" all'inizio di a.md.
+    /// In the source with changes: Cmd+E, type "X" at the start of a.md.
     fn edited(path: &Path) -> Runtime<App> {
-        std::fs::write(path, "# a\n\nuno\n").unwrap();
+        std::fs::write(path, "# a\n\none\n").unwrap();
         let mut rt = open(path);
         rt.key(cmd('e'));
         rt.key(typed("X"));
@@ -465,7 +465,7 @@ mod tests {
         rt
     }
 
-    /// Senza modifiche Cmd+W chiude subito, anche nel sorgente.
+    /// Without changes Cmd+W closes at once, in the source too.
     #[test]
     fn cmd_w_without_edits_closes_at_once() {
         let dir = tempfile::tempdir().unwrap();
@@ -480,9 +480,9 @@ mod tests {
         assert!(!has(&rt, ASK_KEY));
     }
 
-    /// Cmd+W con modifiche: la riga chiede, annunciata come quella del conflitto, con tre bottoni
-    /// dal nome accessibile. Un secondo Cmd+W non chiude. Esc la toglie: modifiche e cursore restano
-    /// e il campo ha ancora il fuoco.
+    /// Cmd+W with changes: the row asks, announced like the conflict one, with three buttons
+    /// with an accessible name. A second Cmd+W does not close. Esc removes it: changes and cursor stay
+    /// and the field still has focus.
     #[test]
     fn cmd_w_with_edits_asks_and_esc_cancels() {
         let dir = tempfile::tempdir().unwrap();
@@ -490,36 +490,36 @@ mod tests {
         let mut rt = edited(&path);
         rt.key(cmd('w'));
         settle(&mut rt);
-        assert!(has(&rt, ASK_KEY), "compare la riga");
+        assert!(has(&rt, ASK_KEY), "the row appears");
         assert!(!has(&rt, NOTICE_KEY));
         let question = ask_text("a.md");
-        assert_eq!(question, "Salvare le modifiche a a.md?");
+        assert_eq!(question, "Save changes to a.md?");
         let t = texts(&rt);
         for want in [question.as_str(), SAVE_TEXT, DISCARD_TEXT, CANCEL_TEXT] {
             assert!(t.iter().any(|x| x == want), "{want} in {t:?}");
         }
         let row = element(&rt, ASK_KEY);
-        assert_eq!((row.role, row.label.as_deref()), ("alert", Some(question.as_str())), "annunciata come il conflitto");
+        assert_eq!((row.role, row.label.as_deref()), ("alert", Some(question.as_str())), "announced like the conflict");
         for (key, label) in [(SAVE_KEY, SAVE_TEXT), (DISCARD_KEY, DISCARD_TEXT), (CANCEL_KEY, CANCEL_TEXT)] {
             let b = element(&rt, key);
             assert_eq!((b.role, b.label.as_deref()), ("button", Some(label)));
         }
         rt.key(cmd('w'));
         settle(&mut rt);
-        assert_eq!(rt.state.tabs.len(), 1, "il secondo Cmd+W non chiude");
-        assert!(has(&rt, ASK_KEY), "resta la riga");
+        assert_eq!(rt.state.tabs.len(), 1, "the second Cmd+W does not close");
+        assert!(has(&rt, ASK_KEY), "the row stays");
         rt.key(esc());
         settle(&mut rt);
-        assert!(!has(&rt, ASK_KEY), "Esc toglie la riga");
-        assert_eq!(source_text(&rt).as_deref(), Some("X# a\n\nuno\n"), "modifiche intatte");
-        assert_eq!(caret(&rt), 1, "cursore intatto");
+        assert!(!has(&rt, ASK_KEY), "Esc removes the row");
+        assert_eq!(source_text(&rt).as_deref(), Some("X# a\n\none\n"), "changes intact");
+        assert_eq!(caret(&rt), 1, "cursor intact");
         rt.key(typed("Y"));
         settle(&mut rt);
-        assert_eq!(source_text(&rt).as_deref(), Some("XY# a\n\nuno\n"), "il campo ha ancora il fuoco");
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), "# a\n\nuno\n", "niente scritto");
+        assert_eq!(source_text(&rt).as_deref(), Some("XY# a\n\none\n"), "the field still has focus");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "# a\n\none\n", "nothing written");
     }
 
-    /// Invio risponde "Salva": scrive e chiude.
+    /// Return answers "Save": it writes and closes.
     #[test]
     fn enter_saves_and_closes() {
         let dir = tempfile::tempdir().unwrap();
@@ -529,11 +529,11 @@ mod tests {
         settle(&mut rt);
         rt.key(key(Key::Enter));
         settle(&mut rt);
-        assert!(rt.state.tabs.is_empty(), "chiusa");
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), "X# a\n\nuno\n");
+        assert!(rt.state.tabs.is_empty(), "closed");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "X# a\n\none\n");
     }
 
-    /// "Salva" con il file cambiato su disco: la scheda resta, la riga diventa quella del conflitto.
+    /// "Save" with the file changed on disk: the tab stays, the row becomes the conflict one.
     #[test]
     fn save_with_a_conflict_shows_the_conflict_row() {
         let dir = tempfile::tempdir().unwrap();
@@ -541,15 +541,15 @@ mod tests {
         let mut rt = edited(&path);
         rt.key(cmd('w'));
         settle(&mut rt);
-        std::fs::write(&path, "# a\n\ndell'agente\n").unwrap();
+        std::fs::write(&path, "# a\n\nfrom the agent\n").unwrap();
         tap(&mut rt, SAVE_KEY);
-        assert_eq!(rt.state.tabs.len(), 1, "non chiusa");
+        assert_eq!(rt.state.tabs.len(), 1, "not closed");
         assert!(!has(&rt, ASK_KEY));
-        assert!(texts(&rt).iter().any(|x| x == CONFLICT_TEXT), "la riga del conflitto");
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), "# a\n\ndell'agente\n");
+        assert!(texts(&rt).iter().any(|x| x == CONFLICT_TEXT), "the conflict row");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "# a\n\nfrom the agent\n");
     }
 
-    /// "Non salvare": chiude, il file su disco non cambia.
+    /// "Don't save": closes, the file on disk does not change.
     #[test]
     fn discard_closes_without_writing() {
         let dir = tempfile::tempdir().unwrap();
@@ -558,11 +558,11 @@ mod tests {
         rt.key(cmd('w'));
         settle(&mut rt);
         tap(&mut rt, DISCARD_KEY);
-        assert!(rt.state.tabs.is_empty(), "chiusa");
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), "# a\n\nuno\n", "il file non cambia");
+        assert!(rt.state.tabs.is_empty(), "closed");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "# a\n\none\n", "the file does not change");
     }
 
-    /// "Annulla": la riga sparisce, modifiche e cursore restano.
+    /// "Cancel": the row disappears, changes and cursor stay.
     #[test]
     fn cancel_keeps_the_edits() {
         let dir = tempfile::tempdir().unwrap();
@@ -573,12 +573,12 @@ mod tests {
         tap(&mut rt, CANCEL_KEY);
         assert_eq!(rt.state.tabs.len(), 1);
         assert!(!has(&rt, ASK_KEY));
-        assert_eq!(source_text(&rt).as_deref(), Some("X# a\n\nuno\n"));
+        assert_eq!(source_text(&rt).as_deref(), Some("X# a\n\none\n"));
         assert_eq!(caret(&rt), 1);
     }
 
-    /// L'opacità di ciò che entra (`enter`) e di ciò che esce (`exit`, se c'è ancora) dopo Cmd+E,
-    /// frame per frame a 120 Hz: (ms, entra, esce).
+    /// The opacity of what enters (`enter`) and of what exits (`exit`, if still there) after Cmd+E,
+    /// frame by frame at 120 Hz: (ms, enter, exit).
     fn fade(rt: &mut Runtime<App>, enter: &str, exit: &str) -> Vec<(f32, f32, Option<f32>)> {
         let op = |rt: &Runtime<App>, k: &str| rt.elements().into_iter().find(|e| e.key.as_deref() == Some(k)).map(|e| e.opacity);
         rt.key(cmd('e'));
@@ -588,38 +588,38 @@ mod tests {
         }).collect()
     }
 
-    /// Cmd+E più veloce (v1.1): il sorgente entra al 95 % entro 175 ms e la lettura esce entro
-    /// 150; al ritorno la lettura entra al 95 % entro 175 ms. Si vede la dissolvenza (non è un
-    /// taglio). Con "riduci movimento" è immediato.
+    /// Faster Cmd+E (v1.1): the source enters to 95 % within 175 ms and reading exits within
+    /// 150; on the way back reading enters to 95 % within 175 ms. The fade shows (it is not a
+    /// cut). With "reduce motion" it is immediate.
     #[test]
     fn cmd_e_cross_fades_fast() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("a.md");
-        std::fs::write(&path, "# a\n\nuno\n").unwrap();
+        std::fs::write(&path, "# a\n\none\n").unwrap();
         let mut rt = open(&path);
         let id = rt.state.tab().unwrap().doc.id;
         let src = format!("source-{id:x}");
         let check = |what: &str, frames: &[(f32, f32, Option<f32>)]| {
             eprintln!("{what}: {:?}", frames.iter().step_by(3).collect::<Vec<_>>());
             let at = |ms: f32| frames.iter().find(|f| f.0 >= ms).unwrap();
-            assert!(at(25.0).1 < 0.9, "{what}: si vede la dissolvenza");
-            assert!(at(175.0).1 >= 0.95, "{what}: al 95 % entro 175 ms: {:?}", at(175.0));
-            assert!(at(150.0).2.is_none_or(|o| o <= 0.05), "{what}: l'altra fuori entro 150 ms: {:?}", at(150.0));
+            assert!(at(25.0).1 < 0.9, "{what}: the fade shows");
+            assert!(at(175.0).1 >= 0.95, "{what}: at 95 % within 175 ms: {:?}", at(175.0));
+            assert!(at(150.0).2.is_none_or(|o| o <= 0.05), "{what}: the other one out within 150 ms: {:?}", at(150.0));
         };
         let enter = fade(&mut rt, &src, "doc-pane");
-        check("sorgente", &enter);
+        check("source", &enter);
         settle(&mut rt);
         let back = fade(&mut rt, "doc-pane", &src);
-        check("lettura", &back);
+        check("reading", &back);
         settle(&mut rt);
         rt.update(|s, _| s.motion_env = Some(true));
         settle(&mut rt);
         let reduced = fade(&mut rt, &src, "doc-pane");
-        assert!(reduced[0].1 >= 0.99 && reduced[0].2.is_none_or(|o| o <= 0.01), "riduci movimento: subito {:?}", reduced[0]);
+        assert!(reduced[0].1 >= 0.99 && reduced[0].2.is_none_or(|o| o <= 0.01), "reduce motion: at once {:?}", reduced[0]);
     }
 
-    /// La × su una scheda in secondo piano con modifiche chiede come Cmd+W: viene davanti con la
-    /// riga e niente si scrive.
+    /// The × on a background tab with changes asks like Cmd+W: it comes to the front with the
+    /// row and nothing is written.
     #[test]
     fn the_close_button_on_a_tab_with_edits_asks() {
         let dir = tempfile::tempdir().unwrap();
@@ -633,12 +633,12 @@ mod tests {
         rt.pointer_move(x, y);
         settle(&mut rt);
         tap(&mut rt, &format!("{tab}-close"));
-        assert_eq!((rt.state.tabs.len(), rt.state.active), (2, 0), "a davanti, aperta");
-        assert!(has(&rt, ASK_KEY), "la riga");
-        assert_eq!(std::fs::read_to_string(&a).unwrap(), "# a\n\nuno\n");
+        assert_eq!((rt.state.tabs.len(), rt.state.active), (2, 0), "a in front, open");
+        assert!(has(&rt, ASK_KEY), "the row");
+        assert_eq!(std::fs::read_to_string(&a).unwrap(), "# a\n\none\n");
     }
 
-    /// Il clic centrale su una scheda in secondo piano con modifiche: viene davanti con la riga.
+    /// A middle click on a background tab with changes: it comes to the front with the row.
     #[test]
     fn a_middle_click_on_a_background_tab_with_edits_asks() {
         let dir = tempfile::tempdir().unwrap();
@@ -654,13 +654,13 @@ mod tests {
         rt.button_down(x, y, rune::PointerButton::Middle);
         rt.button_up(x, y, rune::PointerButton::Middle);
         settle(&mut rt);
-        assert_eq!((rt.state.tabs.len(), rt.state.active), (2, 0), "a davanti, aperta");
-        assert!(has(&rt, ASK_KEY), "la riga");
-        assert_eq!(std::fs::read_to_string(&a).unwrap(), "# a\n\nuno\n");
+        assert_eq!((rt.state.tabs.len(), rt.state.active), (2, 0), "a in front, open");
+        assert!(has(&rt, ASK_KEY), "the row");
+        assert_eq!(std::fs::read_to_string(&a).unwrap(), "# a\n\none\n");
     }
 
-    /// Un file che non è UTF-8 non entra nel sorgente (lo riscriverebbe con U+FFFD): Cmd+E
-    /// lascia la lettura e una riga lo dice. Il file non cambia.
+    /// A file that is not UTF-8 does not enter the source (it would rewrite it with U+FFFD): Cmd+E
+    /// stays in reading and a row says so. The file does not change.
     #[test]
     fn a_file_that_is_not_utf8_stays_in_read_mode() {
         let dir = tempfile::tempdir().unwrap();
@@ -671,13 +671,13 @@ mod tests {
         assert!(!has(&rt, NOT_UTF8_KEY));
         rt.key(cmd('e'));
         settle(&mut rt);
-        assert!(source_text(&rt).is_none(), "resta in lettura");
-        assert!(has(&rt, NOT_UTF8_KEY), "la riga");
+        assert!(source_text(&rt).is_none(), "stays in reading");
+        assert!(has(&rt, NOT_UTF8_KEY), "the row");
         assert!(texts(&rt).iter().any(|t| t == NOT_UTF8_TEXT));
         assert_eq!(std::fs::read(&path).unwrap(), bytes);
     }
 
-    /// Un errore di scrittura: la riga dice "Salvataggio non riuscito", senza i due bottoni.
+    /// A write error: the row says "Save failed", without the two buttons.
     #[test]
     fn a_failed_save_says_so() {
         use std::os::unix::fs::PermissionsExt;
@@ -699,12 +699,12 @@ mod tests {
         let t = texts(&rt);
         assert!(t.iter().any(|x| x == FAILED_TEXT), "{t:?}");
         assert!(!t.iter().any(|x| x == CONFLICT_TEXT || x == KEEP_TEXT));
-        assert_eq!(source_text(&rt).as_deref(), Some("X# a\n"), "le modifiche restano");
+        assert_eq!(source_text(&rt).as_deref(), Some("X# a\n"), "the changes stay");
     }
 
-    /// Costo per frame digitando nel sorgente: un tasto a metà del file e il frame che lo mostra,
-    /// headless (layout e scena, niente GPU). Soglia della spec su `fixtures/big.md` (1 MB): p95
-    /// ≤ 8 ms; `normal.md` (21 KB) per confronto.
+    /// Cost per frame typing in the source: a key in the middle of the file and the frame that shows it,
+    /// headless (layout and scene, no GPU). Spec threshold on `fixtures/big.md` (1 MB): p95
+    /// ≤ 8 ms; `normal.md` (21 KB) for comparison.
     /// `cargo test --profile perf source_typing_cost -- --ignored --nocapture`
     #[test]
     #[ignore]
@@ -726,15 +726,15 @@ mod tests {
             });
             settle(&mut rt);
             let mut ms = Vec::new();
-            for c in "Una frase scritta nel mezzo del file, per misurare il costo di ogni tasto. ".chars().cycle().take(200) {
+            for c in "A sentence typed in the middle of the file, to measure the cost of each key. ".chars().cycle().take(200) {
                 let t = Instant::now();
                 rt.key(typed(&c.to_string()));
                 rt.frame(1.0 / 60.0);
                 ms.push(t.elapsed().as_secs_f64() * 1000.0);
             }
             let text = source_text(&rt).unwrap();
-            let at = text.find("per misurare il costo di ogni tasto. Una frase").expect("il testo scritto è nel sorgente");
-            assert!(at > text.len() / 3, "scritto a metà del file");
+            let at = text.find("to measure the cost of each key. A sentence").expect("the typed text is in the source");
+            assert!(at > text.len() / 3, "typed in the middle of the file");
             ms.sort_by(f64::total_cmp);
             let pct = |p: f64| ms[((ms.len() - 1) as f64 * p).round() as usize];
             eprintln!("source_typing_cost {name}: n={} p50={:.2} ms p95={:.2} ms max={:.2} ms", ms.len(), pct(0.5), pct(0.95), pct(1.0));
@@ -748,48 +748,48 @@ mod tests {
     fn caret(rt: &Runtime<App>) -> usize {
         match &rt.state.tab().unwrap().mode {
             Mode::Source(s) => s.pieces.caret(),
-            Mode::Read => panic!("non nel sorgente"),
+            Mode::Read => panic!("not in the source"),
         }
     }
 
-    /// Il sorgente in pezzi si usa come un campo solo: le frecce passano da un pezzo all'altro,
-    /// Invio va a capo nel pezzo, Backspace all'inizio e Canc alla fine tolgono il `\n` fra due
-    /// pezzi; quello che si scrive va nel pezzo dove sta il cursore.
+    /// The source in pieces is used as a single field: arrows move from one piece to another,
+    /// Return breaks the line in the piece, Backspace at the start and Delete at the end remove the `\n` between two
+    /// pieces; what you type goes into the piece where the cursor is.
     #[test]
     fn pieces_edit_like_one_field() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("a.md");
-        std::fs::write(&path, "# a\n\nuno\n\ndue\n").unwrap();
+        std::fs::write(&path, "# a\n\none\n\ntwo\n").unwrap();
         let mut rt = open(&path);
         rt.key(cmd('e'));
         settle(&mut rt);
-        // Giù dalla prima riga del primo pezzo ("# a\n"): la sua ultima riga è quella vuota.
+        // Down from the first line of the first piece ("# a\n"): its last line is the empty one.
         rt.key(key(Key::Down));
         settle(&mut rt);
-        assert_eq!(caret(&rt), 4, "riga vuota del primo pezzo");
+        assert_eq!(caret(&rt), 4, "empty line of the first piece");
         rt.key(key(Key::Down));
         settle(&mut rt);
-        assert_eq!(caret(&rt), 5, "nel secondo pezzo");
+        assert_eq!(caret(&rt), 5, "in the second piece");
         rt.key(typed("X"));
         settle(&mut rt);
-        assert_eq!(source_text(&rt).as_deref(), Some("# a\n\nXuno\n\ndue\n"), "scrive nel secondo pezzo");
+        assert_eq!(source_text(&rt).as_deref(), Some("# a\n\nXone\n\ntwo\n"), "types in the second piece");
         rt.key(key(Key::Up));
         settle(&mut rt);
-        assert_eq!(caret(&rt), 4, "su: di nuovo nel primo pezzo");
+        assert_eq!(caret(&rt), 4, "up: back in the first piece");
         rt.key(key(Key::Right));
         rt.key(key(Key::Right));
         settle(&mut rt);
-        assert_eq!(caret(&rt), 6, "destra: dopo la X");
+        assert_eq!(caret(&rt), 6, "right: after the X");
         rt.key(key(Key::Left));
         settle(&mut rt);
         rt.key(key(Key::Backspace));
         settle(&mut rt);
-        assert_eq!(source_text(&rt).as_deref(), Some("# a\nXuno\n\ndue\n"), "Backspace all'inizio unisce al pezzo prima");
+        assert_eq!(source_text(&rt).as_deref(), Some("# a\nXone\n\ntwo\n"), "Backspace at the start joins with the piece before");
         assert_eq!(caret(&rt), 4);
         rt.key(key(Key::Enter));
         settle(&mut rt);
-        assert_eq!(source_text(&rt).as_deref(), Some("# a\n\nXuno\n\ndue\n"), "Invio va a capo");
-        // Canc alla fine del primo pezzo ("# a\n\nXuno\n"): toglie il \n prima di "due".
+        assert_eq!(source_text(&rt).as_deref(), Some("# a\n\nXone\n\ntwo\n"), "Return breaks the line");
+        // Delete at the end of the first piece ("# a\n\nXone\n"): removes the \n before "two".
         if let Mode::Source(s) = &mut rt.state.tabs[0].mode {
             s.pieces.set_caret(10);
         }
@@ -797,14 +797,14 @@ mod tests {
         settle(&mut rt);
         rt.key(key(Key::Delete));
         settle(&mut rt);
-        assert_eq!(source_text(&rt).as_deref(), Some("# a\n\nXuno\ndue\n"), "Canc alla fine unisce il pezzo dopo");
+        assert_eq!(source_text(&rt).as_deref(), Some("# a\n\nXone\ntwo\n"), "Delete at the end joins the piece after");
         rt.key(cmd('e'));
         settle(&mut rt);
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), "# a\n\nXuno\ndue\n");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "# a\n\nXone\ntwo\n");
     }
 
-    /// Le frecce attraversano molti pezzi di `big.md`: il cursore resta nella vista (lo scroll
-    /// lo segue) e il fuoco è nel pezzo del cursore.
+    /// Arrows cross many pieces of `big.md`: the cursor stays in the view (the scroll
+    /// follows it) and focus is in the cursor's piece.
     #[test]
     fn the_caret_stays_in_view_across_pieces() {
         let dir = tempfile::tempdir().unwrap();
@@ -819,7 +819,7 @@ mod tests {
             Mode::Source(s) => s.pieces.focused().unwrap(),
             Mode::Read => panic!(),
         };
-        // Ogni volta che il cursore passa a un altro pezzo (dopo i primi, sul bordo della vista).
+        // Each time the cursor moves to another piece (after the first ones, at the edge of the view).
         for k in [Key::Down, Key::Up] {
             for crossing in 0..12 {
                 let was = piece(&rt);
@@ -830,11 +830,11 @@ mod tests {
                         break;
                     }
                 }
-                assert_ne!(piece(&rt), was, "{k:?} passa al pezzo vicino");
+                assert_ne!(piece(&rt), was, "{k:?} moves to the next piece");
                 settle(&mut rt);
                 let [_, top, _, h] = view(&rt);
-                let c = focused_caret(&rt).expect("un campo ha il cursore");
-                assert!(c[1] >= top - 0.5 && c[1] + c[3] <= top + h + 0.5, "{k:?} {crossing}: cursore {c:?} fuori da {top}..{}", top + h);
+                let c = focused_caret(&rt).expect("a field has the cursor");
+                assert!(c[1] >= top - 0.5 && c[1] + c[3] <= top + h + 0.5, "{k:?} {crossing}: cursor {c:?} outside {top}..{}", top + h);
             }
         }
         let Mode::Source(s) = &rt.state.tab().unwrap().mode else { panic!() };
@@ -842,18 +842,18 @@ mod tests {
         rt.key(typed("Z"));
         settle(&mut rt);
         let Mode::Source(s) = &rt.state.tab().unwrap().mode else { panic!() };
-        assert_eq!(s.text().as_bytes()[s.pieces.caret() - 1], b'Z', "si scrive al cursore");
+        assert_eq!(s.text().as_bytes()[s.pieces.caret() - 1], b'Z', "types at the cursor");
     }
 
-    /// Due schede sullo stesso nome e testo (un README in un repo e nel suo worktree): scrivere
-    /// nella seconda cambia solo la seconda.
+    /// Two tabs with the same name and text (a README in a repo and in its worktree): typing
+    /// in the second changes only the second.
     #[test]
     fn two_tabs_with_the_same_file_keep_their_own_pieces() {
         let dir = tempfile::tempdir().unwrap();
         let (a, b) = (dir.path().join("a/README.md"), dir.path().join("b/README.md"));
         for p in [&a, &b] {
             std::fs::create_dir_all(p.parent().unwrap()).unwrap();
-            std::fs::write(p, "# uguale\n\ntesto\n").unwrap();
+            std::fs::write(p, "# same\n\ntext\n").unwrap();
         }
         let mut rt = open(&a);
         rt.key(cmd('e'));
@@ -864,7 +864,7 @@ mod tests {
         settle(&mut rt);
         rt.key(cmd('1'));
         settle(&mut rt);
-        // Nessun campo a fuoco (un clic fuori): i due pezzi hanno lo stesso stato.
+        // No focused field (a click outside): the two pieces have the same state.
         rt.update(|s, _| {
             for t in &mut s.tabs {
                 if let Mode::Source(src) = &mut t.mode {
@@ -882,21 +882,21 @@ mod tests {
         settle(&mut rt);
         let text = |rt: &Runtime<App>, i: usize| match &rt.state.tabs[i].mode {
             Mode::Source(s) => s.text(),
-            Mode::Read => panic!("non nel sorgente"),
+            Mode::Read => panic!("not in the source"),
         };
-        assert_eq!(text(&rt, 0), "# uguale\n\ntesto\n", "a non cambia");
-        assert_eq!(text(&rt, 1), "B# uguale\n\ntesto\n", "b ha il testo");
+        assert_eq!(text(&rt, 0), "# same\n\ntext\n", "a does not change");
+        assert_eq!(text(&rt, 1), "B# same\n\ntext\n", "b has the text");
         rt.update(|s, _| s.save_all());
-        assert_eq!(std::fs::read_to_string(&a).unwrap(), "# uguale\n\ntesto\n");
-        assert_eq!(std::fs::read_to_string(&b).unwrap(), "B# uguale\n\ntesto\n");
+        assert_eq!(std::fs::read_to_string(&a).unwrap(), "# same\n\ntext\n");
+        assert_eq!(std::fs::read_to_string(&b).unwrap(), "B# same\n\ntext\n");
     }
 
-    /// "Ricarica" toglie il fuoco al campo (il clic è sul bottone) ma il cursore resta dov'era.
+    /// "Reload" takes focus away from the field (the click is on the button) but the cursor stays where it was.
     #[test]
     fn reload_keeps_the_caret() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("a.md");
-        std::fs::write(&path, "# a\n\nuno\n\ndue\n").unwrap();
+        std::fs::write(&path, "# a\n\none\n\ntwo\n").unwrap();
         let mut rt = open(&path);
         rt.key(cmd('e'));
         settle(&mut rt);
@@ -908,33 +908,33 @@ mod tests {
         settle(&mut rt);
         let before = caret(&rt);
         assert_eq!(before, 8);
-        std::fs::write(&path, "# a\n\nuno\n\ndue, dell'agente\n").unwrap();
+        std::fs::write(&path, "# a\n\none\n\ntwo, from the agent\n").unwrap();
         rt.key(cmd('s'));
         settle(&mut rt);
         tap(&mut rt, RELOAD_KEY);
-        assert_eq!(source_text(&rt).as_deref(), Some("# a\n\nuno\n\ndue, dell'agente\n"));
-        assert_eq!(caret(&rt), before, "il cursore resta dov'era");
-        // Anche con il cursore messo da un clic su un altro pezzo.
+        assert_eq!(source_text(&rt).as_deref(), Some("# a\n\none\n\ntwo, from the agent\n"));
+        assert_eq!(caret(&rt), before, "the cursor stays where it was");
+        // Also with the cursor placed by a click on another piece.
         let last = rt.elements().into_iter().filter_map(|e| e.key).rfind(|k| k.starts_with("src-")).unwrap();
         tap(&mut rt, &last);
         let clicked = caret(&rt);
-        assert!(clicked > 5, "il clic è nell'ultimo pezzo: {clicked}");
+        assert!(clicked > 5, "the click is in the last piece: {clicked}");
         rt.key(typed("Y"));
         settle(&mut rt);
-        std::fs::write(&path, "# a\n\nuno\n\ndue, dell'agente, ancora\n").unwrap();
+        std::fs::write(&path, "# a\n\none\n\ntwo, from the agent, ancora\n").unwrap();
         rt.key(cmd('s'));
         settle(&mut rt);
         tap(&mut rt, RELOAD_KEY);
         assert_eq!(caret(&rt), clicked + 1);
     }
 
-    /// Backspace all'inizio di un pezzo e un carattere nello stesso giro di tasti (nessun frame
-    /// in mezzo): il carattere va nel pezzo unito, non si perde.
+    /// Backspace at the start of a piece and a character in the same round of keys (no frame
+    /// in between): the character goes into the joined piece, it is not lost.
     #[test]
     fn a_key_right_after_a_join_lands_in_the_joined_piece() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("a.md");
-        std::fs::write(&path, "# a\n\nuno\n").unwrap();
+        std::fs::write(&path, "# a\n\none\n").unwrap();
         let mut rt = open(&path);
         rt.key(cmd('e'));
         settle(&mut rt);
@@ -946,8 +946,8 @@ mod tests {
         rt.key(key(Key::Backspace));
         rt.key(typed("Q"));
         settle(&mut rt);
-        assert_eq!(source_text(&rt).as_deref(), Some("# a\nQuno\n"));
-        // E dopo una freccia che passa al pezzo vicino, o Canc alla fine.
+        assert_eq!(source_text(&rt).as_deref(), Some("# a\nQone\n"));
+        // And after an arrow that moves to the next piece, or Delete at the end.
         let path = dir.path().join("b.md");
         std::fs::write(&path, "a\n\nb\n\nc\n").unwrap();
         let mut rt = open(&path);
@@ -962,26 +962,26 @@ mod tests {
         rt.key(key(Key::Up));
         rt.key(typed("W"));
         settle(&mut rt);
-        assert_eq!(source_text(&rt).as_deref(), Some("a\n\nb\nW\nc\n"), "su: nel pezzo prima");
+        assert_eq!(source_text(&rt).as_deref(), Some("a\n\nb\nW\nc\n"), "up: in the piece before");
         rt.key(key(Key::Delete));
         rt.key(typed("V"));
         settle(&mut rt);
-        assert_eq!(source_text(&rt).as_deref(), Some("a\n\nb\nWVc\n"), "Canc: nel pezzo unito");
+        assert_eq!(source_text(&rt).as_deref(), Some("a\n\nb\nWVc\n"), "Delete: in the joined piece");
     }
 
-    /// Il sorgente virtualizzato (un campo per pezzo): riunire i pezzi ridà il file identico,
-    /// byte per byte, e un salvataggio senza modifiche lo riscrive uguale.
+    /// The virtualized source (one field per piece): joining the pieces gives back the identical file,
+    /// byte for byte, and a save without changes rewrites it the same.
     #[test]
     fn virtualized_roundtrip() {
         let big = std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/big.md")).unwrap();
         let cases = [
             big.as_str(),
-            "# a\n\nuno",
-            "# a\n\n\n\nuno\n\n\n\n\ndue\n",
-            "\n\n\n# a\n\nuno\n",
+            "# a\n\none",
+            "# a\n\n\n\none\n\n\n\n\ntwo\n",
+            "\n\n\n# a\n\none\n",
             "",
             "\n",
-            "# a\r\n\r\nuno\r\n\r\n\r\ndue\r\n",
+            "# a\r\n\r\none\r\n\r\n\r\ntwo\r\n",
             "```\n\n\n```\n\n~~~\nx\n\n",
         ];
         for text in cases {
@@ -989,9 +989,9 @@ mod tests {
             assert_eq!(pieces.text(), text, "{:?}", &text[..text.len().min(40)]);
         }
         let pieces = crate::edit::blocks::Pieces::new(&big);
-        assert!(pieces.len() > 100, "big.md in pezzi: {}", pieces.len());
+        assert!(pieces.len() > 100, "big.md in pieces: {}", pieces.len());
         assert!(pieces.iter().all(|p| p.edit.text.len() <= 2 * crate::edit::blocks::MAX_PIECE));
-        // Dal file al disco: entrare, "Tieni il mio" (scrive senza confrontare), stessi byte.
+        // From the file to the disk: enter, "Keep mine" (writes without comparing), same bytes.
         let dir = tempfile::tempdir().unwrap();
         for (i, text) in cases.iter().enumerate() {
             let path = dir.path().join(format!("{i}.md"));
@@ -1007,19 +1007,19 @@ mod tests {
         }
     }
 
-    /// Nessun accento: ogni colore degli span è un grigio del tema.
+    /// No accent: every span color is a theme grey.
     #[test]
     fn markdown_colors_are_theme_greys() {
         for dark in [true, false] {
             let theme = Theme::for_mode(dark);
-            let src = "# Titolo\n\nTesto con `codice` e [link](https://x.y).\n\n- uno\n- due\n\n```rs\nfn a() {}\n```\n";
+            let src = "# Title\n\nText with `code` and [link](https://x.y).\n\n- one\n- two\n\n```rs\nfn a() {}\n```\n";
             let spans = spans(src, &syntax_theme(&theme));
-            assert!(!spans.is_empty(), "il Markdown si colora");
+            assert!(!spans.is_empty(), "the Markdown is colored");
             let greys = [theme.fg, theme.fg2, theme.fg3, theme.body];
             for s in &spans {
                 assert!(s.color.is_none_or(|c| greys.contains(&c)), "{:?} in {:?}", s.color, &src[s.start as usize..s.end as usize]);
             }
-            let title = spans.iter().find(|s| s.start == 0).expect("il titolo");
+            let title = spans.iter().find(|s| s.start == 0).expect("the heading");
             assert_eq!((title.color, title.weight), (Some(theme.fg), Some(UI_STRONG_WEIGHT)));
         }
     }

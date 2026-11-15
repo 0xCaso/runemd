@@ -1,5 +1,5 @@
-//! Nuovo file (Cmd+N): nella sidebar il campo "Nuovo file" prende il posto di "Apri file" e chiede
-//! il nome. Invio crea (`App::create_from_sidebar`); Esc o un clic fuori chiudono senza creare.
+//! New file (Cmd+N): in the sidebar the "New file" field takes the place of "Open file" and asks
+//! for the name. Return creates (`App::create_from_sidebar`); Esc or a click outside close without creating.
 
 use rune::{El, Key, KeyEvent, TextEdit, Tx, icon, text_input};
 use rune_kit::glyphs;
@@ -9,7 +9,7 @@ use super::sidebar::{Hooks, Sidebar, ui_font};
 use super::theme::{ICON, Theme};
 use crate::edit::new_file::normalize;
 
-/// Lo stato del campo di Cmd+N.
+/// The state of the Cmd+N field.
 #[derive(Default)]
 pub struct NewFile {
     pub edit: TextEdit,
@@ -17,20 +17,20 @@ pub struct NewFile {
 }
 
 impl NewFile {
-    /// Cmd+N: il campo si apre, vuoto, col fuoco.
+    /// Cmd+N: the field opens, empty, with focus.
     pub fn show(&mut self) {
         self.edit = TextEdit::default();
         self.edit.focused = true;
         self.open = true;
     }
 
-    /// Esc, un clic fuori o un file creato: il campo si chiude e si svuota.
+    /// Esc, a click outside or a created file: the field closes and empties.
     pub fn close(&mut self) {
         self.edit = TextEdit::default();
         self.open = false;
     }
 
-    /// Il campo ha perso il fuoco: si chiude. Vero se era aperto.
+    /// The field lost focus: it closes. True if it was open.
     pub fn blur_close(&mut self) -> bool {
         if self.open && !self.edit.focused {
             self.close();
@@ -39,13 +39,13 @@ impl NewFile {
         false
     }
 
-    /// Cosa Invio chiede di creare: il nome scritto, se è valido.
+    /// What Return asks to create: the typed name, if it is valid.
     pub fn name(&self) -> Option<String> {
         normalize(&self.edit.text).map(|_| self.edit.text.trim().to_owned())
     }
 }
 
-/// Il campo "Nuovo file ⌘N", fatto come quello di Cmd+P.
+/// The "New file ⌘N" field, built like the Cmd+P one.
 pub(super) fn field<S: 'static>(sb: &Sidebar, hooks: Hooks<S>, theme: &Theme) -> El {
     let input = text_input(&sb.new_file.edit, ui_font())
         .single_line()
@@ -54,9 +54,9 @@ pub(super) fn field<S: 'static>(sb: &Sidebar, hooks: Hooks<S>, theme: &Theme) ->
         .shrink()
         .min_w(0.0)
         .color(theme.fg)
-        .placeholder("Nuovo file", theme.fg2)
+        .placeholder("New file", theme.fg2)
         .caret(theme.fg, theme.sel)
-        .label("Nuovo file")
+        .label("New file")
         .on_edit(move |s: &mut S| &mut (hooks.get_mut)(s).new_file.edit)
         .on_input_key(move |s: &mut S, ev: &KeyEvent, tx: &mut Tx| on_key(s, hooks, ev, tx));
     field_row(
@@ -67,7 +67,7 @@ pub(super) fn field<S: 'static>(sb: &Sidebar, hooks: Hooks<S>, theme: &Theme) ->
     )
 }
 
-/// I tasti del campo prima dell'editor. Vero se li prende.
+/// The field's keys, before the editor. True if it takes them.
 fn on_key<S: 'static>(s: &mut S, hooks: Hooks<S>, ev: &KeyEvent, tx: &mut Tx) -> bool {
     if (hooks.get)(s).new_file.edit.preedit().is_some() {
         return false;
@@ -81,7 +81,7 @@ fn on_key<S: 'static>(s: &mut S, hooks: Hooks<S>, ev: &KeyEvent, tx: &mut Tx) ->
             true
         }
         Key::Enter if !ev.mods.alt && !ev.mods.shift => {
-            // Un nome vuoto o non valido non fa niente e il campo resta aperto.
+            // An empty or invalid name does nothing and the field stays open.
             if !repeat
                 && let Some(name) = (hooks.get)(s).new_file.name()
                 && (hooks.create)(s, name, tx)
@@ -110,7 +110,7 @@ mod tests {
         let mut n = typed("prova");
         assert!(n.open && n.edit.focused);
         n.show();
-        assert!(n.edit.text.is_empty(), "si riapre vuoto");
+        assert!(n.edit.text.is_empty(), "reopens empty");
         n.close();
         assert!(!n.open && !n.edit.focused);
     }
@@ -126,7 +126,7 @@ mod tests {
     #[test]
     fn blur_closes_the_field_but_focus_keeps_it() {
         let mut n = typed("x");
-        assert!(!n.blur_close(), "col fuoco resta aperto");
+        assert!(!n.blur_close(), "stays open with focus");
         n.edit.focused = false;
         assert!(n.blur_close() && !n.open);
         assert!(!n.blur_close());

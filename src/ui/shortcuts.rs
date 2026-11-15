@@ -1,11 +1,11 @@
-//! Il pulsante ⌘ delle scorciatoie nella barra delle schede e il suo popover
-//! (docs/decisions/2026-11-15-scorciatoie-popover.md; mockup `2026-11-15-scorciatoie`, variante
+//! The ⌘ shortcuts button in the tab bar and its popover
+//! (docs/decisions/2026-11-15-shortcuts-popover.md; mockup `2026-11-15-scorciatoie`, variant
 //! "popover").
 //!
-//! Il pulsante sta a sinistra di ↔ e ne copia l'aspetto (28 × 28, glifo in `fg2`, hover `sel`,
-//! `sel` pieno col popover aperto). Il popover è quello della larghezza (`tabs::width_popover`):
-//! superficie `panel`, raggio `R_PANEL`, bordo e ombra del pannello, montato alla radice sotto
-//! il pulsante; un clic fuori o Esc lo chiudono. Aprirne uno chiude l'altro.
+//! The button sits left of ↔ and copies its look (28 × 28, glyph in `fg2`, hover `sel`,
+//! solid `sel` with the popover open). The popover is the width one (`tabs::width_popover`):
+//! `panel` surface, radius `R_PANEL`, panel border and shadow, mounted at the root below
+//! the button; a click outside or Esc closes it. Opening one closes the other.
 
 use rune::{Align, Color, El, Side, TextStyle, col, el, row, text};
 
@@ -16,38 +16,38 @@ use crate::app::App;
 
 pub const KEYS_BUTTON: &str = "keys-button";
 pub const KEYS_POPOVER: &str = "keys-popover";
-/// Titolo del popover, etichetta e tooltip del pulsante.
-pub const TITLE: &str = "Scorciatoie";
-/// Larghezza del popover (mockup: 300).
+/// Popover title, button label and tooltip.
+pub const TITLE: &str = "Shortcuts";
+/// Popover width (mockup: 300).
 const POPOVER_W: f32 = 300.0;
-/// Margini dentro il popover (mockup: 12 sopra e sotto, 14 ai lati).
+/// Margins inside the popover (mockup: 12 top and bottom, 14 on the sides).
 const PAD_Y: f32 = 12.0;
 const PAD_X: f32 = 14.0;
-/// Altezza di una riga (mockup: 24).
+/// Row height (mockup: 24).
 const KEY_ROW: f32 = 24.0;
-/// Testo dei tasti (mockup: 11,5).
+/// Key text (mockup: 11.5).
 const KEY_TEXT: f32 = 11.5;
 const GLYPH: f32 = 15.0;
 const POPOVER_GAP: f32 = 4.0;
 
-/// Le scorciatoie dell'app, nei gruppi del mockup (design/mockups/2026-11-15-scorciatoie/scorciatoie.md).
+/// The app's shortcuts, in the mockup's groups (design/mockups/2026-11-15-scorciatoie/scorciatoie.md).
 pub const GROUPS: &[(&str, &[(&str, &str)])] = &[
-    ("File", &[("Apri file", "⌘P"), ("Scegli e apri in Apri file", "↑↓  ↵"), ("Nuovo file", "⌘N"), ("Salva (nel sorgente)", "⌘S"), ("Chiudi la scheda", "⌘W")]),
-    ("Schede", &[("Vai alla scheda", "⌘1 … ⌘8"), ("Ultima scheda", "⌘9"), ("Scheda dopo, prima", "⌃⇥  ⌃⇧⇥")]),
+    ("File", &[("Open file", "⌘P"), ("Pick and open in Open file", "↑↓  ↵"), ("New file", "⌘N"), ("Save (in source)", "⌘S"), ("Close tab", "⌘W")]),
+    ("Tabs", &[("Go to tab", "⌘1 … ⌘8"), ("Last tab", "⌘9"), ("Next tab, previous tab", "⌃⇥  ⌃⇧⇥")]),
     (
-        "Lettura",
+        "Reading",
         &[
-            ("Sorgente e lettura", "⌘E"),
-            ("Cerca nel file", "⌘F"),
-            ("Risultato dopo, prima", "↵  ⇧↵"),
-            ("Larghezza del testo", "⌘⌥+  ⌘⌥−"),
-            ("Seleziona tutto", "⌘A"),
+            ("Source and reading", "⌘E"),
+            ("Find in file", "⌘F"),
+            ("Next match, previous match", "↵  ⇧↵"),
+            ("Text width", "⌘⌥+  ⌘⌥−"),
+            ("Select all", "⌘A"),
         ],
     ),
-    ("App", &[("Impostazioni", "⌘,"), ("Chiudi popover e ricerca", "Esc")]),
+    ("App", &[("Settings", "⌘,"), ("Close popover or Find", "Esc")]),
 ];
 
-/// Apre o chiude il popover delle scorciatoie; aprendolo chiude quello della larghezza.
+/// Opens or closes the shortcuts popover; opening it closes the width one.
 pub fn toggle(s: &mut App) {
     s.keys_popover = !s.keys_popover;
     if s.keys_popover {
@@ -55,7 +55,7 @@ pub fn toggle(s: &mut App) {
     }
 }
 
-/// Il pulsante ⌘, a sinistra di ↔.
+/// The ⌘ button, left of ↔.
 pub(super) fn button(s: &App, theme: &Theme, motion: Motion) -> El {
     let glyph = text("⌘").key("keys-button-glyph").font(TextStyle::new(GLYPH, UI_WEIGHT)).color(theme.fg2).a11y_hidden();
     let mut b = el()
@@ -77,8 +77,8 @@ pub(super) fn button(s: &App, theme: &Theme, motion: Motion) -> El {
     b
 }
 
-/// Il popover, da montare alla radice dopo la barra. Vuoto se è chiuso. Titolo in `fg2`,
-/// gruppi in `fg3` 500, righe in `fg2` con i tasti in `fg2` dentro un bordo `line`.
+/// The popover, to mount at the root after the bar. Empty if closed. Title in `fg2`,
+/// groups in `fg3` 500, rows in `fg2` with the keys in `fg2` inside a `line` border.
 pub fn popover(s: &App, theme: &Theme) -> Vec<El> {
     if !s.keys_popover {
         return Vec::new();
@@ -134,7 +134,7 @@ mod tests {
 
     fn open() -> Runtime<App> {
         let mut state = App::bare(crate::index::Library::load(Vec::new(), None));
-        state.push_tab(Document::from_source(Path::new("t.md"), "# Titolo\n\nTesto.\n"));
+        state.push_tab(Document::from_source(Path::new("t.md"), "# Title\n\nText.\n"));
         let mut rt = Runtime::new(state, crate::view, (1200.0, 900.0), Env::new(true, 2.0));
         rt.on_key = Some(crate::on_key);
         rt.frame(0.0);
@@ -148,7 +148,7 @@ mod tests {
                 return;
             }
         }
-        panic!("la vista non si ferma");
+        panic!("the view does not settle");
     }
 
     fn find(rt: &Runtime<App>, key: &str) -> Option<rune::ElementInfo> {
@@ -167,54 +167,54 @@ mod tests {
         settle(rt);
     }
 
-    /// Ogni riga di scorciatoie.md (tranne Esc, che il mockup scrive come "Chiudi popover e
-    /// ricerca") ha i suoi tasti nel popover.
+    /// Every row of scorciatoie.md (except Esc, which the mockup writes as "Chiudi popover e
+    /// ricerca") has its keys in the popover.
     #[test]
     fn the_list_is_the_apps_list() {
         let md = include_str!("../../design/mockups/2026-11-15-scorciatoie/scorciatoie.md");
         let caps: Vec<&str> = GROUPS.iter().flat_map(|(_, k)| k.iter().map(|(_, c)| *c)).collect();
         for want in ["⌘P", "⌘N", "⌘S", "⌘W", "⌘1 … ⌘8", "⌘9", "⌘E", "⌘F", "⌘A", "⌘,", "Esc", "↑↓  ↵", "⌃⇥  ⌃⇧⇥", "↵  ⇧↵", "⌘⌥+  ⌘⌥−"] {
-            assert!(caps.contains(&want), "manca {want}");
+            assert!(caps.contains(&want), "missing {want}");
         }
         for k in ["⌘P", "⌘N", "⌘S", "⌘W", "⌘9", "⌘E", "⌘F", "⌘A", "⌘,"] {
-            assert!(md.contains(k), "{k} non è in scorciatoie.md");
+            assert!(md.contains(k), "{k} is not in scorciatoie.md");
         }
         let groups: Vec<&str> = GROUPS.iter().map(|(g, _)| *g).collect();
-        assert_eq!(groups, ["File", "Schede", "Lettura", "App"], "gruppi del mockup");
+        assert_eq!(groups, ["File", "Tabs", "Reading", "App"], "mockup groups");
     }
 
-    /// Vincoli 1, 2, 4: ⌘ accanto a ↔ (a sinistra), con tooltip; il clic apre il popover sotto
-    /// il pulsante; Esc, un clic fuori e il pulsante lo chiudono; aprire ↔ chiude ⌘ e viceversa.
+    /// Constraints 1, 2, 4: ⌘ next to ↔ (on the left), with a tooltip; a click opens the popover below
+    /// the button; Esc, a click outside and the button close it; opening ↔ closes ⌘ and vice versa.
     #[test]
     fn the_keys_button_opens_a_popover_like_the_width_one() {
         let mut rt = open();
-        let b = find(&rt, KEYS_BUTTON).expect("pulsante ⌘");
+        let b = find(&rt, KEYS_BUTTON).expect("⌘ button");
         let w = find(&rt, WIDTH_BUTTON).unwrap();
         assert_eq!(b.role, "button");
         assert_eq!(b.help.as_deref(), Some(TITLE), "tooltip");
-        assert!(b.rect[0] + b.rect[2] <= w.rect[0] && w.rect[0] - (b.rect[0] + b.rect[2]) < 8.0, "subito a sinistra di ↔: {:?} {:?}", b.rect, w.rect);
-        assert_eq!((b.rect[2], b.rect[3]), (w.rect[2], w.rect[3]), "stessa misura di ↔");
+        assert!(b.rect[0] + b.rect[2] <= w.rect[0] && w.rect[0] - (b.rect[0] + b.rect[2]) < 8.0, "right left of ↔: {:?} {:?}", b.rect, w.rect);
+        assert_eq!((b.rect[2], b.rect[3]), (w.rect[2], w.rect[3]), "same size as ↔");
         assert!(find(&rt, KEYS_POPOVER).is_none());
 
         tap_el(&mut rt, KEYS_BUTTON);
-        let pop = find(&rt, KEYS_POPOVER).expect("aperto");
-        assert!(pop.rect[1] >= b.rect[1] + b.rect[3], "sotto il pulsante");
+        let pop = find(&rt, KEYS_POPOVER).expect("open");
+        assert!(pop.rect[1] >= b.rect[1] + b.rect[3], "below the button");
         assert!(find(&rt, "keys-cap-0-0").and_then(|e| e.text).as_deref() == Some("⌘P"));
 
         rt.key(KeyEvent { key: Key::Escape, mods: Mods::default() });
         settle(&mut rt);
-        assert!(find(&rt, KEYS_POPOVER).is_none(), "Esc chiude");
+        assert!(find(&rt, KEYS_POPOVER).is_none(), "Esc closes");
 
         tap_el(&mut rt, KEYS_BUTTON);
         tap(&mut rt, 600.0, 700.0);
-        assert!(find(&rt, KEYS_POPOVER).is_none(), "un clic fuori chiude");
+        assert!(find(&rt, KEYS_POPOVER).is_none(), "a click outside closes");
 
         tap_el(&mut rt, KEYS_BUTTON);
         tap_el(&mut rt, KEYS_BUTTON);
-        assert!(find(&rt, KEYS_POPOVER).is_none(), "il pulsante chiude");
+        assert!(find(&rt, KEYS_POPOVER).is_none(), "the button closes");
 
-        // Uno alla volta: ↔ chiude ⌘, ⌘ chiude ↔.
-        // Il primo clic fuori dal popover aperto lo chiude (il fondo trasparente), il secondo apre l'altro.
+        // One at a time: ↔ closes ⌘, ⌘ closes ↔.
+        // The first click outside the open popover closes it (the transparent ground), the second opens the other.
         tap_el(&mut rt, KEYS_BUTTON);
         tap_el(&mut rt, WIDTH_BUTTON);
         tap_el(&mut rt, WIDTH_BUTTON);

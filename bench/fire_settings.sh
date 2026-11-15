@@ -19,12 +19,12 @@ for theme in dark light; do
   RUNEMD_ROOTS="$W/root" RUNE_DIRS_ROOT="$W/dirs" target/perf/runemd "$W/doc.md" --script "$W/script.json" \
     --size 1280x860 --scale 2 --theme $theme --fps 30 --at mark:panel+0.3 --snap "$W/fire-settings-$theme.png" \
     --crop settings --tree "$W/panel-$theme.json" >/dev/null 2>&1
-  for t in Intensità Altezza Velocità Colore "Accento di sistema" "100 %" "110 pt" "1×"; do
+  for t in Intensity Height Speed Color "System accent" "100 %" "110 pt" "1×"; do
     python3 -c 'import json,sys; sys.exit(not any(e.get("text")==sys.argv[2] for e in json.load(open(sys.argv[1]))["elements"]))' \
       "$W/panel-$theme.json" "$t" || fail "$theme: manca \"$t\""
   done
 done
-for c in Fuoco:fire Blu:blue Viola:violet Verde:green "Accento di sistema:accent"; do
+for c in Fire:fire Blue:blue Violet:violet Green:green "System accent:accent"; do
   label=${c%%:*}; name=${c##*:}
   sed "s|COLOR|$label|" tests/scripts/fire_settings.json > "$W/script-$name.json"
   cp fixtures/normal.md "$W/$name.md"

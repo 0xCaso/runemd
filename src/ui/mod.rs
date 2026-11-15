@@ -1,4 +1,4 @@
-//! Le viste dell'app.
+//! The app's views.
 
 #[cfg(test)]
 pub(crate) mod contrast;

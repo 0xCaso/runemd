@@ -1,13 +1,13 @@
-//! Il pannello delle impostazioni (spec, "Impostazioni"): Cmd+, lo apre e lo chiude, Esc lo
-//! chiude. Sta nel pannello del documento, a destra, al posto dell'indice dei titoli: il documento
-//! resta in vista e cambia subito con font, dimensione e tema.
+//! The settings panel (spec, "Settings"): Cmd+, opens and closes it, Esc
+//! closes it. It sits in the document panel, on the right, in place of the heading outline: the document
+//! stays in view and changes at once with font, size and theme.
 //!
-//! Nessun mockup: solo token di DESIGN.md. Colonna larga come la sidebar (`SIDEBAR`), separata dal
-//! documento da una linea di 0,5 in `line`; etichette di sezione come quelle della sidebar (UI
-//! piccola in `fg3`); righe da 28 (`ROW`, raggio 6, hover `sel`, scala 0,98 premute). La scelta
-//! fatta ha riempimento `sel`, testo `fg` e il segno di spunta in `fg`; le altre testo `fg2`. La
-//! casella del fuoco ha il bordo in `fg3` e, accesa, il riempimento `fg2` con la spunta in
-//! `panel`: tutti ≥ 3:1 sul pannello nei due temi (`ui::contrast`). Nessun accento, nessuna pillola.
+//! No mockup: only DESIGN.md tokens. A column as wide as the sidebar (`SIDEBAR`), separated from the
+//! document by a 0.5 line in `line`; section labels like the sidebar ones (small
+//! UI in `fg3`); 28 rows (`ROW`, radius 6, hover `sel`, scale 0.98 when pressed). The chosen
+//! option has the `sel` fill, `fg` text and the check mark in `fg`; the others `fg2` text. The
+//! fire checkbox has its border in `fg3` and, when on, the `fg2` fill with the check in
+//! `panel`: all ≥ 3:1 on the panel in both themes (`ui::contrast`). No accent, no pill.
 
 use std::borrow::Cow;
 use std::path::{Path, PathBuf};
@@ -27,45 +27,45 @@ use super::theme::{
 use crate::app::App;
 use crate::settings::ThemePref;
 
-/// I testi del pannello (italiano, esatti).
-pub const TITLE: &str = "Impostazioni";
-pub const ROOTS: &str = "Cartelle osservate";
-pub const NO_ROOTS: &str = "Nessuna cartella";
-pub const ADD_ROOT: &str = "Aggiungi cartella…";
-pub const REMOVE_ROOT: &str = "Togli";
-pub const DIALOG_TITLE: &str = "Scegli una cartella da osservare";
+/// The panel texts (exact).
+pub const TITLE: &str = "Settings";
+pub const ROOTS: &str = "Watched folders";
+pub const NO_ROOTS: &str = "No folders";
+pub const ADD_ROOT: &str = "Add folder…";
+pub const REMOVE_ROOT: &str = "Remove";
+pub const DIALOG_TITLE: &str = "Choose a folder to watch";
 pub const FONT: &str = "Font";
-pub const SIZE: &str = "Dimensione";
-pub const SMALLER: &str = "Più piccolo";
-pub const BIGGER: &str = "Più grande";
-pub const THEME: &str = "Tema";
+pub const SIZE: &str = "Size";
+pub const SMALLER: &str = "Smaller";
+pub const BIGGER: &str = "Larger";
+pub const THEME: &str = "Theme";
 pub const THEMES: [(ThemePref, &str); 3] = [
-    (ThemePref::System, "Sistema"),
-    (ThemePref::Light, "Chiaro"),
-    (ThemePref::Dark, "Scuro"),
+    (ThemePref::System, "System"),
+    (ThemePref::Light, "Light"),
+    (ThemePref::Dark, "Dark"),
 ];
-pub const FIRE: &str = "Fuoco in fondo al pannello";
-pub const WIDTH: &str = "Larghezza del testo";
-pub const FIRE_STRENGTH: &str = "Intensità";
-pub const FIRE_HEIGHT: &str = "Altezza";
-pub const FIRE_SPEED: &str = "Velocità";
-pub const FIRE_COLOR: &str = "Colore";
-/// L'opacità dei controlli del fuoco quando è spento.
+pub const FIRE: &str = "Fire at the bottom of the panel";
+pub const WIDTH: &str = "Text width";
+pub const FIRE_STRENGTH: &str = "Intensity";
+pub const FIRE_HEIGHT: &str = "Height";
+pub const FIRE_SPEED: &str = "Speed";
+pub const FIRE_COLOR: &str = "Color";
+/// The opacity of the fire controls when it is off.
 const DIMMED: f32 = 0.4;
-/// Il cursore della larghezza: binario di 2 in `fg3`, parte scelta e pomello (12) in `fg2`.
+/// The width slider: a 2 track in `fg3`, chosen part and knob (12) in `fg2`.
 const TRACK: f32 = 2.0;
 const THUMB: f32 = 12.0;
-/// Lo spazio del valore a destra del cursore ("1240 pt", "Intera").
+/// The room for the value right of the slider ("1240 pt", "Full").
 const WIDTH_VALUE: f32 = 64.0;
-/// Il riscontro di "Aggiungi cartella…" quando la cartella scelta è già osservata (o sta sotto
-/// una osservata): resta `NOTICE_FOR` o fino alla prossima azione.
-pub const ALREADY: &str = "Già osservata";
+/// The feedback for "Add folder…" when the chosen folder is already watched (or sits under
+/// a watched one): it stays for `NOTICE_FOR` or until the next action.
+pub const ALREADY: &str = "Already watched";
 pub const NOTICE_FOR: std::time::Duration = std::time::Duration::from_secs(3);
-/// Righe della lista dei font visibili prima di scorrere: mezza riga tagliata dice che scorre.
+/// Rows of the font list visible before scrolling: half a row cut off says it scrolls.
 const FONT_ROWS: f32 = 8.5;
 
-/// Lo stato del pannello: aperto o no, le scelte di font (lette da CoreText alla prima apertura)
-/// e fino a quando si vede "Già osservata".
+/// The panel state: open or not, the font choices (read from CoreText on first open)
+/// and until when "Already watched" shows.
 #[derive(Default)]
 pub struct Panel {
     pub open: bool,
@@ -87,28 +87,28 @@ impl Panel {
         std::mem::take(&mut self.open)
     }
 
-    /// "Già osservata" fino a `now + NOTICE_FOR`.
+    /// "Already watched" until `now + NOTICE_FOR`.
     pub fn notice_already(&mut self, now: Instant) {
         self.notice = Some(now + NOTICE_FOR);
     }
 
-    /// Un'altra azione nel pannello: il riscontro sparisce.
+    /// Another action in the panel: the feedback disappears.
     pub fn clear_notice(&mut self) {
         self.notice = None;
     }
 
-    /// Se a `now` il riscontro sarebbe scaduto (i test).
+    /// Whether at `now` the feedback would have expired (tests).
     #[cfg(test)]
     fn clone_expire(&self, now: Instant) -> bool {
         self.notice.is_some_and(|t| now >= t)
     }
 
-    /// "Già osservata" si vede.
+    /// "Already watched" is showing.
     pub fn notice(&self) -> bool {
         self.notice.is_some()
     }
 
-    /// Toglie il riscontro scaduto a `now`. Vero se la vista cambia.
+    /// Removes the feedback that expired at `now`. True if the view changes.
     pub fn expire(&mut self, now: Instant) -> bool {
         if self.notice.is_some_and(|t| now >= t) {
             self.notice = None;
@@ -117,7 +117,7 @@ impl Panel {
         false
     }
 
-    /// Le scelte (prima di leggere CoreText: le prime, filtrate come `fonts::choices`).
+    /// The choices (before reading CoreText: the first ones, filtered like `fonts::choices`).
     fn choices(&self) -> Cow<'_, [String]> {
         match &self.fonts {
             Some(f) => Cow::Borrowed(f),
@@ -125,8 +125,8 @@ impl Panel {
         }
     }
 
-    /// Dove va il font salvato se non è fra le scelte (non più installato): dopo l'ultima delle
-    /// prime scelte presenti. `None` se c'è già.
+    /// Where the saved font goes if it is not among the choices (no longer installed): after the last of the
+    /// first choices present. `None` if it is already there.
     fn missing_at(choices: &[String], current: &str) -> Option<usize> {
         if choices.iter().any(|f| f == current) {
             return None;
@@ -139,7 +139,7 @@ impl Panel {
         )
     }
 
-    /// Le scelte di font; il font salvato c'è sempre, anche se non è più installato.
+    /// The font choices; the saved font is always there, even if it is no longer installed.
     #[cfg(test)]
     fn fonts(&self, current: &str) -> Vec<String> {
         let mut out = self.choices().into_owned();
@@ -149,15 +149,15 @@ impl Panel {
         out
     }
 
-    /// Quante righe ha la lista dei font e dove sta il font salvato aggiunto (la versione della
-    /// lista virtuale).
+    /// How many rows the font list has and where the added saved font sits (the version of the
+    /// virtual list).
     fn font_shape(&self, current: &str) -> (usize, Option<usize>) {
         let choices = self.choices();
         let at = Self::missing_at(&choices, current);
         (choices.len() + usize::from(at.is_some()), at)
     }
 
-    /// La riga `i` della lista dei font, senza copiare la lista.
+    /// Row `i` of the font list, without copying the list.
     fn font_at(&self, current: &str, i: usize) -> Option<String> {
         let choices = self.choices();
         match Self::missing_at(&choices, current) {
@@ -172,17 +172,17 @@ fn ui_font() -> TextStyle {
     TextStyle::new(UI_TEXT, UI_WEIGHT)
 }
 
-/// La dimensione come si scrive in italiano: "15,5 pt", "17 pt".
+/// The size as written: "15.5 pt", "17 pt".
 pub fn size_label(size: f32) -> String {
     let s = if size.fract() == 0.0 {
         format!("{size:.0}")
     } else {
-        format!("{size:.1}").replace('.', ",")
+        format!("{size:.1}")
     };
     format!("{s} pt")
 }
 
-/// La cartella come la si legge: la home diventa "~".
+/// The folder as you read it: the home becomes "~".
 pub fn root_label(root: &Path) -> String {
     let home = std::env::var_os("HOME").map(PathBuf::from);
     match home.as_deref().and_then(|h| root.strip_prefix(h).ok()) {
@@ -192,7 +192,7 @@ pub fn root_label(root: &Path) -> String {
     }
 }
 
-/// La colonna del pannello. `hover`: il puntatore è fine e può passare sopra.
+/// The panel column. `hover`: the pointer is a fine one and can hover.
 pub fn view(s: &App, hooks: Hooks<App>, theme: &Theme, reduced: bool, hover: bool) -> El {
     let motion = Motion { reduced, hover };
     let set = &s.settings;
@@ -250,7 +250,7 @@ pub fn view(s: &App, hooks: Hooks<App>, theme: &Theme, reduced: bool, hover: boo
                         }
                     }
                     Ok(None) => {}
-                    Err(e) => eprintln!("runemd: cartella non scelta: {e}"),
+                    Err(e) => eprintln!("runemd: no folder chosen: {e}"),
                 },
             );
         });
@@ -268,8 +268,8 @@ pub fn view(s: &App, hooks: Hooks<App>, theme: &Theme, reduced: bool, hover: boo
     }
 
     body = body.child(section(FONT, theme));
-    // Righe virtuali: la lista ha centinaia di famiglie, se ne costruiscono solo quelle vicine
-    // alla vista. Ogni riga ritrova il suo font dallo stato (`Panel::font_at`).
+    // Virtual rows: the list has hundreds of families, only those near the view
+    // are built. Each row finds its font again from the state (`Panel::font_at`).
     let (count, at) = s.settings_panel.font_shape(&set.font);
     let th = *theme;
     let list = col()
@@ -397,7 +397,7 @@ pub fn view(s: &App, hooks: Hooks<App>, theme: &Theme, reduced: bool, hover: boo
         .child(scroll)
 }
 
-/// "Larghezza del testo": il cursore a passi di `settings::COLUMNS` (da 680 a "Intera").
+/// "Text width": the slider in steps of `settings::COLUMNS` (from 680 to "Full").
 pub(crate) fn width_slider(key: &'static str, column: f32, theme: &Theme) -> El {
     stepped_slider(
         key,
@@ -411,11 +411,11 @@ pub(crate) fn width_slider(key: &'static str, column: f32, theme: &Theme) -> El 
     )
 }
 
-/// Un cursore a passi con il valore `value` a destra (chiave `<key>-value`), al punto `t`
-/// (0..1). Trascinare o cliccare chiama `at` con il punto; le frecce chiamano `step` con −1 o
-/// +1. Il binario è in `fg3` e la parte scelta col pomello in `fg2` (≥ 3:1). Spento
-/// (`enabled` falso): niente gestori, `disabled` per l'accessibilità; l'attenuazione la mette
-/// chi lo contiene.
+/// A stepped slider with the value `value` on the right (key `<key>-value`), at point `t`
+/// (0..1). Dragging or clicking calls `at` with the point; the arrows call `step` with −1 or
+/// +1. The track is in `fg3` and the chosen part with the knob in `fg2` (≥ 3:1). Off
+/// (`enabled` false): no handlers, `disabled` for accessibility; the dimming is applied by
+/// the container.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn stepped_slider(
     key: &'static str,
@@ -471,8 +471,8 @@ pub(crate) fn stepped_slider(
     row().w_full().px(ROW_PAD).child(slider).child(value)
 }
 
-/// Le impostazioni del fuoco sotto l'interruttore: Intensità, Altezza, Velocità (cursori a
-/// passi) e Colore (scelte). Con il fuoco spento sono attenuate (`DIMMED`) e disabilitate.
+/// The fire settings below the switch: Intensity, Height, Speed (stepped
+/// sliders) and Color (choices). With the fire off they are dimmed (`DIMMED`) and disabled.
 fn fire_look(s: &App, hooks: Hooks<App>, theme: &Theme, motion: Motion) -> El {
     use crate::settings::FireKnob;
     let on = s.settings.fire;
@@ -515,7 +515,7 @@ fn fire_look(s: &App, hooks: Hooks<App>, theme: &Theme, motion: Motion) -> El {
     look.child(colors)
 }
 
-/// L'etichetta di un controllo dentro una sezione: 13 in `fg2`, senza lo spazio di sezione.
+/// The label of a control inside a section: 13 in `fg2`, without the section spacing.
 fn sub_label(label: &'static str, theme: &Theme) -> El {
     text(label)
         .key(label)
@@ -525,7 +525,7 @@ fn sub_label(label: &'static str, theme: &Theme) -> El {
         .px(ROW_PAD)
 }
 
-/// Un'etichetta di sezione: 12/500 in `fg3` (`section-pad`), come nella sidebar.
+/// A section label: 12/500 in `fg3` (`section-pad`), like in the sidebar.
 fn section(label: &'static str, theme: &Theme) -> El {
     text(label)
         .key(label)
@@ -536,13 +536,13 @@ fn section(label: &'static str, theme: &Theme) -> El {
         .pb(SECTION_PAD_BOTTOM)
 }
 
-/// `e` premibile con la chiave `key` (hover `sel`, scala 0,98).
+/// `e` pressable with key `key` (hover `sel`, scale 0.98).
 fn press(e: El, key: &str, s: &App, hooks: Hooks<App>, theme: &Theme, motion: Motion) -> El {
     sidebar::pressable(e, key.to_owned(), &s.sidebar, hooks, theme, motion, true)
         .key(key.to_owned())
 }
 
-/// Una cartella osservata: icona, percorso in `fg2` (troncato) e "Togli" a destra.
+/// A watched folder: icon, path in `fg2` (truncated) and "Remove" on the right.
 fn root_row(
     s: &App,
     hooks: Hooks<App>,
@@ -596,8 +596,8 @@ fn root_row(
         .child(remove)
 }
 
-/// Una scelta (font, tema): la spunta e il testo in `fg` con il riempimento `sel` se è quella
-/// fatta, altrimenti solo il testo in `fg2`.
+/// A choice (font, theme): the check and the text in `fg` with the `sel` fill if it is the chosen
+/// one, otherwise only the text in `fg2`.
 #[allow(clippy::too_many_arguments)]
 fn option(
     s: &App,
@@ -641,7 +641,7 @@ fn option(
     sidebar::pressable(e, key.clone(), &s.sidebar, hooks, theme, motion, !chosen).key(key)
 }
 
-/// Una scelta che non si può fare (fuoco spento): come `option`, senza pressione né hover.
+/// A choice that cannot be made (fire off): like `option`, without press or hover.
 fn still_option(key: String, label: &str, chosen: bool, theme: &Theme) -> El {
     let mark = el().w(ICON).h(ICON).center();
     let mark = if chosen { mark.child(icon(&glyphs::CHECK, ICON).color(theme.fg)) } else { mark };
@@ -668,8 +668,8 @@ fn still_option(key: String, label: &str, chosen: bool, theme: &Theme) -> El {
         )
 }
 
-/// L'interruttore del fuoco: una casella con il bordo in `fg3`; accesa, piena in `fg2` con la
-/// spunta in `panel`.
+/// The fire switch: a checkbox with its border in `fg3`; when on, filled `fg2` with the
+/// check in `panel`.
 fn fire_toggle(s: &App, hooks: Hooks<App>, theme: &Theme, motion: Motion) -> El {
     let on = s.settings.fire;
     let mut boxed = el()
@@ -719,7 +719,7 @@ mod tests {
 
     #[test]
     fn sizes_read_in_italian() {
-        assert_eq!(size_label(15.5), "15,5 pt");
+        assert_eq!(size_label(15.5), "15.5 pt");
         assert_eq!(size_label(17.0), "17 pt");
     }
 
@@ -746,7 +746,7 @@ mod tests {
                 return;
             }
         }
-        panic!("la vista non si ferma");
+        panic!("the view does not settle");
     }
 
     fn cmd(rt: &mut Runtime<App>, c: char) {
@@ -768,24 +768,24 @@ mod tests {
         rt.elements().into_iter().filter_map(|e| e.text).collect()
     }
 
-    /// Cmd+, apre il pannello (al posto dell'indice), Cmd+, ed Esc lo chiudono.
+    /// Cmd+, opens the panel (in place of the outline), Cmd+, and Esc close it.
     #[test]
     fn cmd_comma_opens_and_esc_or_cmd_comma_closes() {
-        let mut rt = open("# Titolo\n\nTesto.\n", true);
+        let mut rt = open("# Title\n\nText.\n", true);
         assert!(!has(&rt, "settings"));
         cmd(&mut rt, ',');
         assert!(has(&rt, "settings"));
         assert!(
             !has(&rt, "outline"),
-            "il pannello prende il posto dell'indice"
+            "the panel takes the outline's place"
         );
         for label in [
-            ROOTS, FONT, SIZE, THEME, "Sistema", "Chiaro", "Scuro", FIRE, ADD_ROOT, "Inter",
-            "SF Pro", "15,5 pt",
+            ROOTS, FONT, SIZE, THEME, "System", "Light", "Dark", FIRE, ADD_ROOT, "Inter",
+            "SF Pro", "15.5 pt",
         ] {
             assert!(
                 texts(&rt).iter().any(|t| t == label),
-                "manca {label}: {:?}",
+                "missing {label}: {:?}",
                 texts(&rt)
             );
         }
@@ -807,10 +807,10 @@ mod tests {
         s.finish()
     }
 
-    /// Tema, font e dimensione cambiano il documento subito, senza riavvio.
+    /// Theme, font and size change the document at once, without a restart.
     #[test]
     fn theme_font_and_size_apply_live() {
-        let mut rt = open("# Titolo\n\nTesto.\n", true);
+        let mut rt = open("# Title\n\nText.\n", true);
         let before = h(rt.state.style(true));
         rt.update(|s, _| s.set_font("New York"));
         settle(&mut rt);
@@ -823,17 +823,17 @@ mod tests {
         assert!(rt.state.dark(true));
         rt.update(|s, _| s.set_theme(ThemePref::Light));
         settle(&mut rt);
-        assert!(!rt.state.dark(true), "Chiaro vince sul sistema scuro");
+        assert!(!rt.state.dark(true), "Light wins over the dark system");
     }
 
-    /// "Larghezza del testo": il cursore cambia la colonna dal vivo; "Intera" segue il pannello
-    /// meno i margini; il blocco in cima alla vista resta in cima.
+    /// "Text width": the slider changes the column live; "Full" follows the panel
+    /// minus the margins; the block at the top of the view stays at the top.
     #[test]
     fn text_width_changes_the_column_and_keeps_the_reading_place() {
-        let body: String = (0..80).map(|n| format!("## Sezione {n}\n\nUn paragrafo abbastanza lungo da andare a capo più volte quando la colonna è stretta, numero {n}.\n\n")).collect();
+        let body: String = (0..80).map(|n| format!("## Section {n}\n\nA paragraph that is long enough to wrap onto several lines when the column is narrow, number {n}.\n\n")).collect();
         let mut rt = open(&body, true);
         cmd(&mut rt, ',');
-        assert!(texts(&rt).iter().any(|t| t == WIDTH), "la sezione");
+        assert!(texts(&rt).iter().any(|t| t == WIDTH), "the section");
         assert!(texts(&rt).iter().any(|t| t == "680 pt"));
         let rows = |rt: &Runtime<App>| rt.elements().into_iter().find(|e| e.key.as_deref() == Some("rows")).unwrap().rect;
         let doc = |rt: &Runtime<App>| rt.elements().into_iter().find(|e| e.key.as_deref() == Some("doc")).unwrap().rect;
@@ -845,62 +845,62 @@ mod tests {
         }
         settle(&mut rt);
         let first = rt.state.tab().unwrap().visible_first;
-        assert!(first != rt.state.tab().unwrap().doc.blocks[0].id, "scorso");
-        let slider = rt.elements().into_iter().find(|e| e.key.as_deref() == Some("set-width")).expect("cursore");
+        assert!(first != rt.state.tab().unwrap().doc.blocks[0].id, "scrolled");
+        let slider = rt.elements().into_iter().find(|e| e.key.as_deref() == Some("set-width")).expect("slider");
         assert_eq!(slider.role, "slider");
-        // Un clic in fondo al cursore: "Intera".
+        // A click at the end of the slider: "Full".
         let (sx, sy) = (slider.rect[0] + slider.rect[2] - 1.0, slider.rect[1] + slider.rect[3] / 2.0);
         rt.pointer_move(sx, sy);
         rt.pointer_down(sx, sy);
         rt.pointer_up(sx, sy);
         settle(&mut rt);
         assert_eq!(rt.state.settings.column, crate::settings::COLUMN_FULL);
-        assert!(texts(&rt).iter().any(|t| t == "Intera"));
-        assert!((rows(&rt)[2] - doc(&rt)[2]).abs() < 1.0, "segue il pannello: {:?} {:?}", rows(&rt), doc(&rt));
-        assert_eq!(rt.state.tab().unwrap().visible_first, first, "stesso blocco in cima");
-        // Le frecce sul cursore: un passo indietro.
+        assert!(texts(&rt).iter().any(|t| t == "Full"));
+        assert!((rows(&rt)[2] - doc(&rt)[2]).abs() < 1.0, "follows the panel: {:?} {:?}", rows(&rt), doc(&rt));
+        assert_eq!(rt.state.tab().unwrap().visible_first, first, "same block at the top");
+        // Arrows on the slider: one step back.
         rt.key(KeyEvent { key: Key::Left, mods: Mods::default() });
         settle(&mut rt);
         assert_eq!(rt.state.settings.column, 1240.0);
     }
 
-    /// Con il fuoco spento (impostazioni) le fiamme non si disegnano: niente slot `fire` e il
-    /// compositor resta a riposo. L'etichetta "N paragrafi nuovi più in basso" resta, in `fg2`
-    /// sul pannello. Acceso, ci sono tutti e due.
+    /// With the fire off (settings) the flames are not drawn: no `fire` slot and the
+    /// compositor stays at rest. The "N new paragraphs below" label stays, in `fg2`
+    /// on the panel. On, both are there.
     #[test]
     fn fire_off_keeps_the_label_and_draws_no_flames() {
-        let mut rt = open("# Titolo\n\nTesto.\n", true);
+        let mut rt = open("# Title\n\nText.\n", true);
         rt.update(|s, _| s.tabs[0].fire_since = Some(0.0));
         settle_some(&mut rt);
         assert!(
             has(&rt, "fire") && has(&rt, "fire-label"),
-            "acceso: fiamme ed etichetta"
+            "on: flames and label"
         );
         assert!(rt.state.effects_lit());
         rt.update(|s, _| s.toggle_fire());
         settle(&mut rt);
         assert!(!rt.state.settings.fire);
-        assert!(!has(&rt, "fire"), "spento: nessuno slot del fuoco");
+        assert!(!has(&rt, "fire"), "off: no fire slot");
         assert!(
             has(&rt, "fire-label")
                 && texts(&rt)
                     .iter()
-                    .any(|t| t == "0 paragrafi nuovi più in basso"),
-            "l'etichetta resta"
+                    .any(|t| t == "0 new paragraphs below"),
+            "the label stays"
         );
         assert!(
             !rt.state.effects_lit(),
-            "il compositor non scorre le istanze per il fuoco"
+            "the compositor does not walk the instances for the fire"
         );
         let theme = crate::ui::theme::Theme::for_mode(true);
         assert!(crate::ui::contrast::ratio(theme.fg2, theme.panel) >= 4.5);
-        // Dal pannello: un clic sulla casella lo riaccende.
+        // From the panel: a click on the checkbox turns it back on.
         cmd(&mut rt, ',');
         let r = rt
             .elements()
             .into_iter()
             .find(|e| e.key.as_deref() == Some("set-fire"))
-            .expect("interruttore")
+            .expect("switch")
             .rect;
         let (x, y) = (r[0] + r[2] / 2.0, r[1] + r[3] / 2.0);
         rt.pointer_move(x, y);
@@ -911,22 +911,22 @@ mod tests {
         assert!(has(&rt, "fire"));
     }
 
-    /// Con il fuoco acceso la vista anima: qualche frame basta.
+    /// With the fire on the view animates: a few frames are enough.
     fn settle_some(rt: &mut Runtime<App>) {
         for _ in 0..30 {
             rt.frame(1.0 / 60.0);
         }
     }
 
-    /// Un font salvato che non è più installato va dopo le prime scelte presenti (New York può
-    /// mancare); prima di leggere CoreText le scelte sono quelle filtrate.
+    /// A saved font that is no longer installed goes after the first choices present (New York can
+    /// be missing); before reading CoreText the choices are the filtered ones.
     #[test]
     fn a_missing_saved_font_goes_after_the_first_choices() {
         let fallback = Panel::default();
         assert_eq!(
             fallback.fonts("Inter"),
             ["Inter", "SF Pro"],
-            "New York non c'è senza il pacchetto"
+            "New York is not there without the package"
         );
         assert_eq!(fallback.fonts("Gone"), ["Inter", "SF Pro", "Gone"]);
         let read = Panel {
@@ -944,7 +944,7 @@ mod tests {
         assert_eq!(read.font_shape("Arial"), (3, None));
     }
 
-    /// La lista dei font è virtuale e alta 8 righe e mezza: la nona si vede tagliata.
+    /// The font list is virtual and 8 and a half rows tall: the ninth shows cut off.
     #[test]
     fn the_font_list_shows_it_scrolls() {
         let mut rt = open("# T\n", true);
@@ -964,7 +964,7 @@ mod tests {
                 .count() as f32;
             assert!(
                 built < n || n < 40.0,
-                "righe virtuali: {built} costruite su {n}"
+                "virtual rows: {built} built out of {n}"
             );
         }
         let groups: Vec<_> = els
@@ -975,8 +975,8 @@ mod tests {
         assert_eq!(groups, [FONT, THEME, FIRE_COLOR]);
     }
 
-    /// Una cartella già osservata (o sotto una osservata) non si aggiunge e il pannello lo dice
-    /// per 3 s, o fino alla prossima azione.
+    /// A folder already watched (or under a watched one) is not added and the panel says so
+    /// for 3 s, or until the next action.
     #[test]
     fn an_already_watched_folder_says_so() {
         let dir = tempfile::tempdir().unwrap();
@@ -991,7 +991,7 @@ mod tests {
         settle(&mut rt);
         assert!(!texts(&rt).iter().any(|t| t == ALREADY));
         rt.update(|s, _| inside = s.pick_root(&root.join("sub"), now));
-        assert!(!inside, "sotto una osservata: non si aggiunge");
+        assert!(!inside, "under a watched one: not added");
         settle(&mut rt);
         assert!(texts(&rt).iter().any(|t| t == ALREADY));
         assert!(!rt.state.settings_panel.clone_expire(now + NOTICE_FOR / 2));
@@ -1000,20 +1000,20 @@ mod tests {
         settle(&mut rt);
         assert!(
             !texts(&rt).iter().any(|t| t == ALREADY),
-            "la prossima azione lo toglie"
+            "the next action removes it"
         );
     }
 
-    /// Le impostazioni del fuoco: tre cursori e i cinque colori sotto l'interruttore. Cambiano
-    /// le impostazioni; con il fuoco spento sono attenuati, disabilitati e non rispondono.
+    /// The fire settings: three sliders and the five colors below the switch. They change
+    /// the settings; with the fire off they are dimmed, disabled and do not respond.
     #[test]
     fn fire_look_controls_change_settings_and_go_dim_when_off() {
-        let mut rt = open("# Titolo\n\nTesto.\n", true);
+        let mut rt = open("# Title\n\nText.\n", true);
         cmd(&mut rt, ',');
-        for label in [FIRE_STRENGTH, FIRE_HEIGHT, FIRE_SPEED, FIRE_COLOR, "Fuoco", "Blu", "Viola", "Verde", "Accento di sistema", "100 %", "110 pt", "1×"] {
-            assert!(texts(&rt).iter().any(|t| t == label), "manca {label}: {:?}", texts(&rt));
+        for label in [FIRE_STRENGTH, FIRE_HEIGHT, FIRE_SPEED, FIRE_COLOR, "Fire", "Blue", "Violet", "Green", "System accent", "100 %", "110 pt", "1×"] {
+            assert!(texts(&rt).iter().any(|t| t == label), "missing {label}: {:?}", texts(&rt));
         }
-        let find = |rt: &Runtime<App>, k: &str| rt.elements().into_iter().find(|e| e.key.as_deref() == Some(k)).unwrap_or_else(|| panic!("manca {k}"));
+        let find = |rt: &Runtime<App>, k: &str| rt.elements().into_iter().find(|e| e.key.as_deref() == Some(k)).unwrap_or_else(|| panic!("missing {k}"));
         let click = |rt: &mut Runtime<App>, k: &str, right: bool| {
             let r = find(rt, k).rect;
             let x = if right { r[0] + r[2] - 1.0 } else { r[0] + r[2] / 2.0 };
@@ -1029,33 +1029,33 @@ mod tests {
         assert!(texts(&rt).iter().any(|t| t == "175 %"));
         rt.key(KeyEvent { key: Key::Left, mods: Mods::default() });
         settle(&mut rt);
-        assert_eq!(rt.state.settings.fire_strength, 1.5, "la freccia va di un passo");
+        assert_eq!(rt.state.settings.fire_strength, 1.5, "the arrow moves one step");
         click(&mut rt, "set-fire-height", true);
         assert_eq!(rt.state.settings.fire_height, 1.6);
         click(&mut rt, "set-fire-speed", true);
         assert_eq!(rt.state.settings.fire_speed, 3.0);
-        // I colori sono in fondo al pannello: lo si scorre fin lì.
+        // The colors are at the bottom of the panel: scroll it down there.
         let r = find(&rt, "settings-scroll").rect;
         for _ in 0..20 {
             rt.wheel(r[0] + 40.0, r[1] + 100.0, -400.0);
             rt.frame(1.0 / 120.0);
         }
         settle(&mut rt);
-        let v = find(&rt, "set-fire-color-Viola").rect;
-        assert!(v[1] + v[3] <= r[1] + r[3], "Viola si vede: {v:?} in {r:?}");
-        click(&mut rt, "set-fire-color-Viola", false);
+        let v = find(&rt, "set-fire-color-Violet").rect;
+        assert!(v[1] + v[3] <= r[1] + r[3], "Violet shows: {v:?} in {r:?}");
+        click(&mut rt, "set-fire-color-Violet", false);
         assert_eq!(rt.state.settings.fire_color, crate::fx::fire::FireColor::Violet);
-        assert!(find(&rt, "set-fire-look").opacity > 0.99, "acceso: pieno");
+        assert!(find(&rt, "set-fire-look").opacity > 0.99, "on: solid");
 
         rt.update(|s, _| s.toggle_fire());
         settle(&mut rt);
-        assert!(find(&rt, "set-fire-look").opacity < 0.5, "spento: attenuato");
-        assert!(!find(&rt, "set-fire-strength").focusable, "spento: fuori dal giro del Tab");
+        assert!(find(&rt, "set-fire-look").opacity < 0.5, "off: dimmed");
+        assert!(!find(&rt, "set-fire-strength").focusable, "off: out of the Tab order");
         let k = find(&rt, "set-fire-strength").rect;
-        assert!(k[1] >= r[1] && k[1] + k[3] <= r[1] + r[3], "il cursore si vede: {k:?}");
+        assert!(k[1] >= r[1] && k[1] + k[3] <= r[1] + r[3], "the slider shows: {k:?}");
         click(&mut rt, "set-fire-strength", false);
-        click(&mut rt, "set-fire-color-Blu", false);
-        assert_eq!(rt.state.settings.fire_strength, 1.5, "spento: il cursore non risponde");
-        assert_eq!(rt.state.settings.fire_color, crate::fx::fire::FireColor::Violet, "spento: i colori non rispondono");
+        click(&mut rt, "set-fire-color-Blue", false);
+        assert_eq!(rt.state.settings.fire_strength, 1.5, "off: the slider does not respond");
+        assert_eq!(rt.state.settings.fire_color, crate::fx::fire::FireColor::Violet, "off: the colors do not respond");
     }
 }

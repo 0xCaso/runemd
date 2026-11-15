@@ -4,7 +4,7 @@
  {"t": 1.6, "type": "tap", "key": "set-font-American Typewriter"},
  {"t": 1.8, "type": "tap", "key": "set-bigger"},
  {"t": 2.2, "type": "mark", "name": "font"},
- {"t": 2.6, "type": "tap", "key": "set-theme-Chiaro"},
+ {"t": 2.6, "type": "tap", "key": "set-theme-Light"},
  {"t": 3.0, "type": "mark", "name": "light"},
  {"t": 3.6, "type": "tap", "key": "set-add-root"},
  {"t": 3.9, "type": "file-dialog", "path": "ADDROOT"},

@@ -30,8 +30,8 @@ use crate::app::App;
 use crate::doc::document::Document;
 
 /// Testi della barra (approvati).
-pub const PLACEHOLDER: &str = "Cerca nel file";
-pub const NO_RESULTS: &str = "Nessun risultato";
+pub const PLACEHOLDER: &str = "Find in file";
+pub const NO_RESULTS: &str = "No results";
 
 /// I segni di Cerca di un blocco, come li prende `Markdown::highlights`.
 pub type Marks = Vec<(Vec<Range<usize>>, Highlight)>;
@@ -410,7 +410,7 @@ impl Find {
             return None;
         }
         Some(match self.current() {
-            Some(i) => format!("{} di {}", i + 1, self.count()),
+            Some(i) => format!("{} of {}", i + 1, self.count()),
             None => NO_RESULTS.to_owned(),
         })
     }
@@ -600,11 +600,11 @@ mod tests {
         let doc = Document::from_source(Path::new("t.md"), "uno zebra\n\ndue\n\nZebra e zebra\n");
         let mut f = searched(&doc, "zebra");
         assert_eq!((f.current(), f.count()), (Some(0), 3));
-        assert_eq!(f.label().as_deref(), Some("1 di 3"));
+        assert_eq!(f.label().as_deref(), Some("1 of 3"));
         f.step(-1);
         assert_eq!(
             f.label().as_deref(),
-            Some("3 di 3"),
+            Some("3 of 3"),
             "prima del primo: l'ultimo"
         );
         f.step(1);
@@ -627,7 +627,7 @@ mod tests {
         );
         let mut f = searched(&doc, "zebra");
         f.step(2);
-        assert_eq!(f.label().as_deref(), Some("3 di 4"));
+        assert_eq!(f.label().as_deref(), Some("3 of 4"));
         let block = f.hits[f.current].block;
         doc.update("nuovo zebra\n\naltro zebra\n\na zebra\n\nb\n\nc zebra zebra\n\nd zebra\n");
         f.ask(&doc, Goal::Keep);
@@ -635,7 +635,7 @@ mod tests {
         assert_eq!(f.hits[f.current].block, block, "stesso blocco");
         assert_eq!(
             f.label().as_deref(),
-            Some("5 di 6"),
+            Some("5 of 6"),
             "stesso numero d'ordine nel blocco"
         );
         doc.update("nuovo zebra\n\naltro zebra\n\na zebra\n\nb\n\nd zebra\n");
@@ -643,7 +643,7 @@ mod tests {
         wait(&mut f, &doc);
         assert_eq!(
             f.label().as_deref(),
-            Some("4 di 4"),
+            Some("4 of 4"),
             "blocco sparito: il primo dopo"
         );
     }
@@ -803,7 +803,7 @@ mod tests {
                 .any(|e| e.key.as_deref() == Some("find-input"))
         );
         type_text(&mut rt, "ZEBRA");
-        assert_eq!(count_text(&rt).as_deref(), Some("1 di 4"));
+        assert_eq!(count_text(&rt).as_deref(), Some("1 of 4"));
         assert_eq!(current_block(&rt), 3);
         assert!(current_in_view(&rt));
         let doc = rt.state.active_document();
@@ -817,7 +817,7 @@ mod tests {
         enter(&mut rt, false);
         assert_eq!(
             (count_text(&rt).as_deref(), current_block(&rt)),
-            (Some("2 di 4"), 120)
+            (Some("2 of 4"), 120)
         );
         assert!(
             current_in_view(&rt),
@@ -827,25 +827,25 @@ mod tests {
         enter(&mut rt, false);
         assert_eq!(
             (count_text(&rt).as_deref(), current_block(&rt)),
-            (Some("4 di 4"), 190)
+            (Some("4 of 4"), 190)
         );
         assert!(current_in_view(&rt));
         enter(&mut rt, false);
         assert_eq!(
             (count_text(&rt).as_deref(), current_block(&rt)),
-            (Some("1 di 4"), 3),
+            (Some("1 of 4"), 3),
             "in giro all'inizio"
         );
         assert!(current_in_view(&rt));
         enter(&mut rt, true);
         assert_eq!(
             (count_text(&rt).as_deref(), current_block(&rt)),
-            (Some("4 di 4"), 190),
+            (Some("4 of 4"), 190),
             "Maiusc+Invio in giro alla fine"
         );
         assert!(current_in_view(&rt));
         enter(&mut rt, true);
-        assert_eq!(count_text(&rt).as_deref(), Some("3 di 4"));
+        assert_eq!(count_text(&rt).as_deref(), Some("3 of 4"));
         // Uno solo dei segni disegnati è quello attivo.
         let drawn = marks(&rt);
         assert!(
@@ -917,7 +917,7 @@ mod tests {
         let f = &rt.state.find;
         assert_eq!(f.count(), 6);
         assert_eq!(f.hits[f.current().unwrap()].block, id, "stesso blocco");
-        assert_eq!(count_text(&rt).as_deref(), Some("4 di 6"));
+        assert_eq!(count_text(&rt).as_deref(), Some("4 of 6"));
         assert_eq!(top(&rt), before, "la vista resta dov'era");
         assert!(current_in_view(&rt));
     }
@@ -942,12 +942,12 @@ mod tests {
         type_text(&mut rt, "zebra");
         enter(&mut rt, false);
         enter(&mut rt, false);
-        assert_eq!(count_text(&rt).as_deref(), Some("3 di 4"));
+        assert_eq!(count_text(&rt).as_deref(), Some("3 of 4"));
         cmd(&mut rt, '2');
         wait_find(&mut rt);
         assert_eq!(rt.state.active, 1);
         assert!(rt.state.find.open);
-        assert_eq!(count_text(&rt).as_deref(), Some("1 di 2"));
+        assert_eq!(count_text(&rt).as_deref(), Some("1 of 2"));
         assert_eq!(current_block(&rt), 100);
         assert!(
             current_in_view(&rt),
@@ -957,7 +957,7 @@ mod tests {
         wait_find(&mut rt);
         assert_eq!(
             (count_text(&rt).as_deref(), current_block(&rt)),
-            (Some("1 di 4"), 3),
+            (Some("1 of 4"), 3),
             "torna al primo"
         );
         assert!(current_in_view(&rt));
@@ -1004,7 +1004,7 @@ mod tests {
         let mut rt = open(&[("a.md", &src)]);
         cmd(&mut rt, 'f');
         type_text(&mut rt, "zebra");
-        assert_eq!(count_text(&rt).as_deref(), Some("1 di 1"));
+        assert_eq!(count_text(&rt).as_deref(), Some("1 of 1"));
         enter(&mut rt, false);
         let current: Vec<_> = marks(&rt).into_iter().filter(|(k, _)| k.as_deref().is_some_and(|k| k.ends_with("/find-current"))).collect();
         assert_eq!(current.len(), 1, "{current:?}");
@@ -1054,7 +1054,7 @@ mod tests {
             s.tab_mut().unwrap().doc.update(&src);
         });
         wait_find(&mut rt);
-        assert_eq!(count_text(&rt).as_deref(), Some("2 di 4"));
+        assert_eq!(count_text(&rt).as_deref(), Some("2 of 4"));
         assert_eq!(current_block(&rt), 120);
         assert!(current_in_view(&rt));
     }
@@ -1077,14 +1077,14 @@ mod tests {
         cmd(&mut rt, '1');
         cmd(&mut rt, 'f');
         type_text(&mut rt, "zebra");
-        assert_eq!(count_text(&rt).as_deref(), Some("1 di 4"));
+        assert_eq!(count_text(&rt).as_deref(), Some("1 of 4"));
         cmd(&mut rt, '2');
         assert!(rt.state.find.pending());
         assert_eq!(count_text(&rt), None, "nessun contatore dell'altro file");
         assert_eq!(rt.state.find.count(), 0);
         assert!(marks(&rt).is_empty());
         wait_find(&mut rt);
-        assert_eq!(count_text(&rt).as_deref(), Some("1 di 1"));
+        assert_eq!(count_text(&rt).as_deref(), Some("1 of 1"));
     }
 
     /// Invio mentre i risultati sono sul thread: il passo si applica quando arrivano.
@@ -1106,7 +1106,7 @@ mod tests {
         wait_find(&mut rt);
         assert_eq!(
             (count_text(&rt).as_deref(), current_block(&rt)),
-            (Some("2 di 4"), 120)
+            (Some("2 of 4"), 120)
         );
         assert!(current_in_view(&rt));
     }
