@@ -14,14 +14,14 @@ W=$(cd "$W" && pwd -P)
 mkdir -p "$W/root"
 fail() { echo "fire_settings: $*" >&2; exit 1; }
 for theme in dark light; do
-  sed "s|COLOR|Fuoco|" tests/scripts/fire_settings.json > "$W/script.json"
+  sed "s|COLOR|Fire|" tests/scripts/fire_settings.json > "$W/script.json"
   cp fixtures/normal.md "$W/doc.md"
   RUNEMD_ROOTS="$W/root" RUNE_DIRS_ROOT="$W/dirs" target/perf/runemd "$W/doc.md" --script "$W/script.json" \
     --size 1280x860 --scale 2 --theme $theme --fps 30 --at mark:panel+0.3 --snap "$W/fire-settings-$theme.png" \
     --crop settings --tree "$W/panel-$theme.json" >/dev/null 2>&1
   for t in Intensity Height Speed Color "System accent" "100 %" "110 pt" "1×"; do
     python3 -c 'import json,sys; sys.exit(not any(e.get("text")==sys.argv[2] for e in json.load(open(sys.argv[1]))["elements"]))' \
-      "$W/panel-$theme.json" "$t" || fail "$theme: manca \"$t\""
+      "$W/panel-$theme.json" "$t" || fail "$theme: missing \"$t\""
   done
 done
 for c in Fire:fire Blue:blue Violet:violet Green:green "System accent:accent"; do
