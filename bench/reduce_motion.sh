@@ -1,14 +1,14 @@
 #!/bin/sh
 # "Riduci movimento" (task 28), headless e a tempo vero: una shell scrive in fondo al file una
-# frase senza a capo, così si accendono l'anello (scheda e Recenti) e il dither (ultimo blocco a
+# frase senza a capo, così si accendono l'anello (scheda e Recenti) e il caret (dopo la frase a
 # metà), e su un file lungo anche il fuoco (testo nuovo più in basso). Due foto a 0,8 s di
 # distanza ("lit" e "later"), su `fixtures/normal.md` (anello e fuoco) e su un file corto (anello
-# e dither, che sul file lungo è fuori vista): con RUNEMD_REDUCE_MOTION=1 sono uguali pixel per
-# pixel (anello e dither fermi, fuoco a piena altezza da subito); senza, cambiano.
+# e caret, che sul file lungo è fuori vista): con RUNEMD_REDUCE_MOTION=1 sono uguali pixel per
+# pixel (anello e caret fermi, fuoco a piena altezza da subito); senza, cambiano.
 # uso: bench/reduce_motion.sh [WORKDIR]
 #   con SNAP=docs/proof/reduce-motion salva SNAP.png (scuro, ridotto, --scale 2, ritagliata al
 #   pannello: la sidebar mostra nomi di file), SNAP-moving.png (lo stesso istante senza riduzione)
-#   e SNAP-dither.png (file corto, ridotto).
+#   e SNAP-caret.png (file corto, ridotto).
 # Esce 1 se le foto ridotte cambiano o se quelle normali non cambiano.
 set -eu
 cd "$(dirname "$0")/.."
@@ -20,7 +20,7 @@ else
 fi
 W=$(cd "$W" && pwd -P)
 mkdir -p "$W/root"
-printf '# Nota corta\n\nUn file corto: il dither sta sotto questo paragrafo.\n' > "$W/short.md"
+printf '# Nota corta\n\nUn file corto: il caret sta dopo la frase nuova.\n' > "$W/short.md"
 
 # shot SRC REDUCE MARK OUT: una foto del pannello a MARK+0,3 con RUNEMD_REDUCE_MOTION=REDUCE.
 shot() {
@@ -47,6 +47,6 @@ done
 if [ -n "${SNAP:-}" ]; then
   cp "$W/normal-r1.png" "$SNAP.png"
   cp "$W/normal-m1.png" "$SNAP-moving.png"
-  cp "$W/short-r1.png" "$SNAP-dither.png"
-  echo "foto: $SNAP.png $SNAP-moving.png $SNAP-dither.png"
+  cp "$W/short-r1.png" "$SNAP-caret.png"
+  echo "foto: $SNAP.png $SNAP-moving.png $SNAP-caret.png"
 fi

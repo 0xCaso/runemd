@@ -19,7 +19,7 @@ use crate::doc::select_all::{End, Ends, SelectAll, SelectAllFlag};
 
 use super::theme::{CHANGED_MARK_W, CHANGED_MARK_X, R_ROW, ROW_PAD_X, ROW_PAD_Y, UI_SMALL, UI_WEIGHT};
 
-/// Altezza dello spazio sotto l'ultima riga: ci sta il dither "sta arrivando".
+/// Altezza dello spazio sotto l'ultima riga (il fuoco a riposo ci sta sotto).
 pub(crate) const BOTTOM: f32 = 48.0;
 /// Spazio sopra la prima riga (anche il sorgente parte da qui).
 pub(super) const TOP: f32 = 24.0;
@@ -30,9 +30,8 @@ pub struct Signals<S> {
     pub marked: fn(&S, u64) -> bool,
     /// Colore del segno (`theme.mark`).
     pub mark: Color,
-    /// La barra del dither "sta arrivando", se accesa: va nello spazio sotto l'ultima riga, che
-    /// ha sempre la stessa altezza, quindi niente sopra si sposta.
-    pub tail: Option<El>,
+    /// Il caret "sta scrivendo", se acceso: nella riga del blocco modificato, fuori dal flusso.
+    pub caret: Option<Caret>,
     /// I segni di Cerca del blocco, la cui riga ha la chiave data (`ui::find`).
     pub hits: fn(&S, &Block, &str) -> super::find::Marks,
     /// Dove sono la vista e la pagina del documento `id` (ognuna dal suo `on_layout`): servono a
@@ -42,6 +41,48 @@ pub struct Signals<S> {
     pub meta: Meta,
     /// I font del documento, per misurare dove vanno a capo le parole lunghe (`doc::breaks`).
     pub fonts: super::markdown_style::Fonts,
+}
+
+/// Il caret "sta scrivendo" (record 2026-11-15-caret-al-punto-modificato): il carattere della
+/// riga a cui si appoggia ha un'evidenziazione trasparente con la chiave [`caret_key`], la riga
+/// la sua chiave di sempre ([`caret_row_key`]); dai loro rect dell'ultimo layout (`Cx::layout`, che lo scroll non
+/// sposta) la vista sa dove metterlo, in `place`. Prima del primo layout non si vede.
+pub struct Caret {
+    pub at: crate::live::caret::At,
+    /// `[x, y, h]` nella riga, in pt ([`caret_place`]).
+    pub place: Option<[f32; 3]>,
+    /// L'orologio a cui si è acceso, e il tema e "riduci movimento" del suo slot.
+    pub since: f64,
+    pub dark: bool,
+    pub reduced: bool,
+}
+
+/// La chiave dell'evidenziazione del carattere del caret nel documento `doc`.
+pub fn caret_key(doc: u64) -> String {
+    format!("caret-{doc:x}")
+}
+
+/// La chiave della riga del blocco `block` nel documento `doc` (quella di [`row_key`]).
+pub fn caret_row_key(doc: u64, block: u64) -> String {
+    format!("{doc:x}-{block:x}")
+}
+
+/// Spazio fra il carattere e il caret, pt (mockup: `margin-left: 3px` su una barra di 2).
+const CARET_GAP: f32 = 2.0;
+/// Altezza del caret rispetto alla riga di testo del carattere (mockup: 1,1 em su una riga di
+/// circa 1,5 em).
+const CARET_LINE: f32 = 0.74;
+
+/// Dove va il caret nella riga, `[x, y, h]` in pt, dal rect `mark` del carattere e `row` della
+/// riga (stessi punti): a destra del carattere, o a sinistra con `Side::Before`; alto quanto la
+/// lettera, al centro della riga di testo.
+pub fn caret_place(mark: [f32; 4], row: [f32; 4], side: crate::live::caret::Side) -> [f32; 3] {
+    let x = match side {
+        crate::live::caret::Side::After => mark[0] + mark[2] + CARET_GAP,
+        crate::live::caret::Side::Before => mark[0] - CARET_GAP - crate::fx::caret::WIDTH,
+    } - row[0];
+    let h = (mark[3] * CARET_LINE).round();
+    [x, mark[1] - row[1] + (mark[3] - h) * 0.5, h]
 }
 
 /// Il blocco del frontmatter YAML in lettura (DESIGN.md, "Frontmatter"): monospaziato, piccolo,
@@ -112,18 +153,24 @@ pub fn view<S: 'static>(s: &S, doc_of: fn(&S) -> &Document, style: &MarkdownStyl
             move |s: &S, i| match doc_of(s).blocks.get(i) {
                 Some(b) if i == 0 && crate::doc::frontmatter::is_block(&b.source) => frontmatter_row(&b.source, signals.meta),
                 Some(b) => {
-                    let hits = (signals.hits)(s, b, &row_key(i, doc_of(s)));
-                    block_row(&b.source, &style, signals.fonts, (signals.marked)(s, b.id).then_some(signals.mark), hits)
+                    let doc = doc_of(s);
+                    let mut hits = (signals.hits)(s, b, &row_key(i, doc));
+                    let caret = signals.caret.as_ref().filter(|c| c.at.block == b.id);
+                    if let Some(c) = caret {
+                        hits.push((vec![c.at.anchor.clone()], rune_kit::markdown::Highlight::new().bg(Color::TRANSPARENT).ring(Color::TRANSPARENT, 1.0).key(caret_key(doc.id))));
+                    }
+                    let row = block_row(&b.source, &style, signals.fonts, (signals.marked)(s, b.id).then_some(signals.mark), hits);
+                    match caret {
+                        Some(c) => caret_row(row, c),
+                        None => row,
+                    }
                 }
                 None => el(),
             },
         )
         .virtual_rows_version(rows_version(doc))
         .on_visible_rows(move |s: &mut S, rows| on_rows(s, generation, rows));
-    let mut bottom = col().w_full().h(BOTTOM);
-    if let Some(bar) = signals.tail {
-        bottom = bottom.child(super::theme::column(col().key("arriving").w_full(), column).self_center().px(ROW_PAD_X).child(bar));
-    }
+    let bottom = col().w_full().h(BOTTOM);
     let edge = signals.edge;
     // Gli `on_layout` dicono solo dove sono vista e pagina: la vista rigira solo se cambia ciò
     // che mostra (`live_only` altrimenti), non a ogni frame di scroll.
@@ -281,6 +328,18 @@ fn block_row(source: &str, style: &MarkdownStyle, fonts: super::markdown_style::
     let row = col().w_full().px(ROW_PAD_X).py(ROW_PAD_Y).child(body);
     match mark {
         Some(c) => row.child(el().key("changed").pin(Some(CHANGED_MARK_X), Some(ROW_PAD_Y), None, Some(ROW_PAD_Y)).w(CHANGED_MARK_W).fill(c)),
+        None => row,
+    }
+}
+
+/// La riga del blocco con il caret: il caret fissato al punto, fuori dal flusso, così il testo
+/// non si sposta.
+fn caret_row(row: El, c: &Caret) -> El {
+    match c.place {
+        Some([x, y, h]) => {
+            let bar = el().key("caret").pin(Some(x), Some(y), None, None).w(crate::fx::caret::WIDTH).h(h);
+            row.child(crate::fx::caret::slot(bar, c.since, c.dark, c.reduced))
+        }
         None => row,
     }
 }
@@ -614,35 +673,40 @@ mod tests {
         rt.elements().iter().filter(|e| !e.exiting && e.key.as_deref() == Some(key)).map(|e| e.rect).collect()
     }
 
-    /// Dither e segno accesi su un file che finisce con una fence aperta: le righe restano dove
-    /// erano, la barra sta sotto l'ultima riga, alta una riga e larga come il testo, e il segno
-    /// sta nel margine sinistro della riga segnata.
+    /// Caret e segno accesi su una modifica a metà file (record 2026-11-15-caret-al-punto-modificato,
+    /// vincoli 1–3): le righe restano dove erano, niente barra in fondo, il caret di 2 pt sta nella
+    /// riga cambiata subito dopo la parola cambiata, e il segno sta nel margine sinistro.
     #[test]
-    fn dither_and_changed_mark_do_not_move_the_text() {
-        let src = "# Titolo\n\nUn paragrafo.\n\n```rs\nfn main() {\n    let x = 1;";
-        let mut rt = open(src);
+    fn caret_and_changed_mark_do_not_move_the_text() {
+        let mut rt = open("# Titolo\n\nIl gatto dorme sul divano tutto il giorno.\n\nFine.\n");
         let before = row_rects(&rt);
         assert_eq!(before.len(), 3);
-        assert!(keyed(&rt, "arriving").is_empty() && keyed(&rt, "changed").is_empty());
-        let marked = rt.state.active_document().blocks[1].id;
+        assert!(keyed(&rt, "caret").is_empty() && keyed(&rt, "changed").is_empty());
         rt.update(|s, _| {
-            s.tab_mut().unwrap().dither_since = Some(0.0);
-            s.tab_mut().unwrap().changed.mark(&[marked], std::time::Instant::now());
+            let tab = s.tab_mut().unwrap();
+            let old = tab.doc.blocks.clone();
+            let change = tab.doc.update("# Titolo\n\nIl cane dorme sul divano tutto il giorno.\n\nFine.\n");
+            let at = crate::live::caret::locate(&old, &tab.doc.blocks, &change);
+            tab.changed.mark(&change.changed, std::time::Instant::now());
+            tab.caret_step(at.as_ref(), true, 0.0);
         });
         settle(&mut rt);
-        assert_eq!(row_rects(&rt), before, "niente sopra si sposta");
-        let bar = keyed(&rt, "arriving");
-        assert_eq!(bar.len(), 1, "la barra del dither");
-        let last = before[2].1;
-        assert!(bar[0][1] >= last[1] + last[3] - 0.5, "sotto l'ultima riga: {bar:?} {last:?}");
-        let text_w = last[2] - 2.0 * crate::ui::theme::ROW_PAD_X;
-        assert!((bar[0][2] - 2.0 * crate::ui::theme::ROW_PAD_X - text_w).abs() < 0.5, "larga come il testo");
+        assert_eq!(row_rects(&rt).iter().map(|r| r.1).collect::<Vec<_>>(), before.iter().map(|r| r.1).collect::<Vec<_>>(), "niente si sposta");
+        assert!(keyed(&rt, "arriving").is_empty(), "niente barra in fondo");
+        let caret = keyed(&rt, "caret");
+        assert_eq!(caret.len(), 1, "un caret");
+        let (c, row) = (caret[0], before[1].1);
+        assert_eq!(c[2], crate::fx::caret::WIDTH);
+        assert!(c[1] > row[1] && c[1] + c[3] < row[1] + row[3], "nella riga cambiata: {c:?} {row:?}");
+        // Dopo "Il cane": a destra del carattere evidenziato, a sinistra di metà riga.
+        let mark = keyed(&rt, &super::caret_key(rt.state.active_document().id));
+        assert!(!mark.is_empty(), "il carattere del caret ha un rect");
+        assert!((c[0] - (mark[0][0] + mark[0][2] + super::CARET_GAP)).abs() < 0.5, "subito dopo la parola: {c:?} {mark:?}");
+        assert!(c[0] < row[0] + row[2] * 0.4, "dopo «Il cane», non in fondo: {c:?}");
         let mark = keyed(&rt, "changed");
         assert_eq!(mark.len(), 1, "un solo blocco segnato");
-        let row = before[1].1;
         assert_eq!(mark[0][2], crate::ui::theme::CHANGED_MARK_W);
         assert!(mark[0][0] > row[0] && mark[0][0] + mark[0][2] < row[0] + crate::ui::theme::ROW_PAD_X, "nel margine sinistro");
-        assert!(mark[0][1] > row[1] && mark[0][1] + mark[0][3] < row[1] + row[3], "dentro la riga");
     }
 
     /// Il frontmatter YAML in lettura: un blocco di metadati (chiave `frontmatter`) col testo così

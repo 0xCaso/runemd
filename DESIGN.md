@@ -152,7 +152,7 @@ Schermata di riferimento: variante `scheda` in `design/mockups/2026-11-13-runemd
 **Key Characteristics:**
 - Due materiali: vetro (cornice, sidebar, barra delle schede) e pannello pieno (documento).
 - Grigi neutri con una punta di blu (hue 260–270); nessun accento.
-- Tre segnali live, ognuno con un solo significato: metallo, fuoco, dither.
+- Tre segnali live, ognuno con un solo significato: metallo, fuoco, caret.
 - Densità da app Mac: righe da 28 px, testo UI 13 px; il documento respira (15,5 px, interlinea 1,62).
 
 ## Colors
@@ -485,10 +485,11 @@ Doppio clic: il default. Esc durante il trascinamento: com'era. Le larghezze res
 |---|---|---|---|---|
 | Metallo liquido (anello su 4 lati, 2,5 px, giro di 3 s) | Un agente sta scrivendo questo file | Scheda del file, sua riga in "Recenti", sua riga nell'albero | Appare in 220 ms ease-out alla prima modifica | Si ferma quando il file non cambia più (ipotesi: 3 s senza scritture) |
 | Fuoco di Rune (fiamme e braci) | A riposo, basso (26 px): è il fondo del pannello. Alto 110 px: c'è testo nuovo sotto la parte che stai leggendo | Fondo del pannello, sempre in lettura; alto, con l'etichetta "N paragrafi nuovi più in basso" | Da riposo sale a 110 in 420 ms ease-out | Torna a riposo in 300 ms ease-out quando scorri fino al testo nuovo |
-| Dither (Bayer 4×4, pulsa a 4 passi in 1,6 s) | Questo blocco sta arrivando | Al posto dei blocchi non ancora scritti, larghi come una riga di testo | Subito | Quando il blocco è completo |
+| Caret (2 px, `fg-2`, pulsa a 4 passi in 1,6 s: opacità 100/90/80/90 %) | Qui un agente ha appena scritto | Nel punto dell'ultima modifica, anche a metà file: dopo l'ultima parola cambiata (o aggiunta in fondo), alto quanto la lettera; fuori dal flusso, il testo non si sposta | Alla prima ricarica da fuori | Con l'anello (il file non cambia più); se è fuori vista la vista non salta |
 
-Nel tema chiaro il fuoco usa la luminanza come maschera (sul bianco lo screen sparirebbe) e il dither è
-invertito. Con "riduci movimento" l'anello e il dither non si animano (restano fermi e visibili) e il fuoco
+Nel tema chiaro il fuoco usa la luminanza come maschera (sul bianco lo screen sparirebbe). Il caret al passo
+più tenue resta ≥ 4,5:1 sul pannello e sul `sel` (`ui::contrast`). Con "riduci movimento" l'anello e il caret
+non si animano (restano fermi e visibili, il caret pieno) e il fuoco
 è fermo, a riposo o alto, senza salire né scendere; con la finestra non attiva è fermo allo stesso modo. A riposo
 le fiamme non tengono il display link: si ridisegnano 12 volte al secondo (CPU a riposo ~3,5 % contro ~11 % a
 120 Hz, misure in `.superpowers/sdd/plan/v11-batch-a-report.md`).
@@ -496,7 +497,7 @@ le fiamme non tengono il display link: si ridisegnano 12 volte al secondo (CPU a
 ## Do's and Don'ts
 
 **Do**
-- Tenere fermo il pannello del testo: niente effetti sul documento, salvo il dither sui blocchi in arrivo.
+- Tenere fermo il pannello del testo: niente effetti sul documento, salvo il caret nel punto dell'ultima modifica.
 - Dare a ogni effetto un solo significato; un nuovo stato prende un segnale nuovo o nessuno.
 - Scrivere i numeri con cifre tabellari, allineati a destra in tabella.
 - Misurare il contrasto sul materiale vero ogni volta che cambia un grigio o l'opacità del vetro.
@@ -513,6 +514,6 @@ le fiamme non tengono il display link: si ridisegnano 12 volte al secondo (CPU a
 
 **Eccezioni volute alle regole delle skill**
 - Vetro su cornice e sidebar: Impeccable lo vieta, qui è l'identità (Current) ed è materiale di sistema.
-- Effetti GPU (metallo, fuoco, dither): Impeccable e il "no decorazione" li sospetterebbero; qui ognuno porta
+- Effetti GPU (metallo, fuoco, caret): Impeccable e il "no decorazione" li sospetterebbero; qui ognuno porta
   uno stato e sparisce con lo stato.
 - Press scale 0,98 (Emil 0,97, `better-ui` 0,96): righe dense da 28 px, una scala più forte sembra un salto.

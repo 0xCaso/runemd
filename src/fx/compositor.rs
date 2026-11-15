@@ -5,16 +5,16 @@ use rune::render::{EffectSite, Instance, KIND_EFFECT};
 use rune_fx::{FxFrame, FxLayer, FxOptions, FxRenderer, FxSlot, Rect};
 
 use super::marks::Mark;
-use super::{dither, fire, ring};
+use super::{caret, fire, ring};
 use crate::App;
 
 /// Un solo compositor per la finestra. Senza effetti (nessun layer, nessuno slot) il frame è
 /// quello di default di Rune e `animating()` è falso: niente frame, niente costo. Il fuoco a
 /// riposo non tiene il display link: lo ridisegnano i risvegli di `fire::REST_FRAME`.
 ///
-/// Anelli, fuoco e dither non passano da `set`: la vista mette uno slot `ring::slot` solo mentre
+/// Anelli, fuoco e caret non passano da `set`: la vista mette uno slot `ring::slot` solo mentre
 /// il file è "sta scrivendo", uno `fire::slot` sempre in lettura (a riposo o acceso) e uno
-/// `dither::slot` solo mentre l'ultimo blocco sta arrivando; qui ogni slot diventa il layer del
+/// `caret::slot` solo mentre il file sta scrivendo e si sa il punto dell'ultima modifica; qui ogni slot diventa il layer del
 /// suo rect.
 #[derive(Default)]
 pub struct FxCompositor {
@@ -53,11 +53,11 @@ fn fire_phase(s: fire::SlotState, out: Option<f64>, clock: f64) -> fire::Phase {
     }
 }
 
-/// Il layer del dither per uno slot `dither::slot` e se pulsa (rune-fx non lo conta come
-/// animato: il tono è fermo dentro un passo).
-fn dither_layer(i: &Instance, clock: f64) -> (FxLayer, bool) {
-    let s = dither::slot_state(i.uv, clock);
-    (dither::layer(rect_pt(i), s.t, s.dark, s.reduced), s.moving())
+/// Il layer del caret per uno slot `caret::slot` e se pulsa (rune-fx non lo conta come
+/// animato: l'opacità è ferma dentro un passo).
+fn caret_layer(i: &Instance, clock: f64) -> (FxLayer, bool) {
+    let s = caret::slot_state(i.uv, clock);
+    (caret::layer(rect_pt(i), s.t, s.dark, s.reduced), s.moving())
 }
 
 impl Compositor<App> for FxCompositor {
@@ -112,8 +112,8 @@ impl Compositor<App> for FxCompositor {
                 }
                 saw_fire = true;
                 layer
-            } else if mark == Mark::Dither.id() {
-                let (layer, moving) = dither_layer(i, clock);
+            } else if mark == Mark::Caret.id() {
+                let (layer, moving) = caret_layer(i, clock);
                 pulsing |= moving;
                 layer
             } else if let Some(l) = self.layers.get(&mark) {
@@ -130,7 +130,7 @@ impl Compositor<App> for FxCompositor {
             (self.fire_lit, self.fire_out) = (false, None);
         }
         // Fermo appena nessun layer si muove: un anello con "riduci movimento" non tiene il
-        // display link, e uno spento non c'è più fra le istanze. Il dither che pulsa sì.
+        // display link, e uno spento non c'è più fra le istanze. Il caret che pulsa sì.
         self.moving = pulsing || layers.iter().enumerate().any(|(k, l)| Some(k) != paced_fire && l.is_animating());
         self.drew = !layers.is_empty();
         fx.set_srgb_blend(f.srgb_blend());

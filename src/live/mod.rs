@@ -22,6 +22,7 @@
 pub mod activity;
 pub mod arriving;
 pub mod below;
+pub mod caret;
 pub mod reload;
 
 use std::collections::BTreeMap;

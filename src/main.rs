@@ -103,9 +103,14 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
             ui::source::view(s, hooks, tab, src, caret, &theme, reduced, !cx.hover_none())
         }
         Some(tab) => {
-            // Il dither: una barra alta una riga e larga come il testo, nello spazio sotto l'ultimo blocco.
-            let tail = tab.dither_since.map(|since| fx::dither::slot(el().w_full().h(s.settings.size * ui::theme::BODY_LEADING), since, dark, reduced));
-            let signals = ui::doc_view::Signals { marked: App::is_marked, mark: theme.mark, tail, hits: App::find_hits, edge: App::doc_edge, meta: theme.meta(), fonts: ui::markdown_style::fonts(fonts::Typeface::of(&s.settings.font, s.settings.size)) };
+            // Il caret "sta scrivendo" nel punto dell'ultima modifica: dove sta lo dicono i rect del
+            // carattere e della sua riga, che lo scroll non sposta (nessuna vista per frame).
+            let caret = tab.caret_at.clone().zip(tab.caret_since).map(|(at, since)| {
+                let id = tab.doc.id;
+                let place = cx.layout(&ui::doc_view::caret_key(id)).zip(cx.layout(&ui::doc_view::caret_row_key(id, at.block))).map(|(m, r)| ui::doc_view::caret_place(m, r, at.side));
+                ui::doc_view::Caret { at, place, since, dark, reduced }
+            });
+            let signals = ui::doc_view::Signals { marked: App::is_marked, mark: theme.mark, caret, hits: App::find_hits, edge: App::doc_edge, meta: theme.meta(), fonts: ui::markdown_style::fonts(fonts::Typeface::of(&s.settings.font, s.settings.size)) };
             let doc = ui::doc_view::view(s, App::active_document, s.style(dark), s.settings.column, App::visible_rows, signals);
             // L'indice dei titoli a destra, solo se la finestra è larga almeno sidebar + colonna
             // + 200 (prima del primo layout non si sa: niente indice). La vista la legge da Rune,
@@ -329,7 +334,7 @@ fn poll(s: &mut App, clock: f64, tx: &mut Tx) -> bool {
         }
     }
     // Il watcher va svuotato a ogni risveglio (`Watcher::drain`); poi ogni scheda raccoglie la
-    // sua rilettura e aggiorna fuoco, segni e dither. Il fuoco si accende dopo una ricarica che
+    // sua rilettura e aggiorna fuoco, segni e caret. Il fuoco si accende dopo una ricarica che
     // porta testo sotto la vista (`Tab::note_reload`, o il primo `visible_rows` del layout nuovo)
     // e si spegne quando l'ultimo di quei blocchi entra nella vista: nessun risveglio serve.
     let now = Instant::now();

@@ -75,7 +75,7 @@ Con lo schermo bloccato (`CGSSessionScreenIsLocked = true`) la finestra e' occlu
 
 ## Scelte
 
-- Anelli delle schede da 100 (non da 1): gli id 1 e 2 sono di fuoco e dither.
+- Anelli delle schede da 100 (non da 1): gli id 1 e 2 sono di fuoco e caret (prima dither).
 - Nessun thread di warm-up: rune-fx non espone un warm per tipo; senza layer nessuna pipeline viene compilata.
   I task 11-13 decidono se scaldare al primo `set(Some)`.
 

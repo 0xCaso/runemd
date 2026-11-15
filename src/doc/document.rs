@@ -20,6 +20,8 @@ pub struct Change {
     pub added: Vec<u64>,
     pub changed: Vec<u64>,
     pub removed: Vec<u64>,
+    /// Il punto dell'ultima modifica, per il caret "sta scrivendo" (`live::caret::locate`).
+    pub at: Option<crate::live::caret::At>,
 }
 
 /// Il prossimo id di documento: uno solo per tutta l'app, mai riusato.
@@ -35,9 +37,6 @@ pub struct Document {
     pub revision: u64,
     pub blocks: Vec<Block>,
     pub file_hash: u64,
-    /// L'ultimo blocco del file è ancora aperto (`live::arriving::last_block_open`): il sorgente
-    /// intero non resta, quindi si calcola a ogni lettura.
-    pub last_open: bool,
     /// Se la selezione corrente è un Cmd+A (`ui::doc_view`); condiviso con le closure della vista.
     pub select_all: Arc<SelectAllFlag>,
     next_id: u64,
@@ -57,7 +56,6 @@ impl Document {
             revision: 0,
             blocks: Vec::new(),
             file_hash: ids::hash_str(source),
-            last_open: crate::live::arriving::last_block_open(source),
             select_all: Arc::default(),
             next_id: 1,
         };
@@ -83,7 +81,6 @@ impl Document {
         }
         self.blocks = p.blocks;
         self.file_hash = p.file_hash;
-        self.last_open = p.last_open;
         self.next_id = p.next_id;
         self.revision += 1;
         Some(p.change)
@@ -109,11 +106,12 @@ impl Snapshot {
     }
 
     /// Il lavoro di `Document::update` che non tocca il documento: divisione in blocchi, hash e
-    /// diff con id stabili.
+    /// diff con id stabili, e il punto dell'ultima modifica.
     pub fn prepare(&self, source: &str) -> Prepared {
         let mut next_id = self.next_id;
-        let (blocks, change) = ids::assign(&self.blocks, ids::hash_sources(blocks::split(source)), &mut next_id);
-        Prepared { doc: self.doc, revision: self.revision, blocks, change, file_hash: ids::hash_str(source), last_open: crate::live::arriving::last_block_open(source), next_id }
+        let (blocks, mut change) = ids::assign(&self.blocks, ids::hash_sources(blocks::split(source)), &mut next_id);
+        change.at = crate::live::caret::locate(&self.blocks, &blocks, &change);
+        Prepared { doc: self.doc, revision: self.revision, blocks, change, file_hash: ids::hash_str(source), next_id }
     }
 }
 
@@ -125,7 +123,6 @@ pub struct Prepared {
     blocks: Vec<Block>,
     change: Change,
     file_hash: u64,
-    last_open: bool,
     next_id: u64,
 }
 

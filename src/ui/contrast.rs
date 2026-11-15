@@ -136,6 +136,10 @@ pub fn rows(t: &Theme, rings: &Rings, glass: Color) -> Vec<Row> {
         row("⌘P: icona del file (fg2) su panel + sel", t.fg2, panel_sel, mark),
         row("⌘P: tasti in fondo (fg2) e parole (fg3) su panel", t.fg3, panel, 4.5),
         row("⌘P: segnaposto del campo (fg2) su panel", t.fg2, panel, 4.5),
+        // Caret "sta scrivendo" (`fx::caret`), sul pannello: al passo più tenue del battito, anche
+        // sopra una selezione.
+        row("caret sta scrivendo (fg2 al passo più tenue) su panel", crate::fx::caret::dimmest(t), panel, 4.5),
+        row("caret sta scrivendo (fg2 al passo più tenue) su panel + sel", crate::fx::caret::dimmest(t), panel_sel, 4.5),
         row("line su panel (linee decorative)", t.line, panel, 1.0),
         row("line su vetro (bordo campi, decorativo)", t.line, glass, 1.0),
         row("sel su panel (selezione, hover)", t.sel, panel, 1.0),

@@ -1,7 +1,7 @@
 //! Lo stato dell'app: le schede dei file aperti e ciò che hanno in comune.
 //!
 //! Ogni [`Tab`] ha il suo documento, la sua rilettura (`live::Follow`), i suoi segnali (fuoco,
-//! segno dei blocchi cambiati, dither) e dove era la vista. [`App`] tiene ciò che non dipende da
+//! segno dei blocchi cambiati, caret) e dove era la vista. [`App`] tiene ciò che non dipende da
 //! una scheda: watcher, "sta scrivendo" e scritture dell'app (`live::Live`), indice, sidebar,
 //! anelli. Una scheda in secondo piano continua a ricaricarsi e a contare i blocchi nuovi sotto
 //! la sua vista; il fuoco si vede quando torna davanti.
@@ -53,8 +53,10 @@ pub struct Tab {
     pub(crate) fire_armed: Option<f64>,
     /// Il risveglio armato per togliere il prossimo segno che scade.
     mark_wake: Option<Wake>,
-    /// L'orologio di Rune a cui si è acceso il dither "sta arrivando"; `None` quando è spento.
-    pub(crate) dither_since: Option<f64>,
+    /// L'orologio di Rune a cui si è acceso il caret "sta scrivendo"; `None` quando è spento.
+    pub(crate) caret_since: Option<f64>,
+    /// Il punto dell'ultima modifica da fuori (`live::caret`), finché il file sta scrivendo.
+    pub(crate) caret_at: Option<crate::live::caret::At>,
     /// La posizione di `visible_first` all'ultimo rapporto: dopo una ricarica può non valere più
     /// (allora si cerca l'id).
     visible_start: usize,
@@ -80,7 +82,7 @@ pub struct Tab {
 
 impl Tab {
     pub(crate) fn new(doc: Document, follow: Follow) -> Tab {
-        Tab { doc, mode: Mode::Read, below: Below::default(), changed: Changed::default(), follow, visible_last: 0, visible_first: 0, fire_since: None, fire_armed: None, mark_wake: None, dither_since: None, visible_start: 0, visible_end: 0, outline: ui::outline::Cache::default(), viewport: [0.0; 4], page: [0.0; 4], at_bottom: false, picked: None, not_utf8: false, preview: false }
+        Tab { doc, mode: Mode::Read, below: Below::default(), changed: Changed::default(), follow, visible_last: 0, visible_first: 0, fire_since: None, fire_armed: None, mark_wake: None, caret_since: None, caret_at: None, visible_start: 0, visible_end: 0, outline: ui::outline::Cache::default(), viewport: [0.0; 4], page: [0.0; 4], at_bottom: false, picked: None, not_utf8: false, preview: false }
     }
 
     /// Il file come lo riporta FSEvents (canonico): la chiave degli anelli.
@@ -111,16 +113,26 @@ impl Tab {
         (changed, rearm(&mut self.mark_wake, self.changed.left(now), clock, now))
     }
 
-    /// Accende o spegne il dither: solo se l'ultimo blocco è aperto e il file "sta scrivendo".
-    /// Si spegne a fine finestra con il risveglio dell'anello (stessa finestra, `update_ring`) o
-    /// alla ricarica che chiude il blocco. Vero se è cambiato.
-    pub fn dither_step(&mut self, writing: bool, clock: f64) -> bool {
-        let lit = writing && self.doc.last_open && !self.doc.blocks.is_empty();
-        if lit == self.dither_since.is_some() {
-            return false;
+    /// Il caret "sta scrivendo" (record 2026-11-15-caret-al-punto-modificato, vincoli 2 e 4): `at`
+    /// è il punto dell'ultima ricarica, se ne ha uno, e prende il posto del precedente. Acceso
+    /// finché il file sta scrivendo e il blocco del punto c'è ancora; a fine finestra (lo stesso
+    /// risveglio dell'anello, `update_ring`) si spegne e il punto si scorda. L'orologio resta
+    /// quello della prima accensione, così il battito non riparte a ogni scrittura. Vero se è
+    /// cambiato.
+    pub fn caret_step(&mut self, at: Option<&crate::live::caret::At>, writing: bool, clock: f64) -> bool {
+        let before = (self.caret_at.clone(), self.caret_since);
+        if let Some(at) = at {
+            self.caret_at = Some(at.clone());
         }
-        self.dither_since = lit.then_some(clock);
-        true
+        let shown = self.caret_at.as_ref().is_some_and(|a| self.doc.blocks.iter().any(|b| b.id == a.block));
+        if !writing || !shown {
+            self.caret_at = None;
+        }
+        self.caret_since = match self.caret_at {
+            Some(_) => self.caret_since.or(Some(clock)),
+            None => None,
+        };
+        before != (self.caret_at.clone(), self.caret_since)
     }
 
     /// Una ricarica applicata: i blocchi nuovi o cambiati dopo l'ultimo visibile entrano nel
@@ -1079,11 +1091,11 @@ impl App {
         !self.rings.is_empty()
     }
 
-    /// Un effetto per slot è acceso (anello, fuoco o dither della scheda davanti): il compositor
-    /// scorre le istanze solo allora. Il sorgente non mostra fuoco né dither.
+    /// Un effetto per slot è acceso (anello, fuoco o caret della scheda davanti): il compositor
+    /// scorre le istanze solo allora. Il sorgente non mostra fuoco né caret.
     pub fn effects_lit(&self) -> bool {
         let fire = self.settings.fire;
-        self.ring_lit() || self.tab().is_some_and(|t| matches!(t.mode, Mode::Read) && (fire || t.dither_since.is_some()))
+        self.ring_lit() || self.tab().is_some_and(|t| matches!(t.mode, Mode::Read) && (fire || t.caret_since.is_some()))
     }
 
     /// Il fuoco della scheda davanti è a riposo e si muove: senza display link, `poll` chiede un
@@ -1211,7 +1223,7 @@ impl App {
     }
 
     /// Le ricariche di tutte le schede, a ogni `poll`: svuota il watcher, rilegge i file
-    /// cambiati e aggiorna fuoco, segni e dither di ogni scheda. Ritorna se la vista cambia e i
+    /// cambiati e aggiorna fuoco, segni e caret di ogni scheda. Ritorna se la vista cambia e i
     /// risvegli da chiedere.
     pub fn poll_tabs(&mut self, clock: f64, now: Instant) -> (bool, Vec<Duration>) {
         let open: Vec<&Path> = self.tabs.iter().map(Tab::path).collect();
@@ -1244,7 +1256,8 @@ impl App {
             let (marks, wake) = tab.update_marks(reloaded.as_ref().map(|r| &r.change), clock, now);
             wakes.extend(wake);
             let writing = self.live.writing_left(tab.follow.path(), now).is_some();
-            changed |= marks | tab.dither_step(writing, clock);
+            let at = reloaded.as_ref().and_then(|r| r.change.at.as_ref());
+            changed |= marks | tab.caret_step(at, writing, clock);
         }
         (changed, wakes)
     }
@@ -1542,7 +1555,7 @@ mod tests {
     }
 
     /// Il salvataggio del sorgente torna alla lettura con il testo salvato: la rilettura del
-    /// watcher è una scrittura dell'app, quindi niente segno dei blocchi cambiati, fuoco, dither
+    /// watcher è una scrittura dell'app, quindi niente segno dei blocchi cambiati, fuoco, caret
     /// o "sta scrivendo".
     #[test]
     fn saving_the_source_lights_nothing() {
@@ -1573,12 +1586,12 @@ mod tests {
         assert_eq!((tab.doc.file_hash, tab.doc.blocks.len()), (hash, 4), "la lettura mostra il testo salvato");
         assert!(tab.doc.blocks.iter().all(|b| !tab.is_marked(b.id)), "nessun segno");
         assert_eq!((tab.fire_since, tab.fire_armed, tab.below.count()), (None, None, 0), "nessun fuoco");
-        assert_eq!(tab.dither_since, None, "nessun dither");
+        assert_eq!(tab.caret_since, None, "nessun caret");
         assert!(app.live.writing_left(tab.path(), Instant::now()).is_none() && !app.ring_lit(), "nessun anello");
     }
 
     /// "Tieni il mio" dopo un conflitto: come un salvataggio, la rilettura del watcher è una
-    /// scrittura dell'app; tornati alla lettura niente segni, fuoco, dither o anello.
+    /// scrittura dell'app; tornati alla lettura niente segni, fuoco, caret o anello.
     #[test]
     fn keeping_mine_lights_nothing() {
         let (_dir, p) = files(&["a.md"]);
@@ -1606,7 +1619,7 @@ mod tests {
         assert_eq!((tab.doc.file_hash, tab.doc.blocks.len()), (hash, 3), "la lettura mostra il mio testo");
         assert!(tab.doc.blocks.iter().all(|b| !tab.is_marked(b.id)), "nessun segno");
         assert_eq!((tab.fire_since, tab.fire_armed, tab.below.count()), (None, None, 0), "nessun fuoco");
-        assert_eq!(tab.dither_since, None, "nessun dither");
+        assert_eq!(tab.caret_since, None, "nessun caret");
         assert!(app.live.writing_left(tab.path(), Instant::now()).is_none() && !app.ring_lit(), "nessun anello");
     }
 
@@ -1974,18 +1987,31 @@ mod tests {
         assert_eq!(tab.update_marks(None, 0.016, t0 + dt).1, None);
     }
 
-    /// Il dither: solo con l'ultimo blocco aperto e il file che sta scrivendo; si spegne a fine
-    /// finestra o quando il blocco si chiude.
+    /// Il caret: acceso con il punto di una ricarica mentre il file sta scrivendo, anche a metà
+    /// file; resta dove è a una ricarica senza punto nuovo; spento a fine finestra (vincolo 4).
     #[test]
-    fn dither_only_on_an_open_last_block_while_writing() {
-        let mut tab = tab_of("a\n\n```rs\nfn");
-        assert!(!tab.dither_step(false, 1.0) && tab.dither_since.is_none(), "non sta scrivendo");
-        assert!(tab.dither_step(true, 1.0) && tab.dither_since == Some(1.0));
-        assert!(!tab.dither_step(true, 2.0) && tab.dither_since == Some(1.0), "resta acceso dalla prima volta");
-        assert!(tab.dither_step(false, 3.0) && tab.dither_since.is_none(), "spento a fine finestra");
-        tab.dither_step(true, 4.0);
-        tab.doc.update("a\n\n```rs\nfn\n```\n\n");
-        assert!(tab.dither_step(true, 5.0) && tab.dither_since.is_none(), "blocco chiuso");
+    fn the_caret_follows_the_last_change_while_writing() {
+        let mut tab = tab_of("# T\n\nUno.\n\nDue.\n");
+        let old = tab.doc.blocks.clone();
+        let change = tab.doc.update("# T\n\nUno bis.\n\nDue.\n");
+        let at = live::caret::locate(&old, &tab.doc.blocks, &change).expect("un punto");
+        assert!(!tab.caret_step(Some(&at), false, 1.0) && tab.caret_since.is_none(), "non sta scrivendo");
+        assert!(tab.caret_step(Some(&at), true, 1.0) && tab.caret_since == Some(1.0));
+        assert_eq!(tab.caret_at.as_ref().map(|a| a.block), Some(tab.doc.blocks[1].id), "a metà file");
+        assert!(!tab.caret_step(None, true, 2.0) && tab.caret_since == Some(1.0), "resta dove è");
+        assert!(tab.caret_step(None, false, 3.0) && tab.caret_since.is_none() && tab.caret_at.is_none(), "spento a fine finestra");
+    }
+
+    /// Il blocco del punto sparisce: il caret si spegne invece di restare su un blocco che non c'è.
+    #[test]
+    fn the_caret_goes_off_when_its_block_goes() {
+        let mut tab = tab_of("Uno.\n\nDue.\n");
+        let old = tab.doc.blocks.clone();
+        let change = tab.doc.update("Uno.\n\nDue bis.\n");
+        let at = live::caret::locate(&old, &tab.doc.blocks, &change).unwrap();
+        tab.caret_step(Some(&at), true, 1.0);
+        tab.doc.update("Uno.\n");
+        assert!(tab.caret_step(None, true, 2.0) && tab.caret_at.is_none());
     }
 
     // La scheda di anteprima (come VS Code): un clic singolo nella sidebar apre il file in una sola

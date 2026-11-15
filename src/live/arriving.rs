@@ -1,56 +1,13 @@
-//! "Sta arrivando" e "cosa è cambiato" (spec, "Segnali live").
-//!
-//! - [`last_block_open`]: l'ultimo blocco del file è ancora aperto (fence non chiusa, oppure il
-//!   file non finisce con un a capo). Con il file "sta scrivendo" accende il
-//!   dither in fondo al documento.
-//! - [`Changed`]: i blocchi nuovi o cambiati da una ricarica esterna, segnati per
-//!   [`CHANGED_MARK`] (`CHANGED_MARK_MS` in `docs/agent-writes.md`).
+//! "Cosa è cambiato" (spec, "Segnali live"): [`Changed`], i blocchi nuovi o cambiati da una
+//! ricarica esterna, segnati per [`CHANGED_MARK`] (`CHANGED_MARK_MS` in `docs/agent-writes.md`).
+//! "Sta arrivando" non guarda più se l'ultimo blocco è aperto: il caret sta nel punto
+//! dell'ultima modifica (`live::caret`).
 
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 /// Per quanto resta il segno dei blocchi cambiati (`docs/agent-writes.md`: 8000 ms, `ipotesi`).
 pub const CHANGED_MARK: Duration = Duration::from_millis(8000);
-
-/// L'ultimo blocco di `source` (il file intero) è aperto: dentro una fence ``` o ~~~ non chiusa
-/// (qualunque a capo ci sia dopo), oppure il file non finisce con un a capo. Un solo a capo
-/// finale chiude il blocco: quasi tutti i file degli agenti finiscono così, e con la riga vuota
-/// della spec il dither si vedrebbe a ogni scrittura, non "di rado" (decisione "Dither raro").
-/// Un file vuoto o di soli spazi non ha blocchi: chiuso.
-pub fn last_block_open(source: &str) -> bool {
-    let body = source.trim_end();
-    if body.is_empty() {
-        return false;
-    }
-    let ends_line = source[body.len()..].contains('\n');
-    open_fence(body) || !ends_line
-}
-
-/// Se `source` finisce dentro una fence di codice. Come CommonMark: fino a 3 spazi prima, almeno
-/// 3 ``` o ~~~; chiude una riga con lo stesso carattere, almeno altrettanti, e nient'altro.
-/// Le fence dentro citazioni ed elenchi non si contano (`ipotesi`: per l'ultimo blocco basta).
-fn open_fence(source: &str) -> bool {
-    let mut open: Option<(char, usize)> = None;
-    for line in source.lines() {
-        let indent = line.len() - line.trim_start_matches(' ').len();
-        if indent > 3 {
-            continue;
-        }
-        let rest = &line[indent..];
-        let Some(c) = rest.chars().next().filter(|c| matches!(c, '`' | '~')) else { continue };
-        let run = rest.len() - rest.trim_start_matches(c).len();
-        if run < 3 {
-            continue;
-        }
-        let after = &rest[run..];
-        open = match open {
-            None if c == '~' || !after.contains('`') => Some((c, run)),
-            Some((oc, on)) if oc == c && run >= on && after.trim().is_empty() => None,
-            other => other,
-        };
-    }
-    open.is_some()
-}
 
 /// I blocchi segnati come cambiati, ognuno con la sua scadenza.
 #[derive(Debug, Default)]
@@ -86,20 +43,8 @@ impl Changed {
 mod tests {
     use super::*;
 
-    #[test]
-    fn open_fence_is_open() {
-        assert!(last_block_open("a\n\n```rs\nfn"));
-    }
 
-    #[test]
-    fn closed_fence_with_blank_line_is_closed() {
-        assert!(!last_block_open("a\n\n```rs\nfn\n```\n\n"));
-    }
 
-    #[test]
-    fn no_trailing_blank_line_is_open() {
-        assert!(last_block_open("a\n\nparagrafo"));
-    }
 
     #[test]
     fn changed_mark_expires() {
@@ -112,31 +57,9 @@ mod tests {
         assert!(!c.is_marked(8, t0), "solo i blocchi segnati");
     }
 
-    #[test]
-    fn a_final_newline_closes_the_last_block() {
-        assert!(!last_block_open("a\n\nparagrafo\n"));
-        assert!(!last_block_open("a\n\n```rs\nfn\n```\n"), "fence chiusa e a capo finale");
-    }
 
-    #[test]
-    fn an_open_fence_stays_open_after_a_final_newline() {
-        assert!(last_block_open("a\n\n```rs\nfn\n"));
-        assert!(last_block_open("a\n\n```rs\nfn\n\n"), "anche con una riga vuota");
-    }
 
-    #[test]
-    fn a_tilde_fence_and_a_longer_fence_count() {
-        assert!(last_block_open("~~~\nx\n```\n\n"), "``` non chiude ~~~");
-        assert!(last_block_open("````\nx\n```\n\n"), "``` non chiude ````");
-        assert!(!last_block_open("````\nx\n`````\n\n"));
-    }
 
-    #[test]
-    fn an_empty_file_is_closed() {
-        assert!(!last_block_open(""));
-        assert!(!last_block_open(" \n\n"));
-        assert!(!last_block_open("a\n  \n"), "riga di soli spazi");
-    }
 
     #[test]
     fn prune_and_left_follow_the_earliest_mark() {
