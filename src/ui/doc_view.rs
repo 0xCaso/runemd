@@ -501,14 +501,22 @@ fn block_body<S: 'static>(source: &str, style: &MarkdownStyle, notes: &crate::do
 }
 
 /// Un titolo `Task N` (mockup t-sezioni): il numero nel font del titolo in `fg3` a sinistra, il
-/// titolo, e a destra "2 di 4" dalle caselle del task, piccolo in `fg3`, centrato sulla prima riga.
+/// titolo, e a destra "2 di 4" dalle caselle del task, piccolo in `fg3`, sulla linea di base della
+/// prima riga: riga alta quanto quella del titolo, abbassata di quanto la base del corpo piccolo
+/// sta più in alto (`BASELINE_EM`).
 fn task_heading(body: El, t: &crate::doc::labels::TaskHead, progress: Option<(u32, u32)>, fonts: super::markdown_style::Fonts, meta: &Meta) -> El {
     let font = fonts.headings[t.level as usize - 1];
     let number = rune::text(t.number.clone()).font(font).color(meta.path.dim).selectable(false);
-    let small = super::sidebar::small_font();
-    let done = progress.map(|(d, n)| rune::text(format!("{d} di {n}")).font(small).color(meta.path.dim).selectable(false).pt(((font.line_height - small.line_height) / 2.0).max(0.0)));
+    let small = super::sidebar::small_font().lh(font.line_height);
+    let drop = (BASELINE_EM * (font.size - small.size)).max(0.0);
+    let done = progress.map(|(d, n)| rune::text(format!("{d} di {n}")).font(small).color(meta.path.dim).selectable(false).pt(drop));
     rune::row().w_full().gap(TASK_GAP).child(number).child(el().grow(1.0).min_w(0.0).child(body)).children(done)
 }
+
+/// Da metà riga alla linea di base, per corpo: (ascendente − discendente) / 2 di Inter (0,969 e
+/// 0,242 per em). Il testo sta al centro della sua riga, quindi due corpi su righe alte uguali
+/// hanno le basi distanti `BASELINE_EM` per la differenza dei corpi.
+const BASELINE_EM: f32 = 0.363;
 
 /// Fra numero, titolo e avanzamento di un titolo `Task N`.
 const TASK_GAP: f32 = 10.0;
@@ -1653,6 +1661,21 @@ mod tests {
             assert!(find("Dither").rect[1] > done.rect[1]);
             assert!(!els.iter().any(|e| e.text.as_deref().is_some_and(|x| x.contains("Task 1") || x.contains("di 0"))), "senza caselle niente avanzamento");
         }
+    }
+
+    /// "2 di 4" sta sulla linea di base del titolo (mockup t-sezioni), non più in basso: con la
+    /// riga alta quanto quella del titolo, la base è a metà riga più `BASELINE_EM` per corpo.
+    #[test]
+    fn task_progress_sits_on_the_heading_baseline() {
+        let rt = open_themed("### Task 12: Fuoco\n\n- [x] uno\n- [ ] due\n", false);
+        let els = rt.elements();
+        let find = |s: &str| els.iter().find(|e| e.text.as_deref() == Some(s)).unwrap_or_else(|| panic!("manca {s:?}")).rect;
+        let (title, done) = (find("Fuoco"), find("1 di 2"));
+        let h3 = crate::ui::markdown_style::fonts(crate::fonts::Typeface { family: rune::Family::Sans, size: crate::ui::theme::BODY_TEXT }).headings[2];
+        let small = crate::ui::sidebar::small_font();
+        let title_base = title[1] + h3.line_height / 2.0 + super::BASELINE_EM * h3.size;
+        let done_base = done[1] + done[3] - h3.line_height / 2.0 + super::BASELINE_EM * small.size;
+        assert!((done_base - title_base).abs() < 0.5, "base del titolo {title_base}, di \"1 di 2\" {done_base} ({title:?} {done:?})");
     }
 
     /// Il link `key` della vista: un clic al suo centro.
