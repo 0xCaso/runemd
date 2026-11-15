@@ -96,7 +96,7 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
     // (e un po' più scuro nel tema chiaro).
     let focus = ui::theme::focus_ring(cx.focus_color(), dark);
     cx.focus_ring(3.0, 0.0, focus);
-    let hooks = ui::sidebar::Hooks { get: |s: &App| &s.sidebar, get_mut: |s: &mut App| &mut s.sidebar, open: App::open_from_sidebar, ring: App::ring_of, query: App::requery_sidebar, create: App::create_from_sidebar };
+    let hooks = ui::sidebar::Hooks { get: |s: &App| &s.sidebar, get_mut: |s: &mut App| &mut s.sidebar, open: App::open_from_sidebar, pin: App::pin_from_sidebar, ring: App::ring_of, query: App::requery_sidebar, create: App::create_from_sidebar };
     let body = match s.tab() {
         Some(tab @ app::Tab { mode: app::Mode::Source(src), .. }) => {
             let caret = ui::source::caret_lines(cx, tab, src);

@@ -364,7 +364,9 @@ testo `fg`; le altre testo `fg-2`. Barra alta 44 (`tab-bar`), margine 10 ai lati
 `fg-2`, area di 16, raggio 4, hover `sel`, 4 dopo il nome e 6 dal bordo destro): si vede sempre sulla scheda
 davanti e sulle altre solo in hover (o col fuoco della tastiera), ma il suo posto c'è sempre, così il nome non si
 sposta. Etichetta "Chiudi <nome>"; un clic chiude come ⌘W (stessa domanda con modifiche non salvate); il clic
-centrale resta. Contrasto del glifo: 8,30 / 9,38 su `sel`, 5,67 / 8,22 in hover sulla ×. Troppe schede: la riga scorre di lato. "⌘E
+centrale resta. Contrasto del glifo: 8,30 / 9,38 su `sel`, 5,67 / 8,22 in hover sulla ×. Scheda di anteprima (clic
+singolo nella sidebar, come VS Code): stesso aspetto, nome in corsivo; al massimo una, il clic singolo dopo la
+sostituisce nello stesso posto. Troppe schede: la riga scorre di lato. "⌘E
 sorgente" a destra come il tasto "⌘P", in `fg-3`.
 
 **Cerca nel file (⌘F).** Solo in lettura. Il campo sta nella barra delle schede, a destra delle schede e prima

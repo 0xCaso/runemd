@@ -393,8 +393,10 @@ impl Sidebar {
 pub struct Hooks<S> {
     pub get: fn(&S) -> &Sidebar,
     pub get_mut: fn(&mut S) -> &mut Sidebar,
-    /// Apre il file nel lettore.
+    /// Clic singolo: apre il file nella scheda di anteprima.
     pub open: fn(&mut S, PathBuf, &mut Tx),
+    /// Doppio clic: apre il file in una scheda fissa.
+    pub pin: fn(&mut S, PathBuf, &mut Tx),
     /// L'orologio di Rune a cui si è acceso l'anello "sta scrivendo" del file; `None` se spento.
     pub ring: fn(&S, &Path) -> Option<f64>,
     /// La ricerca di Cmd+P è cambiata: ricalcola i risultati dall'indice.
@@ -570,6 +572,10 @@ fn recent_row<S: 'static>(s: &S, hooks: Hooks<S>, i: usize, r: &RecentRow, label
         .justify_center()
         .child(name)
         .child(meta)
+        .on_double_press_tx({
+            let path = path.clone();
+            move |s: &mut S, tx: &mut Tx| (hooks.pin)(s, path.clone(), tx)
+        })
         .on_press_tx(move |s: &mut S, tx: &mut Tx| (hooks.open)(s, path.clone(), tx));
     let since = (hooks.ring)(s, &r.path);
     let key = format!("recent-{}", r.path.display());
@@ -653,7 +659,10 @@ fn tree_row<S: 'static>(s: &S, hooks: Hooks<S>, i: usize, theme: &Theme, motion:
     }
     let id = r.id.to_owned();
     let e = match node.data.clone() {
-        Some(path) => e.on_press_tx(move |s: &mut S, tx: &mut Tx| (hooks.open)(s, path.clone(), tx)),
+        Some(path) => {
+            let pin = path.clone();
+            e.on_double_press_tx(move |s: &mut S, tx: &mut Tx| (hooks.pin)(s, pin.clone(), tx)).on_press_tx(move |s: &mut S, tx: &mut Tx| (hooks.open)(s, path.clone(), tx))
+        }
         None => e.on_press(move |s: &mut S| (hooks.get_mut)(s).toggle(&id)),
     };
     // La riga selezionata tiene il suo `sel`: niente hover sopra.

@@ -195,6 +195,11 @@ disegna ogni frame con `FxRenderer`, più `El::effect(mark)` sugli elementi.
 - `TabStrip` di rune-kit, sempre `status(None)` (i suoi pallini e spinner sono vietati da `DESIGN.md`); l'anello va
   con `TabItem::decorate`.
 - Cmd+W chiude, e così la × sulla scheda davanti o in hover (v1.1) e il clic centrale; Cmd+1…9 e Ctrl+Tab cambiano scheda [mia scelta, convenzione Mac].
+- Scheda di anteprima (dopo la v1, come VS Code): un clic singolo su un file nella sidebar (Recenti, albero,
+  risultati di ⌘P, anche Invio in ⌘P) lo apre in una sola scheda di anteprima, nome in corsivo, che il clic singolo
+  dopo sostituisce nello stesso posto. Diventa fissa con un doppio clic sulla riga o sulla scheda, una modifica nel
+  sorgente o ⌘S. Da Finder, terminale, ⌘N e copie di recupero il file si apre fisso. Un file già aperto: si porta
+  davanti la sua scheda.
 
 ### Modifica (Cmd+E)
 

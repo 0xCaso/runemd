@@ -72,11 +72,15 @@ pub struct Tab {
     /// Cmd+E non è entrato perché il file non è UTF-8: la lettura mostra la riga che lo dice
     /// (`ui::source::NOT_UTF8_TEXT`) finché un Cmd+E non entra.
     pub(crate) not_utf8: bool,
+    /// La scheda di anteprima (come VS Code): aperta con un clic singolo nella sidebar, il nome in
+    /// corsivo, sostituita dal clic singolo dopo. Al massimo una. Diventa fissa con un doppio clic
+    /// (sulla riga o sulla scheda), una modifica nel sorgente o Cmd+S (`App::pin`).
+    pub(crate) preview: bool,
 }
 
 impl Tab {
     pub(crate) fn new(doc: Document, follow: Follow) -> Tab {
-        Tab { doc, mode: Mode::Read, below: Below::default(), changed: Changed::default(), follow, visible_last: 0, visible_first: 0, fire_since: None, fire_armed: None, mark_wake: None, dither_since: None, visible_start: 0, visible_end: 0, outline: ui::outline::Cache::default(), viewport: [0.0; 4], page: [0.0; 4], at_bottom: false, picked: None, not_utf8: false }
+        Tab { doc, mode: Mode::Read, below: Below::default(), changed: Changed::default(), follow, visible_last: 0, visible_first: 0, fire_since: None, fire_armed: None, mark_wake: None, dither_since: None, visible_start: 0, visible_end: 0, outline: ui::outline::Cache::default(), viewport: [0.0; 4], page: [0.0; 4], at_bottom: false, picked: None, not_utf8: false, preview: false }
     }
 
     /// Il file come lo riporta FSEvents (canonico): la chiave degli anelli.
@@ -576,6 +580,8 @@ impl App {
             let canonical = path.canonicalize().unwrap_or_else(|_| path.to_owned());
             if let Some(i) = self.tabs.iter().position(|t| t.path() == canonical || t.doc.path == *path) {
                 self.active = i;
+                // Aperto da Finder o dal terminale: la scheda resta.
+                self.tabs[i].preview = false;
                 continue;
             }
             match Document::load(path) {
@@ -589,6 +595,65 @@ impl App {
         }
         if self.tab().map(|t| t.doc.id) != before {
             self.fronted();
+        }
+    }
+
+    /// Un clic singolo su un file nella sidebar (Recenti, albero, risultati di Cmd+P): se è già
+    /// aperto si porta davanti la sua scheda; se no va nella scheda di anteprima, che prende il
+    /// posto di quella di prima (nella stessa posizione) o, se non c'è, si aggiunge in fondo.
+    /// Vero se è venuta davanti un'altra scheda.
+    pub fn open_preview(&mut self, path: PathBuf) -> bool {
+        let before = self.tab().map(|t| t.doc.id);
+        let canonical = path.canonicalize().unwrap_or_else(|_| path.clone());
+        if let Some(i) = self.tabs.iter().position(|t| t.path() == canonical || t.doc.path == path) {
+            self.active = i;
+        } else {
+            let doc = match Document::load(&path) {
+                Ok(doc) => doc,
+                Err(e) => {
+                    eprintln!("runemd: {}: {e}", path.display());
+                    return false;
+                }
+            };
+            let follow = self.live.follow(&path);
+            let mut tab = Tab::new(doc, follow);
+            tab.preview = true;
+            // Una scheda di anteprima con modifiche non salvate non si butta: resta (`pin`).
+            let old = self.tabs.iter().position(|t| t.preview && !matches!(&t.mode, Mode::Source(s) if s.dirty));
+            match old {
+                Some(i) => {
+                    let old = std::mem::replace(&mut self.tabs[i], tab);
+                    self.live.unfollow(old.follow);
+                    self.active = i;
+                }
+                None => {
+                    for t in &mut self.tabs {
+                        t.preview = false;
+                    }
+                    self.tabs.push(tab);
+                    self.active = self.tabs.len() - 1;
+                }
+            }
+        }
+        let fronted = self.tab().map(|t| t.doc.id) != before;
+        if fronted {
+            self.fronted();
+        }
+        fronted
+    }
+
+    /// La scheda `id` diventa fissa: il prossimo clic singolo non la sostituisce.
+    pub fn pin(&mut self, id: u64) {
+        if let Some(t) = self.tab_of(id) {
+            t.preview = false;
+        }
+    }
+
+    /// Fissa la scheda del file `path`, se è aperto (doppio clic su una riga della sidebar).
+    pub fn pin_path(&mut self, path: &Path) {
+        let canonical = path.canonicalize().unwrap_or_else(|_| path.to_owned());
+        if let Some(t) = self.tabs.iter_mut().find(|t| t.path() == canonical || t.doc.path == path) {
+            t.preview = false;
         }
     }
 
@@ -764,13 +829,19 @@ impl App {
         scroll_block_to_top(tab, i, tx);
     }
 
-    /// Un clic su una riga della sidebar: il file va in una scheda (o si porta davanti la sua).
+    /// Un clic su una riga della sidebar: il file va nella scheda di anteprima (o si porta
+    /// davanti la sua, `open_preview`).
     pub fn open_from_sidebar(&mut self, path: PathBuf, tx: &mut Tx) {
-        let before = self.tab().map(|t| t.doc.id);
-        self.open_paths(vec![path]);
-        if self.tab().map(|t| t.doc.id) != before {
+        if self.open_preview(path) {
             self.restore_view(tx);
         }
+    }
+
+    /// Un doppio clic su una riga della sidebar: il file si apre (il primo clic l'ha già aperto)
+    /// e la sua scheda diventa fissa.
+    pub fn pin_from_sidebar(&mut self, path: PathBuf, tx: &mut Tx) {
+        self.open_from_sidebar(path.clone(), tx);
+        self.pin_path(&path);
     }
 
     /// La cartella di Cmd+N: quella del file davanti, senza schede la prima cartella osservata.
@@ -1029,6 +1100,7 @@ impl App {
     /// scheda era nel sorgente.
     pub fn save_source(&mut self) -> bool {
         let Some(tab) = self.tabs.get_mut(self.active).filter(|t| matches!(t.mode, Mode::Source(_))) else { return false };
+        tab.preview = false;
         let _ = edit::save(tab, &mut self.live.own);
         true
     }
@@ -1068,19 +1140,27 @@ impl App {
     pub fn source_edge(&mut self, id: u64, piece: u64, edge: edit::blocks::Edge, first: bool, last: bool, tx: &mut Tx) -> bool {
         let Some(Mode::Source(s)) = self.tab_of(id).map(|t| &mut t.mode) else { return false };
         let took = s.pieces.edge(piece, edge, first, last);
+        let joined = took && matches!(edge, edit::blocks::Edge::JoinBack | edit::blocks::Edge::JoinForward);
+        if joined {
+            s.dirty = true;
+        }
         if took {
-            if matches!(edge, edit::blocks::Edge::JoinBack | edit::blocks::Edge::JoinForward) {
-                s.dirty = true;
-            }
             tx.send_key(rune::KeyEvent { key: rune::Key::Text(String::new()), mods: rune::Mods::default() });
+        }
+        if joined {
+            self.pin(id);
         }
         took
     }
 
     /// Il testo del sorgente della scheda `id` è cambiato.
     pub fn source_changed(&mut self, id: u64) {
-        if let Some(Mode::Source(s)) = self.tab_of(id).map(|t| &mut t.mode) {
+        if let Some(t) = self.tab_of(id)
+            && let Mode::Source(s) = &mut t.mode
+        {
             s.dirty = true;
+            // Una modifica fissa la scheda di anteprima.
+            t.preview = false;
         }
     }
 
@@ -1883,5 +1963,108 @@ mod tests {
         tab.dither_step(true, 4.0);
         tab.doc.update("a\n\n```rs\nfn\n```\n\n");
         assert!(tab.dither_step(true, 5.0) && tab.dither_since.is_none(), "blocco chiuso");
+    }
+
+    // La scheda di anteprima (come VS Code): un clic singolo nella sidebar apre il file in una sola
+    // scheda che il clic dopo sostituisce.
+
+    fn previews(app: &App) -> Vec<bool> {
+        app.tabs.iter().map(|t| t.preview).collect()
+    }
+
+    #[test]
+    fn a_single_click_opens_one_preview_tab_that_the_next_replaces() {
+        let (_dir, p) = files(&["a.md", "b.md"]);
+        let mut app = empty_app();
+        assert!(app.open_preview(p[0].clone()));
+        assert_eq!(previews(&app), [true]);
+        assert!(app.open_preview(p[1].clone()));
+        assert_eq!(app.tabs.len(), 1, "sostituita, non aggiunta");
+        assert_eq!(app.tab().unwrap().doc.path, p[1]);
+        assert_eq!(previews(&app), [true]);
+        assert_eq!(app.live.open_roots().len(), 1, "la rilettura di a.md è rilasciata");
+    }
+
+    #[test]
+    fn the_preview_is_replaced_in_place_and_pinned_tabs_stay() {
+        let (_dir, p) = files(&["a.md", "b.md", "c.md", "d.md"]);
+        let mut app = empty_app();
+        app.open_paths(vec![p[0].clone()]);
+        app.open_preview(p[1].clone());
+        app.open_paths(vec![p[2].clone()]);
+        assert_eq!(previews(&app), [false, true, false], "Finder e terminale aprono fisse");
+        app.open_preview(p[3].clone());
+        let names: Vec<String> = app.tabs.iter().map(Tab::title).collect();
+        assert_eq!(names, ["a.md", "d.md", "c.md"]);
+        assert_eq!((app.active, previews(&app)), (1, vec![false, true, false]));
+    }
+
+    #[test]
+    fn a_click_on_an_open_file_only_switches_to_its_tab() {
+        let (_dir, p) = files(&["a.md", "b.md"]);
+        let mut app = empty_app();
+        app.open_paths(vec![p[0].clone()]);
+        app.open_preview(p[1].clone());
+        let ids: Vec<u64> = app.tabs.iter().map(|t| t.doc.id).collect();
+        assert!(app.open_preview(p[0].clone()));
+        assert_eq!(app.active, 0);
+        assert_eq!(app.tabs.iter().map(|t| t.doc.id).collect::<Vec<_>>(), ids, "niente riletto né sostituito");
+        assert_eq!(previews(&app), [false, true]);
+        assert!(!app.open_preview(p[0].clone()), "già davanti");
+    }
+
+    #[test]
+    fn pinning_keeps_the_tab_when_the_next_preview_opens() {
+        let (_dir, p) = files(&["a.md", "b.md", "c.md"]);
+        let mut app = empty_app();
+        app.open_preview(p[0].clone());
+        app.pin_path(&p[0]);
+        assert_eq!(previews(&app), [false]);
+        app.open_preview(p[1].clone());
+        assert_eq!(previews(&app), [false, true]);
+        let id = app.tabs[1].doc.id;
+        app.pin(id);
+        app.open_preview(p[2].clone());
+        assert_eq!(previews(&app), [false, false, true]);
+    }
+
+    #[test]
+    fn opening_from_finder_pins_a_preview_tab() {
+        let (_dir, p) = files(&["a.md"]);
+        let mut app = empty_app();
+        app.open_preview(p[0].clone());
+        app.open_paths(vec![p[0].clone()]);
+        assert_eq!(previews(&app), [false]);
+    }
+
+    #[test]
+    fn editing_or_saving_pins_the_preview_tab() {
+        let (_dir, p) = files(&["a.md", "b.md"]);
+        let mut app = empty_app();
+        app.open_preview(p[0].clone());
+        let tab = app.tab_mut().unwrap();
+        tab.mode = Mode::Source(Box::new(edit::enter(&tab.doc)));
+        assert_eq!(previews(&app), [true], "Cmd+E senza modifiche resta anteprima");
+        let id = app.tabs[0].doc.id;
+        app.source_changed(id);
+        assert_eq!(previews(&app), [false], "una modifica la fissa");
+        app.open_preview(p[1].clone());
+        assert_eq!(previews(&app), [false, true]);
+        let tab = app.tab_mut().unwrap();
+        tab.mode = Mode::Source(Box::new(edit::enter(&tab.doc)));
+        assert!(app.save_source());
+        assert_eq!(previews(&app), [false, false], "Cmd+S la fissa");
+    }
+
+    #[test]
+    fn closing_the_preview_tab_leaves_no_preview() {
+        let (_dir, p) = files(&["a.md", "b.md", "c.md"]);
+        let mut app = empty_app();
+        app.open_paths(vec![p[0].clone()]);
+        app.open_preview(p[1].clone());
+        app.close_active();
+        app.open_preview(p[2].clone());
+        assert_eq!(previews(&app), [false, true]);
+        assert_eq!(app.tabs.len(), 2);
     }
 }

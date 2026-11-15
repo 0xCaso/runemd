@@ -9,6 +9,9 @@
 //! (28–224 pt) e tiene 16 pt per un avatar prima del nome, e non si può cambiare né l'una né
 //! l'altro dall'esterno. Il mockup scelto da Matteo ha schede larghe quanto il nome.
 //!
+//! La scheda di anteprima (clic singolo nella sidebar, `App::open_preview`) ha il nome in corsivo;
+//! un doppio clic la fissa.
+//!
 //! Troppe schede per la barra: la riga scorre di lato. Un clic porta davanti; la × (sulla scheda
 //! davanti, o in hover) e il clic centrale chiudono, Cmd+W chiude quella davanti
 //! (`main::tab_key`); con modifiche non salvate chiedono prima (`App::close`).
@@ -95,7 +98,9 @@ fn tab_row(s: &App, hooks: Hooks<App>, i: usize, tab: &crate::app::Tab, theme: &
     let key = format!("t-{:x}", tab.doc.id);
     let title = tab.title();
     let id = tab.doc.id;
-    let label = text(title.clone()).key(format!("{key}-label")).font(sidebar::ui_font()).color(if front { theme.fg } else { theme.fg2 }).truncate_middle().shrink().min_w(0.0).a11y_hidden();
+    // La scheda di anteprima ha il nome in corsivo (come VS Code).
+    let font = if tab.preview { sidebar::ui_font().italic() } else { sidebar::ui_font() };
+    let label = text(title.clone()).key(format!("{key}-label")).font(font).color(if front { theme.fg } else { theme.fg2 }).truncate_middle().shrink().min_w(0.0).a11y_hidden();
     let close = close_button(&key, id, &title, front, theme, motion);
     // Al massimo `TAB_MAX_W`, il nome tagliato in mezzo: una scheda lunga non spinge fuori
     // le altre.
@@ -119,6 +124,7 @@ fn tab_row(s: &App, hooks: Hooks<App>, i: usize, tab: &crate::app::Tab, theme: &
                 s.restore_view(tx);
             }
         })
+        .on_double_press(move |s: &mut App| s.pin(id))
         .on_middle_press(move |s: &mut App, tx: &mut Tx| close_tab(s, id, tx));
     if front {
         e = e.fill(theme.sel);
