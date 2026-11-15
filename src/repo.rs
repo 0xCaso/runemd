@@ -1,4 +1,4 @@
-//! Repo git di un file: radice, nome e branch, leggendo solo file (niente `git`).
+//! Git repo of a file: root, name and branch, reading files only (no `git`).
 
 use std::path::{Path, PathBuf};
 
@@ -9,8 +9,8 @@ pub struct Repo {
     pub branch: Option<String>,
 }
 
-/// Cerca la prima cartella con `.git` risalendo dalla cartella del file;
-/// se non c'è, la radice è la cartella del file e il branch è `None`.
+/// Finds the first folder with `.git` going up from the file's folder;
+/// if there is none, the root is the file's folder and the branch is `None`.
 pub fn of(file: &Path) -> Repo {
     let dir = file.parent().unwrap_or(file);
     let root = dir
@@ -26,14 +26,14 @@ pub fn of(file: &Path) -> Repo {
     Repo { root, name, branch }
 }
 
-/// Il branch del repo con radice `root` (sha corto con HEAD staccato); `None` se non si legge.
+/// The branch of the repo with root `root` (short sha with detached HEAD); `None` if it cannot be read.
 pub fn branch(root: &Path) -> Option<String> {
     head_path(root)
         .and_then(|h| std::fs::read_to_string(h).ok())
         .and_then(|t| parse_head(&t))
 }
 
-/// File HEAD realmente usato dal repo; con `.git` file (worktree) segue `gitdir:`.
+/// HEAD file the repo really uses; with a `.git` file (worktree) it follows `gitdir:`.
 pub fn head_path(root: &Path) -> Option<PathBuf> {
     let git = root.join(".git");
     if git.is_dir() {
@@ -44,7 +44,7 @@ pub fn head_path(root: &Path) -> Option<PathBuf> {
     if target.is_empty() {
         return None;
     }
-    // Un percorso relativo parte dalla cartella che contiene il file `.git`.
+    // A relative path starts from the folder that holds the `.git` file.
     Some(root.join(target).join("HEAD"))
 }
 
@@ -68,7 +68,7 @@ mod tests {
     use std::fs;
 
     #[test]
-    fn repo_con_branch() {
+    fn repo_with_branch() {
         let d = tempfile::tempdir().unwrap();
         let root = d.path().join("proj");
         fs::create_dir_all(root.join(".git")).unwrap();
@@ -94,7 +94,7 @@ mod tests {
     }
 
     #[test]
-    fn fuori_da_un_repo() {
+    fn outside_a_repo() {
         let d = tempfile::tempdir().unwrap();
         fs::write(d.path().join("x.md"), "").unwrap();
         let r = of(&d.path().join("x.md"));
@@ -122,7 +122,7 @@ mod tests {
     }
 
     #[test]
-    fn malformato_senza_panic() {
+    fn malformed_without_panic() {
         let d = tempfile::tempdir().unwrap();
         fs::write(d.path().join(".git"), "boh").unwrap();
         fs::write(d.path().join("x.md"), "").unwrap();

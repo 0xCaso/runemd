@@ -1,18 +1,18 @@
-//! Apertura dei file: dal Finder / "Apri con" (`odoc`), da `open -a`, dalla riga di comando.
+//! Opening files: from Finder / "Open With" (`odoc`), from `open -a`, from the command line.
 
 pub mod odoc;
 pub mod queue;
 
 use std::path::{Path, PathBuf};
 
-/// Estensioni che RuneMD apre (le stesse di `CFBundleTypeExtensions`).
+/// Extensions RuneMD opens (the same as `CFBundleTypeExtensions`).
 pub fn is_markdown(path: &Path) -> bool {
     path.extension()
         .and_then(|e| e.to_str())
         .is_some_and(|e| e.eq_ignore_ascii_case("md") || e.eq_ignore_ascii_case("markdown"))
 }
 
-/// Da un URL `file://` (percent-encoded) a un percorso; `None` per altri schemi o estensioni.
+/// From a `file://` URL (percent-encoded) to a path; `None` for other schemes or extensions.
 pub fn markdown_path_from_url(url: &str) -> Option<PathBuf> {
     let rest = url.strip_prefix("file://")?;
     // `file://localhost/...` e `file:///...`.
@@ -39,12 +39,12 @@ fn percent_decode(s: &str) -> Option<String> {
     String::from_utf8(out).ok()
 }
 
-/// Da chiamare in `main` prima di `App::run`.
+/// Call in `main` before `App::run`.
 pub fn install() {
     odoc::install();
 }
 
-/// Argomenti della riga di comando che sono file Markdown (percorsi relativi resi assoluti).
+/// Command-line arguments that are Markdown files (relative paths made absolute).
 pub fn cli_paths(args: &[String]) -> Vec<PathBuf> {
     args.iter()
         .map(PathBuf::from)

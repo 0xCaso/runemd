@@ -921,7 +921,7 @@ mod tests {
         assert!(clicked > 5, "the click is in the last piece: {clicked}");
         rt.key(typed("Y"));
         settle(&mut rt);
-        std::fs::write(&path, "# a\n\none\n\ntwo, from the agent, ancora\n").unwrap();
+        std::fs::write(&path, "# a\n\none\n\ntwo, from the agent, still\n").unwrap();
         rt.key(cmd('s'));
         settle(&mut rt);
         tap(&mut rt, RELOAD_KEY);

@@ -1,4 +1,4 @@
-//! Sonde di misura: primo frame con contenuto, intervalli tra frame durante uno scroll, indice.
+//! Measurement probes: first frame with content, intervals between frames during a scroll, index.
 
 use std::cell::RefCell;
 use std::io::Write;
@@ -29,8 +29,8 @@ fn log_to(var: &str, line: &str) {
     writeln!(f, "{line}").expect("log");
 }
 
-/// Il costo sul thread della UI di un ricalcolo della sidebar dopo un cambio dell'indice
-/// (`MDSPIKE_LOG`, una riga per cambio).
+/// The UI-thread cost of recomputing the sidebar after an index change
+/// (`MDSPIKE_LOG`, one line per change).
 pub fn sidebar_refreshed(d: std::time::Duration) {
     log(&format!("sidebar_refresh_us={:.1}", d.as_secs_f64() * 1e6));
 }
@@ -39,11 +39,11 @@ pub fn sidebar_refreshed(d: std::time::Duration) {
 struct Frames {
     first: bool,
     recording: bool,
-    /// (fine encoding, target del display link) dei frame `Drawn` durante lo scroll.
+    /// (encoding end, display link target) of the `Drawn` frames during the scroll.
     drawn: Vec<(Instant, Option<Instant>)>,
     skipped: usize,
     refresh_hz: Option<f64>,
-    /// Ricaricamento in attesa del suo frame: (scrittura, ricarica) in ms epoch, blocchi toccati.
+    /// Reload waiting for its frame: (write, reload) in epoch ms, blocks touched.
     reload: Option<(f64, f64, usize)>,
 }
 
@@ -78,8 +78,8 @@ pub fn on_frame(f: &FrameEncoded) {
     });
 }
 
-/// Un ricaricamento applicato (`MDSPIKE_LATENCY`): il primo frame disegnato dopo scrive la
-/// latenza dalla scrittura del file (mtime) alla ricarica e al frame.
+/// An applied reload (`MDSPIKE_LATENCY`): the first frame drawn afterwards writes the
+/// latency from the file write (mtime) to the reload and to the frame.
 pub fn reloaded(r: &crate::live::Reloaded) {
     if std::env::var_os("MDSPIKE_LATENCY").is_none() { return; }
     let Some(written) = r.written.and_then(|w| w.duration_since(UNIX_EPOCH).ok()) else { return };
@@ -87,17 +87,17 @@ pub fn reloaded(r: &crate::live::Reloaded) {
     FRAMES.with_borrow_mut(|fr| fr.reload = Some((written.as_secs_f64() * 1000.0, epoch_ms(r.at), blocks)));
 }
 
-/// La cache dell'indice letta (prima del primo frame): quanto è costata e quante voci.
+/// The index cache was read (before the first frame): how much it cost and how many entries.
 pub fn index_cached(took: std::time::Duration, entries: usize) {
     log(&format!("index_cache_ms={:.2} entries={entries}", took.as_secs_f64() * 1000.0));
 }
 
-/// La scansione dell'indice è finita (nel `poll` che la raccoglie).
+/// The index scan is done (in the `poll` that collects it).
 pub fn index_scanned(entries: usize) {
     log(&format!("index_scan_epoch_ms={:.1} entries={entries}", epoch_ms(Instant::now())));
 }
 
-/// Uno scroll a velocità costante, passo dopo passo da `poll`.
+/// A constant-speed scroll, step by step from `poll`.
 pub struct ScrollRun {
     secs: f64,
     speed: f64,
@@ -112,7 +112,7 @@ impl ScrollRun {
         Some(ScrollRun { secs, speed, start: None, done: false })
     }
 
-    /// L'offset da applicare in questo frame, o `None` prima dell'inizio e dopo la fine.
+    /// The offset to apply in this frame, or `None` before the start and after the end.
     pub fn step(&mut self, clock: f64) -> Option<f32> {
         let start = *self.start.get_or_insert(clock + 1.0);
         if clock < start || self.done { return None; }
@@ -132,7 +132,7 @@ pub fn finish_scroll() {
         let dt: Vec<f64> = at.windows(2).map(|w| w[1] - w[0]).collect();
         let hz = fr.refresh_hz.unwrap_or(120.0);
         let period = 1000.0 / hz;
-        // Un frame perso = un intervallo oltre 1,5 periodi; conta quanti refresh mancano.
+        // A dropped frame = an interval over 1.5 periods; counts how many refreshes are missing.
         let missed: f64 = dt.iter().filter(|d| **d > period * 1.5).map(|d| (d / period).round() - 1.0).sum();
         let mut sorted = dt.clone();
         sorted.sort_by(f64::total_cmp);

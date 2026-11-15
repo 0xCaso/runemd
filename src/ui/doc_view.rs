@@ -673,7 +673,7 @@ mod tests {
     const VIEWPORT: (f32, f32) = (900.0, 1000.0);
 
     fn paragraph(n: usize) -> String {
-        let words = ["riga", "lettore", "blocco", "scroll", "ancora", "frame", "testo", "colonna"];
+        let words = ["line", "readers", "blocks", "scroll", "anchor", "frame", "texts", "columns"];
         (0..12 + (n * 7) % 60).map(|k| words[(n + k) % words.len()]).collect::<Vec<_>>().join(" ")
     }
 
@@ -791,7 +791,7 @@ mod tests {
         let last = blocks.len() - 1;
         blocks[last] = format!("{} {}", blocks[last], paragraph(41).repeat(4));
         edit(&mut rt, &blocks);
-        assert_still("allunga l'ultimo blocco", before, anchor(&rt));
+        assert_still("lengthens the last block", before, anchor(&rt));
     }
 
     /// The top block becomes two blocks: new ids, the anchor moves to the next block.
@@ -827,7 +827,7 @@ mod tests {
     }
 
     /// 500 KB with no empty lines is a single block: the "insert at the top" case keeps the line
-    /// dentro quel blocco.
+    /// inside that block.
     #[test]
     fn a_500_kb_file_without_blank_lines_keeps_reading_position() {
         let line = "A long line of text with no empty lines between one and the next, reader block scroll again.\n";
@@ -838,7 +838,7 @@ mod tests {
         scroll_to(&mut rt, 20000.0);
         let before = anchor(&rt);
         assert!(before.1 < -1000.0, "inside the block: {before:?}");
-        let blocks: Vec<String> = (0..5).map(|n| format!("Nuovo {n}: {}", paragraph(n))).chain([big.trim_end().to_owned()]).collect();
+        let blocks: Vec<String> = (0..5).map(|n| format!("New {n}: {}", paragraph(n))).chain([big.trim_end().to_owned()]).collect();
         edit(&mut rt, &blocks);
         assert_still("500 KB, inserisci in testa", before, anchor(&rt));
     }
@@ -850,7 +850,7 @@ mod tests {
         let mut rt = open(&join(&sample()));
         assert!(rt.state.tab().unwrap().visible_last != 0, "the view reported the last visible row");
         let mut blocks = sample();
-        blocks.extend((0..3).map(|n| format!("Nuovo in fondo {n}: {}", paragraph(n))));
+        blocks.extend((0..3).map(|n| format!("New at the end {n}: {}", paragraph(n))));
         let src = join(&blocks);
         rt.update(|s, _| {
             let change = s.tab_mut().unwrap().doc.update(&src);
@@ -1097,7 +1097,7 @@ mod tests {
             rt.frame(1.0 / 60.0);
         }
         cmd(&mut rt, '1');
-        let since = rt.state.tab().unwrap().fire_since.expect("fuoco acceso");
+        let since = rt.state.tab().unwrap().fire_since.expect("fire on");
         assert!(since > 1.5, "clock of the switch, not of the reload: {since}");
     }
 
@@ -1225,7 +1225,7 @@ mod tests {
         let mut rt = open_doc(Document::load(path).unwrap());
         let blocks = rt.state.active_document().blocks.len();
         let copied = copy_all(&mut rt);
-        eprintln!("big.md: {blocks} blocchi, {} byte copiati su {}", copied.len(), src.len());
+        eprintln!("big.md: {blocks} blocks, {} bytes copied of {}", copied.len(), src.len());
         assert_eq!(copied.trim_end(), src.trim_end());
     }
 
@@ -1324,7 +1324,7 @@ mod tests {
         rt.pointer_up(x, y);
         rt.frame(1.0 / 60.0);
         cmd(&mut rt, 'a');
-        let after = format!("Nuovo in testa: {}\n\n{before}Nuovo in fondo: {}\n", paragraph(3), paragraph(4));
+        let after = format!("New at the top: {}\n\n{before}New at the end: {}\n", paragraph(3), paragraph(4));
         std::fs::write(&path, &after).unwrap();
         rt.update(|s, _| {
             let own = crate::live::reload::OwnWrites::default();
@@ -1353,7 +1353,7 @@ mod tests {
         cmd(rt, 'a');
         scroll_to(rt, 1.0e9);
         let key = row_key(n - 2, rt.state.active_document());
-        let r = rt.elements().into_iter().find(|e| e.key.as_deref() == Some(key.as_str())).expect("penultimo blocco in vista").rect;
+        let r = rt.elements().into_iter().find(|e| e.key.as_deref() == Some(key.as_str())).expect("second-to-last block in view").rect;
         let (x, y) = (r[0] + 80.0, r[1] + r[3] / 2.0);
         rt.physical_input(rune::PhysicalInput::Modifiers(Mods { shift: true, ..Mods::default() }));
         rt.pointer_move(x, y);

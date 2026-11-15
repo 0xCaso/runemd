@@ -584,7 +584,7 @@ mod tests {
         let blocks: std::collections::HashSet<u64> = found.hits.iter().map(|h| h.block).collect();
         assert!(
             blocks.len() > 10,
-            "risultati in molti blocchi: {}",
+            "results in many blocks: {}",
             blocks.len()
         );
         assert_eq!(
@@ -594,7 +594,7 @@ mod tests {
         );
     }
 
-    /// Next e prev in giro, sul modello.
+    /// Next and prev wrap around, on the model.
     #[test]
     fn step_wraps_both_ways() {
         let doc = Document::from_source(Path::new("t.md"), "one zebra\n\ntwo\n\nZebra and zebra\n");
@@ -629,7 +629,7 @@ mod tests {
         f.step(2);
         assert_eq!(f.label().as_deref(), Some("3 of 4"));
         let block = f.hits[f.current].block;
-        doc.update("nuovo zebra\n\naltro zebra\n\na zebra\n\nb\n\nc zebra zebra\n\nd zebra\n");
+        doc.update("fresh zebra\n\nother zebra\n\na zebra\n\nb\n\nc zebra zebra\n\nd zebra\n");
         f.ask(&doc, Goal::Keep);
         wait(&mut f, &doc);
         assert_eq!(f.hits[f.current].block, block, "same block");
@@ -638,7 +638,7 @@ mod tests {
             Some("5 of 6"),
             "same ordinal in the block"
         );
-        doc.update("nuovo zebra\n\naltro zebra\n\na zebra\n\nb\n\nd zebra\n");
+        doc.update("fresh zebra\n\nother zebra\n\na zebra\n\nb\n\nd zebra\n");
         f.ask(&doc, Goal::Keep);
         wait(&mut f, &doc);
         assert_eq!(
@@ -766,7 +766,7 @@ mod tests {
         let doc = els
             .iter()
             .find(|e| e.key.as_deref() == Some("doc"))
-            .expect("vista doc")
+            .expect("doc view")
             .rect;
         els.iter()
             .filter(|e| {
@@ -834,7 +834,7 @@ mod tests {
         assert_eq!(
             (count_text(&rt).as_deref(), current_block(&rt)),
             (Some("1 of 4"), 3),
-            "in giro all'inizio"
+            "wraps to the start"
         );
         assert!(current_in_view(&rt));
         enter(&mut rt, true);

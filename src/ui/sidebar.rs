@@ -54,7 +54,7 @@ pub fn recent_cap(sidebar_h: f32) -> f32 {
 }
 
 /// The repo: a book with the spine on the left (mockup A), drawn like the kit icons
-/// (`glyphs::FOLDER`: viewBox 16, tratto 1, giunti tondi).
+/// (`glyphs::FOLDER`: viewBox 16, stroke 1, round joins).
 pub static REPO_ICON: Icon = Icon {
     name: "runemd-repo",
     view: 16.0,
@@ -710,7 +710,7 @@ pub(super) struct Motion {
 }
 
 impl Motion {
-    /// L'hover `sel` entra ed esce in 120 ms (`ease`).
+    /// The `sel` hover fades in and out in 120 ms (`ease`).
     fn hover_fade(self) -> Anim {
         if self.reduced { Anim::INSTANT } else { Curve::tween(HOVER_FADE, Easing::EASE).into() }
     }
@@ -1020,7 +1020,7 @@ mod tests {
         let rows: Vec<_> = els.iter().filter(|e| !e.exiting && e.path.contains("tree-rows/") && e.rect[2] > 0.0).collect();
         assert!(rows.len() >= 5, "tree rows: {}", rows.len());
         for e in rows {
-            assert!(e.rect[0] + e.rect[2] <= right + 0.5, "{} esce dall'albero: {:?}, bordo destro {right}", e.path, e.rect);
+            assert!(e.rect[0] + e.rect[2] <= right + 0.5, "{} leaves the tree: {:?}, right edge {right}", e.path, e.rect);
         }
     }
 
@@ -1061,7 +1061,7 @@ mod tests {
         for r in &rows {
             assert!((r[3] - RECENT_ROW).abs() < 0.5, "Recent row {} tall", r[3]);
         }
-        assert!(els.iter().all(|e| e.key.as_deref() != Some("Repo del file")), "no \"Repo del file\" label");
+        assert!(els.iter().all(|e| e.key.as_deref() != Some("File repo")), "no \"File repo\" label");
         let tree = rect("tree");
         let id = flat_id(0, &files[59]);
         let row = rect(&id);
@@ -1117,7 +1117,7 @@ mod tests {
         sb.toggle(0, "design");
         let v = sb.tree_version;
         let index = Index::from_entries(files.iter().map(|f| entry(&root.join(f), 2)).collect());
-        assert!(!sb.refresh_trees(&index), "solo mtime");
+        assert!(!sb.refresh_trees(&index), "mtime only");
         assert_eq!(sb.tree_version, v);
         let mut more: Vec<Entry> = files.iter().map(|f| entry(&root.join(f), 2)).collect();
         more.push(entry(&root.join("docs/new.md"), 3));
@@ -1561,7 +1561,7 @@ mod tests {
         ms.sort_by(f64::total_cmp);
         let pct = |q: f64| ms[((ms.len() - 1) as f64 * q).round() as usize];
         rank_ms.sort_by(f64::total_cmp);
-        eprintln!("quick_open_cost solo rank: p50={:.3} ms p95={:.3} ms max={:.3} ms", rank_ms[rank_ms.len() / 2], rank_ms[(rank_ms.len() as f64 * 0.95) as usize], rank_ms[rank_ms.len() - 1]);
+        eprintln!("quick_open_cost rank only: p50={:.3} ms p95={:.3} ms max={:.3} ms", rank_ms[rank_ms.len() / 2], rank_ms[(rank_ms.len() as f64 * 0.95) as usize], rank_ms[rank_ms.len() - 1]);
         eprintln!("quick_open_cost n={} p50={:.3} ms p95={:.3} ms max={:.3} ms", ms.len(), pct(0.5), pct(0.95), pct(1.0));
     }
 }

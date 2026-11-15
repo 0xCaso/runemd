@@ -1,5 +1,5 @@
-//! Coda dei percorsi da aprire: l'hook AppKit (thread principale, ma fuori dal ciclo di Rune)
-//! li mette qui, `poll` li prende. Un `Waker` sveglia il ciclo quando arriva qualcosa.
+//! Queue of paths to open: the AppKit hook (main thread, but outside Rune's loop)
+//! puts them here, `poll` takes them. A `Waker` wakes the loop when something arrives.
 
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -9,8 +9,8 @@ use rune::Waker;
 static QUEUE: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
 static WAKER: Mutex<Option<Waker>> = Mutex::new(None);
 
-/// Il waker arriva da `AppSpec::setup`. Se la coda ha già qualcosa (apertura da Finder prima
-/// che la finestra esistesse) sveglia subito il ciclo.
+/// The waker comes from `AppSpec::setup`. If the queue already has something (opened from Finder before
+/// the window existed) it wakes the loop at once.
 pub fn set_waker(waker: Waker) {
     let pending = !QUEUE.lock().unwrap().is_empty();
     *WAKER.lock().unwrap() = Some(waker.clone());

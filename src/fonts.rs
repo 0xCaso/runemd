@@ -1,16 +1,16 @@
-//! I font del documento: le scelte del pannello delle impostazioni (prima Inter, New York e SF Pro,
-//! poi le famiglie installate, da CoreText) e la famiglia di Rune per ognuna.
+//! Document fonts: the choices in the settings panel (first Inter, New York and SF Pro,
+//! then the installed families, from CoreText) and the Rune family for each.
 
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 
 use rune::Family;
 
-/// Le prime scelte, in quest'ordine.
+/// The first choices, in this order.
 pub const FIRST: [&str; 3] = ["Inter", "New York", "SF Pro"];
 
-/// Le famiglie installate, in ordine alfabetico, senza le famiglie nascoste di sistema (il nome
-/// comincia con "."), da `CTFontManagerCopyAvailableFontFamilyNames`.
+/// The installed families, in alphabetical order, without the hidden system families (the name
+/// starts with "."), from `CTFontManagerCopyAvailableFontFamilyNames`.
 pub fn installed() -> Vec<String> {
     let mut names = platform::family_names();
     names.retain(|n| !n.starts_with('.') && !n.trim().is_empty());
@@ -19,9 +19,9 @@ pub fn installed() -> Vec<String> {
     names
 }
 
-/// Le scelte del pannello: `FIRST`, poi le installate che non ci sono già. New York c'è solo se è
-/// installato col suo nome pubblico (il pacchetto di Apple): la copia di sistema ha un nome
-/// nascosto (".New York") che Rune non trova per nome, e la scelta ricadrebbe su Inter.
+/// The panel's choices: `FIRST`, then the installed ones not already there. New York is there only if it is
+/// installed under its public name (Apple's package): the system copy has a hidden
+/// name (".New York") that Rune cannot find by name, and the choice would fall back to Inter.
 pub fn choices(installed: &[String]) -> Vec<String> {
     let mut out: Vec<String> = FIRST
         .iter()
@@ -37,9 +37,9 @@ pub fn choices(installed: &[String]) -> Vec<String> {
     out
 }
 
-/// La famiglia di Rune per il nome scelto. Inter è lo slot sans dell'app (nel bundle). SF Pro
-/// prova il nome pubblico (installato dal pacchetto di Apple), poi il font di sistema ("System
-/// Font", che Rune sa caricare). Un nome che non si trova ricade su Inter (lo slot sans).
+/// The Rune family for the chosen name. Inter is the app's sans slot (in the bundle). SF Pro
+/// tries the public name (installed by Apple's package), then the system font ("System
+/// Font", which Rune can load). A name that is not found falls back to Inter (the sans slot).
 pub fn family(name: &str) -> Family {
     match name {
         "Inter" => Family::Sans,
@@ -49,8 +49,8 @@ pub fn family(name: &str) -> Family {
     }
 }
 
-/// `Family::Named` vuole un `&'static str`: un nome per famiglia, tenuto per tutta la vita
-/// dell'app (sono poche, e solo quelle scelte).
+/// `Family::Named` wants a `&'static str`: one name per family, kept for the whole life
+/// of the app (there are few, and only the chosen ones).
 fn intern(name: &str) -> &'static str {
     static NAMES: OnceLock<Mutex<HashMap<String, &'static str>>> = OnceLock::new();
     let mut names = NAMES
@@ -62,7 +62,7 @@ fn intern(name: &str) -> &'static str {
         .or_insert_with(|| Box::leak(name.to_owned().into_boxed_str()))
 }
 
-/// Famiglia e dimensione del corpo del documento.
+/// Family and size of the document body.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Typeface {
     pub family: Family,
@@ -91,8 +91,8 @@ mod platform {
     }
 
     pub fn family_names() -> Vec<String> {
-        // SAFETY: la funzione restituisce un CFArrayRef di CFStringRef con un +1 (Copy), che è
-        // toll-free bridged a NSArray<NSString>: `from_raw` prende quel riferimento.
+        // SAFETY: the function returns a CFArrayRef of CFStringRef with a +1 (Copy), which is
+        // toll-free bridged to NSArray<NSString>: `from_raw` takes that reference.
         let array: Option<Retained<NSArray<NSString>>> =
             unsafe { Retained::from_raw(CTFontManagerCopyAvailableFontFamilyNames().cast()) };
         array
@@ -137,7 +137,7 @@ mod tests {
         assert_eq!(
             c,
             ["Inter", "SF Pro", "Arial"],
-            "New York solo se installato col suo nome"
+            "New York only if installed under its name"
         );
     }
 
@@ -147,7 +147,7 @@ mod tests {
         assert_eq!(family("Georgia"), Family::Named("Georgia"));
         assert!(
             matches!(family("Georgia"), Family::Named(a) if std::ptr::eq(a, match family("Georgia") { Family::Named(b) => b, _ => "" })),
-            "un nome, una sola copia"
+            "one name, a single copy"
         );
     }
 }

@@ -529,7 +529,7 @@ mod tests {
                 s.requery_sidebar();
             });
             settle(&mut rt);
-            let key = rt.elements().into_iter().filter_map(|e| e.key).find(|k| k.starts_with("quick-/")).expect("riga");
+            let key = rt.elements().into_iter().filter_map(|e| e.key).find(|k| k.starts_with("quick-/")).expect("row");
             let row = find(&rt, &key).unwrap().rect;
             assert_eq!(row[3], super::super::QUICK_ROW, "a single line");
             let (place, time) = (rt.state.sidebar.quick_rows[0].qualifier.clone().unwrap(), rt.state.sidebar.quick_labels[0].clone());
@@ -557,7 +557,7 @@ mod tests {
             assert_eq!(rows, ["beta.md"]);
             assert!(rt.state.sidebar.quick_rows[0].qualifier.is_some(), "repo or folder");
             assert!(!rt.state.sidebar.quick_labels[0].is_empty(), "the time");
-            let key = rt.elements().into_iter().filter_map(|e| e.key).find(|k| k.starts_with("quick-/")).expect("riga");
+            let key = rt.elements().into_iter().filter_map(|e| e.key).find(|k| k.starts_with("quick-/")).expect("row");
 
             let (x, y) = centre(&rt, &key);
             click(&mut rt, x, y);
