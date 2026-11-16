@@ -381,6 +381,8 @@ pub struct App {
     pub(crate) recovery: Option<PathBuf>,
     /// Rasterizes the empty screen's wordmark (`ui::forge`); born in `setup` with the waker, `None` in tests.
     pub(crate) images: Option<rune::ImageCache>,
+    /// The wordmark's images drawn now, and the next size while it decodes (`ui::forge::Images`).
+    pub(crate) forge_images: std::cell::RefCell<ui::forge::Images>,
     /// When the last ring went out with no other lit (Rune clock): the empty screen's fire falls from
     /// there. `None` while one is lit, and before any agent wrote.
     writing_stopped: Option<f64>,
@@ -417,6 +419,7 @@ impl App {
             find: ui::find::Find::default(),
             recovery: edit::recovery::default_dir(),
             images: None,
+            forge_images: Default::default(),
             writing_stopped: None,
         };
         app.sync_saved();

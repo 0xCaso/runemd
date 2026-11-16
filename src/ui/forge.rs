@@ -5,9 +5,10 @@
 //! Three layers in the same box, in drawing order: the dark letters (`assets/wordmark/letters.svg`),
 //! the fire slot over the letters' box (`fx::forge`), the chrome strip with the letters cut out
 //! (`assets/wordmark/plate.png`, pre-rendered from `plate.svg`). Both SVGs are Outfit 800 outlines
-//! made by `scripts/make_wordmark.py`: no font file at runtime. Rune decodes and rasterizes them
-//! once per display scale, at the largest width (`PLATE_W`), on its image worker; a narrower window
-//! draws them smaller from the mips, so resizing does not rasterize again.
+//! made by `scripts/make_wordmark.py`: no font file at runtime. Rune decodes and rasterizes them on
+//! its image worker at the strip's size step (`raster_w`) and the display scale: a resize inside a
+//! step draws them from the mips and rasterizes nothing; a new step keeps the old images on screen
+//! until the new ones are decoded (`Images`). The strip PNG comes in two sizes (`plate_png`).
 
 use std::path::{Path, PathBuf};
 
@@ -23,6 +24,9 @@ pub const LETTERS_SVG: &[u8] = include_bytes!("../../assets/wordmark/letters.svg
 pub const PLATE_SVG: &[u8] = include_bytes!("../../assets/wordmark/plate.svg");
 /// `plate.svg` rendered by headless Chrome at 2x `PLATE_W` (resvg loses its displacement filter).
 pub const PLATE_PNG: &[u8] = include_bytes!("../../assets/wordmark/plate.png");
+
+/// `plate.svg` rendered by headless Chrome at `PLATE_W` px: the strip at 1x, or a narrow strip at 2x.
+pub const PLATE_PNG_1X: &[u8] = include_bytes!("../../assets/wordmark/plate-1x.png");
 
 /// The strip in SVG units (`viewBox`).
 pub const STRIP: [f32; 2] = [1360.0, 400.0];
@@ -49,6 +53,52 @@ pub const TAGLINE_W: f32 = 460.0;
 /// The strip's width in a pane `pane_w` wide.
 pub fn plate_w(pane_w: f32) -> f32 {
     (pane_w - 2.0 * MARGIN).clamp(PLATE_MIN_W, PLATE_W)
+}
+
+/// The strip widths the images rasterize at, pt: each strip uses the narrowest step not narrower than
+/// itself, so the decoded pixels are at most one step larger than drawn (docs/perf-memory-2026-11-16.md, fix 9).
+pub const RASTER_STEPS: [f32; 4] = [PLATE_MIN_W, 280.0, 360.0, PLATE_W];
+
+/// The width, pt, the images of a strip `w` wide rasterize at.
+pub fn raster_w(w: f32) -> f32 {
+    RASTER_STEPS.into_iter().find(|step| *step >= w).unwrap_or(PLATE_W)
+}
+
+/// The strip PNG for images rasterized `w` pt wide at `scale`: the 1x one when its pixels cover them.
+pub fn plate_png(w: f32, scale: f32) -> &'static [u8] {
+    if w * scale <= PLATE_W { PLATE_PNG_1X } else { PLATE_PNG }
+}
+
+/// The wordmark's images: those on screen, and the next size while Rune decodes it. A new size does
+/// not blank the wordmark: the old images stay until the new ones are ready, then they go.
+#[derive(Default)]
+pub struct Images {
+    shown: Option<[rune::Image; 2]>,
+    next: Option<[rune::Image; 2]>,
+}
+
+impl Images {
+    /// The images to draw when the view asks for `want`.
+    pub fn pick(&mut self, want: [rune::Image; 2]) -> [rune::Image; 2] {
+        let same = |a: &[rune::Image; 2]| a[0].id() == want[0].id() && a[1].id() == want[1].id();
+        match &self.shown {
+            Some(shown) if same(shown) => self.next = None,
+            Some(_) if !want.iter().all(rune::Image::is_ready) => {
+                // Kept here, or the cache would drop it and decode it again on every view.
+                self.next = Some(want);
+            }
+            _ => {
+                self.next = None;
+                self.shown = Some(want);
+            }
+        }
+        self.shown.clone().expect("set above")
+    }
+
+    /// The next size is decoded: the view should run again to show it.
+    pub fn next_ready(&self) -> bool {
+        self.next.as_ref().is_some_and(|n| n.iter().all(rune::Image::is_ready))
+    }
 }
 
 /// The strip's size for width `w`, keeping the SVG's proportions.
@@ -200,6 +250,47 @@ mod tests {
         let (w, h) = (be(16), be(20));
         assert_eq!(w, 2.0 * PLATE_W);
         assert!((h - w * STRIP[1] / STRIP[0]).abs() <= 1.0, "{w} x {h}");
+    }
+
+    /// The 1x strip PNG is `PLATE_W` px wide, with the SVG's proportions.
+    #[test]
+    fn the_1x_plate_png_is_the_widest_strip() {
+        let be = |at: usize| u32::from_be_bytes(PLATE_PNG_1X[at..at + 4].try_into().unwrap()) as f32;
+        let (w, h) = (be(16), be(20));
+        assert_eq!(w, PLATE_W);
+        assert!((h - w * STRIP[1] / STRIP[0]).abs() <= 1.0, "{w} x {h}");
+    }
+
+    /// Each strip rasterizes at the narrowest step not narrower than itself, so a resize rasterizes again
+    /// only when it crosses a step; the PNG is the 1x one wherever its pixels are enough.
+    #[test]
+    fn the_images_rasterize_at_the_strip_step() {
+        assert_eq!(raster_w(PLATE_MIN_W), PLATE_MIN_W);
+        assert_eq!(raster_w(201.0), 280.0);
+        assert_eq!(raster_w(300.0), raster_w(359.0));
+        assert_eq!(raster_w(PLATE_W), PLATE_W);
+        assert_eq!(raster_w(plate_w(2000.0)), PLATE_W);
+        assert!(RASTER_STEPS.windows(2).all(|w| w[0] < w[1]) && RASTER_STEPS[0] == PLATE_MIN_W);
+        assert!(std::ptr::eq(plate_png(PLATE_W, 1.0), PLATE_PNG_1X));
+        assert!(std::ptr::eq(plate_png(PLATE_MIN_W, 2.0), PLATE_PNG_1X), "200 pt at 2x is 400 px");
+        assert!(std::ptr::eq(plate_png(280.0, 2.0), PLATE_PNG));
+    }
+
+    /// A decoded size shows at once and leaves nothing pending; asking again for it changes nothing.
+    #[test]
+    fn decoded_wordmark_images_show_at_once() {
+        let cache = rune::ImageCache::new(std::sync::Arc::new(|| {}));
+        let image = |v: u8| cache.rgba(1, 1, vec![v, v, v, 255]);
+        let mut images = Images::default();
+        let first = [image(1), image(2)];
+        first.iter().for_each(|i| { i.wait().unwrap(); });
+        assert_eq!(images.pick(first.clone())[0].id(), first[0].id());
+        assert!(!images.next_ready());
+        let second = [image(3), image(4)];
+        second.iter().for_each(|i| { i.wait().unwrap(); });
+        assert_eq!(images.pick(second.clone())[0].id(), second[0].id(), "ready: shown at once");
+        assert_eq!(images.pick([image(3), image(4)])[1].id(), second[1].id());
+        assert!(!images.next_ready());
     }
 
     /// Plate tight: corner radius about 14 % of the strip height; the letters centred in the strip.

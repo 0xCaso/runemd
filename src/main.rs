@@ -140,12 +140,18 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
             let doc = rune::col().w_full().h_full().children(refused).child(el().w_full().grow(1.0).min_h(0.0).child(doc));
             rune::row().key("doc-pane").transition(ui::theme::mode_transition(reduced)).w_full().grow(1.0).min_h(0.0).child(el().grow(1.0).min_w(0.0).h_full().child(doc)).children(outline).children(outline_edge)
         }
-        // No file open: the wordmark with the fire in its letters (forge-empty). The letters rasterize
-        // at the largest strip width and the display scale; the handles are shared by content.
+        // No file open: the wordmark with the fire in its letters (forge-empty). The images rasterize
+        // at the strip's size step (`ui::forge::raster_w`) and the display scale, so a resize inside a
+        // step rasterizes nothing; the handles are shared by content.
         None => {
             let scale = cx.env().scale;
-            let images = s.images.as_ref().map(|c| [c.svg(ui::forge::LETTERS_SVG, ui::forge::PLATE_W, scale), c.load(ui::forge::PLATE_PNG)]);
-            let forge = ui::forge::Forge { writing: s.writing_since(), stopped: s.writing_stopped(), file: s.writing_file().map(PathBuf::from), reduced, active_window: s.window_active, pane_w: cx.layout_with("forge", |r| r[2]), images };
+            let pane_w = cx.layout_with("forge", |r| r[2]);
+            let raster = ui::forge::raster_w(ui::forge::plate_w(pane_w.unwrap_or(ui::forge::PLATE_W + 2.0 * ui::forge::MARGIN)));
+            let images = s.images.as_ref().map(|c| {
+                let want = [c.svg(ui::forge::LETTERS_SVG, raster, scale), c.load(ui::forge::plate_png(raster, scale))];
+                s.forge_images.borrow_mut().pick(want)
+            });
+            let forge = ui::forge::Forge { writing: s.writing_since(), stopped: s.writing_stopped(), file: s.writing_file().map(PathBuf::from), reduced, active_window: s.window_active, pane_w, images };
             el().grow(1.0).h_full().child(ui::forge::view(forge, &theme))
         }
     };
@@ -414,7 +420,9 @@ fn poll(s: &mut App, clock: f64, tx: &mut Tx) -> bool {
         side = true;
     }
     let blurred = s.sidebar.blur_close() | s.settings_panel.expire(Instant::now());
-    let changed = opened || tabs || ring || side || blurred || found;
+    // The wordmark's next size is decoded: the view swaps it in.
+    let wordmark = s.forge_images.borrow().next_ready();
+    let changed = opened || tabs || ring || side || blurred || found || wordmark;
     // Only the fire at rest to redraw: a frame without running the view again.
     if resting && !changed {
         tx.live_only();

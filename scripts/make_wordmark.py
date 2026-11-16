@@ -4,7 +4,8 @@ made of Outfit 800 glyph outlines, so the app loads no font file:
   assets/wordmark/letters.svg  the dark letters (#070404) with the warm glow at their feet: drawn under the fire.
   assets/wordmark/plate.svg    the liquid chrome strip with the letters cut out, the light lip under them and the
                                engraved shadow inside them: drawn over the fire, so the fire shows only in the letters.
-  assets/wordmark/plate.png    plate.svg rendered by headless Chrome at PNG_W px: the app draws this one. resvg (Rune's
+  assets/wordmark/plate.png    plate.svg rendered by headless Chrome at PNG_W px: the app draws this one (plate-1x.png,
+                               PNG_1X_W px, on a 1x display or a narrow strip). resvg (Rune's
                                SVG rasterizer) loses the chrome's displacement filter, as rsvg does for the icon
                                (scripts/make_icon.sh), so the strip is pre-rendered where the filters render right.
 
@@ -40,6 +41,7 @@ PW, PH, RX = 1360, 400, 56
 PX, PY = (CANVAS_W - PW) / 2, 20   # strip origin on the canvas
 BASE = 330          # mockup baseline on the canvas
 PNG_W = 880         # 2x the widest strip in the app (ui::forge::PLATE_W = 440 pt)
+PNG_1X_W = 440      # 1x the widest strip
 CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 
 
@@ -120,18 +122,19 @@ def main():
     OUT.mkdir(parents=True, exist_ok=True)
     (OUT / "letters.svg").write_text(base_svg)
     (OUT / "plate.svg").write_text(plate_svg)
-    render_png(OUT / "plate.svg", OUT / "plate.png")
+    render_png(OUT / "plate.svg", OUT / "plate.png", PNG_W)
+    render_png(OUT / "plate.svg", OUT / "plate-1x.png", PNG_1X_W)
     print(meta)
 
 
-def render_png(svg, png):
-    h = round(PNG_W * PH / PW)
+def render_png(svg, png, w):
+    h = round(w * PH / PW)
     with tempfile.TemporaryDirectory() as d:
         page = Path(d) / "plate.html"
         page.write_text('<!doctype html><html><head><style>html,body{margin:0;background:transparent}'
-                        f'img{{display:block;width:{PNG_W}px;height:{h}px}}</style></head><body><img src="file://{svg}"></body></html>')
+                        f'img{{display:block;width:{w}px;height:{h}px}}</style></head><body><img src="file://{svg}"></body></html>')
         subprocess.run([CHROME, "--headless=new", "--disable-gpu", "--hide-scrollbars", "--force-device-scale-factor=1",
-                        f"--window-size={PNG_W},{h}", "--default-background-color=00000000", f"--screenshot={png}",
+                        f"--window-size={w},{h}", "--default-background-color=00000000", f"--screenshot={png}",
                         f"file://{page}"], check=True, capture_output=True)
 
 
