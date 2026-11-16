@@ -14,14 +14,14 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use rune::{
-    El, FileDialogOptions, GrowthSpec, ScrollSpec, TextStyle, Tx, col, el, icon, row, text,
+    El, FileDialogOptions, GrowthSpec, ScrollSpec, TextEdit, TextStyle, Tx, col, el, icon, row, text, text_input,
 };
 use rune_kit::glyphs;
 
 use super::sidebar::{self, Hooks, Motion};
 use super::theme::{
     HAIRLINE, ICON, OUTLINE_PAD_X, R_KBD, ROW, ROW_GAP, ROW_PAD, SECTION_PAD_BOTTOM,
-    SECTION_PAD_TOP, SIDEBAR, Theme, UI_SMALL, UI_SMALL_WEIGHT, UI_STRONG_WEIGHT, UI_TEXT,
+    SECTION_PAD_TOP, SIDEBAR, Theme, UI_SMALL, UI_STRONG_WEIGHT, UI_TEXT,
     UI_WEIGHT,
 };
 use crate::app::App;
@@ -45,6 +45,11 @@ pub const THEMES: [(ThemePref, &str); 3] = [
     (ThemePref::Dark, "Dark"),
 ];
 pub const FIRE: &str = "Fire at the bottom of the panel";
+/// The fire's own section (it used to sit under Theme without a title).
+pub const FIRE_SECTION: &str = "Fire";
+/// The font search field's placeholder and label.
+pub const FONT_SEARCH: &str = "Search fonts";
+pub const NO_FONTS: &str = "No matching fonts";
 pub const WIDTH: &str = "Text width";
 pub const FIRE_STRENGTH: &str = "Intensity";
 pub const FIRE_HEIGHT: &str = "Height";
@@ -63,6 +68,29 @@ pub const ALREADY: &str = "Already watched";
 pub const NOTICE_FOR: std::time::Duration = std::time::Duration::from_secs(3);
 /// Rows of the font list visible before scrolling: half a row cut off says it scrolls.
 const FONT_ROWS: f32 = 8.5;
+/// A font row's name in its own face (feedback group 3, item 10), a point above the UI text.
+const FONT_PREVIEW: f32 = UI_TEXT + 1.0;
+/// Between sections (feedback group 3, item 9): a line, then the title.
+const SECTION_GAP: f32 = 14.0;
+/// Below the last setting, over the fire at the bottom of the panel (item 12): the lit fire at the
+/// chosen height, so scrolled to the end the last row sits above the flames, also when they rise.
+pub fn bottom_room(fire: bool, height: f32) -> f32 {
+    if fire { crate::fx::fire::lit_height(height) + SECTION_GAP } else { SECTION_PAD_TOP }
+}
+
+/// A font row's name in its own face (item 10): the list says what each font looks like.
+pub fn preview_face(name: &str) -> TextStyle {
+    TextStyle::new(FONT_PREVIEW, UI_WEIGHT).family(crate::fonts::family(name))
+}
+
+/// The fonts whose name has every word of `query`, ignoring case; all of them for an empty query.
+pub fn filter_fonts(fonts: &[String], query: &str) -> Vec<String> {
+    let words: Vec<String> = query.split_whitespace().map(str::to_lowercase).collect();
+    fonts.iter().filter(|f| {
+        let name = f.to_lowercase();
+        words.iter().all(|w| name.contains(w.as_str()))
+    }).cloned().collect()
+}
 
 /// The panel state: open or not, the font choices (read from CoreText on first open)
 /// and until when "Already watched" shows.
@@ -71,12 +99,17 @@ pub struct Panel {
     pub open: bool,
     fonts: Option<Vec<String>>,
     notice: Option<Instant>,
+    /// The font search field; with text, `matches` holds the fonts it finds.
+    pub font_query: TextEdit,
+    matches: Option<Vec<String>>,
 }
 
 impl Panel {
     pub fn toggle(&mut self) {
         self.open = !self.open;
         self.notice = None;
+        self.font_query = TextEdit::default();
+        self.matches = None;
         if self.open && self.fonts.is_none() {
             self.fonts = Some(crate::fonts::choices(&crate::fonts::installed()));
         }
@@ -84,7 +117,15 @@ impl Panel {
 
     pub fn close(&mut self) -> bool {
         self.notice = None;
+        self.font_query = TextEdit::default();
+        self.matches = None;
         std::mem::take(&mut self.open)
+    }
+
+    /// The font search changed: the list shows only the fonts it finds.
+    pub fn search_fonts(&mut self) {
+        let q = self.font_query.text.trim().to_owned();
+        self.matches = (!q.is_empty()).then(|| filter_fonts(&self.choices(), &q));
     }
 
     /// "Already watched" until `now + NOTICE_FOR`.
@@ -152,6 +193,9 @@ impl Panel {
     /// How many rows the font list has and where the added saved font sits (the version of the
     /// virtual list).
     fn font_shape(&self, current: &str) -> (usize, Option<usize>) {
+        if let Some(m) = &self.matches {
+            return (m.len(), None);
+        }
         let choices = self.choices();
         let at = Self::missing_at(&choices, current);
         (choices.len() + usize::from(at.is_some()), at)
@@ -159,6 +203,9 @@ impl Panel {
 
     /// Row `i` of the font list, without copying the list.
     fn font_at(&self, current: &str, i: usize) -> Option<String> {
+        if let Some(m) = &self.matches {
+            return m.get(i).cloned();
+        }
         let choices = self.choices();
         match Self::missing_at(&choices, current) {
             Some(at) if i == at => Some(current.to_owned()),
@@ -205,10 +252,10 @@ pub fn view(s: &App, hooks: Hooks<App>, theme: &Theme, reduced: bool, hover: boo
     let mut body = col()
         .key("settings-body")
         .w_full()
-        .pb(SECTION_PAD_TOP)
+        .pb(bottom_room(set.fire, set.fire_height))
         .child(title);
 
-    body = body.child(section(ROOTS, theme));
+    body = body.child(section_at(ROOTS, true, theme));
     let roots = s.library.roots();
     if roots.is_empty() {
         body = body.child(
@@ -268,6 +315,32 @@ pub fn view(s: &App, hooks: Hooks<App>, theme: &Theme, reduced: bool, hover: boo
     }
 
     body = body.child(section(FONT, theme));
+    let search = text_input(&s.settings_panel.font_query, ui_font())
+        .single_line()
+        .key("set-font-search")
+        .grow(1.0)
+        .shrink()
+        .min_w(0.0)
+        .color(theme.fg)
+        .placeholder(FONT_SEARCH, theme.fg3)
+        .caret(theme.fg, theme.sel)
+        .label(FONT_SEARCH)
+        .on_edit(|s: &mut App| &mut s.settings_panel.font_query)
+        .on_input_change(|s: &mut App, _: &mut Tx| s.settings_panel.search_fonts());
+    body = body.child(
+        row()
+            .key("set-font-field")
+            .mx(ROW_PAD - ROW_GAP)
+            .mb(ROW_GAP)
+            .h(ROW)
+            .px(ROW_GAP + 2.0)
+            .gap(ROW_GAP)
+            .center_y()
+            .radius(super::theme::R_FIELD)
+            .fill(theme.sel)
+            .child(icon(&glyphs::SEARCH, ICON).color(theme.fg3))
+            .child(search),
+    );
     // Virtual rows: the list has hundreds of families, only those near the view
     // are built. Each row finds its font again from the state (`Panel::font_at`).
     let (count, at) = s.settings_panel.font_shape(&set.font);
@@ -292,11 +365,13 @@ pub fn view(s: &App, hooks: Hooks<App>, theme: &Theme, reduced: bool, hover: boo
                 };
                 let chosen = name == s.settings.font;
                 let pick = name.clone();
-                option(
+                let face = preview_face(&name);
+                option_in(
                     s,
                     hooks,
                     format!("set-font-{name}"),
                     &name,
+                    face,
                     chosen,
                     &th,
                     motion,
@@ -304,7 +379,7 @@ pub fn view(s: &App, hooks: Hooks<App>, theme: &Theme, reduced: bool, hover: boo
                 )
             },
         )
-        .virtual_rows_version((count, at));
+        .virtual_rows_version((count, at, s.settings_panel.font_query.text.as_str()));
     body = body.child(
         col()
             .key("set-fonts-scroll")
@@ -317,6 +392,9 @@ pub fn view(s: &App, hooks: Hooks<App>, theme: &Theme, reduced: bool, hover: boo
             })
             .child(list),
     );
+    if count == 0 {
+        body = body.child(text(NO_FONTS).key("set-no-fonts").font(ui_font()).color(theme.fg3).px(ROW_PAD).h(ROW));
+    }
 
     body = body.child(section(SIZE, theme));
     let step = |key: &'static str, glyph: &'static str, label: &'static str, by: i32| {
@@ -369,7 +447,7 @@ pub fn view(s: &App, hooks: Hooks<App>, theme: &Theme, reduced: bool, hover: boo
     body = body.child(themes);
 
     body = body
-        .child(el().h(SECTION_PAD_TOP))
+        .child(section(FIRE_SECTION, theme))
         .child(fire_toggle(s, hooks, theme, motion))
         .child(fire_look(s, hooks, theme, motion));
 
@@ -547,15 +625,25 @@ fn sub_label(label: &'static str, theme: &Theme) -> El {
         .px(ROW_PAD)
 }
 
-/// A section label: 12/500 in `fg3` (`section-pad`), like in the sidebar.
+/// A section title (feedback group 3, item 9): a `line` rule across the column `SECTION_GAP` below the
+/// last section, then the label in 12/600 `fg2`, so each section starts visibly. The first one has no rule.
 fn section(label: &'static str, theme: &Theme) -> El {
-    text(label)
+    section_at(label, false, theme)
+}
+
+fn section_at(label: &'static str, first: bool, theme: &Theme) -> El {
+    let title = text(label)
         .key(label)
-        .font(TextStyle::new(UI_SMALL, UI_SMALL_WEIGHT))
-        .color(theme.fg3)
-        .pt(SECTION_PAD_TOP)
+        .font(TextStyle::new(UI_SMALL, UI_STRONG_WEIGHT))
+        .color(theme.fg2)
+        .pt(if first { SECTION_PAD_TOP } else { SECTION_GAP })
         .px(ROW_PAD)
-        .pb(SECTION_PAD_BOTTOM)
+        .pb(SECTION_PAD_BOTTOM);
+    let mut e = col().key(format!("section-{label}")).w_full();
+    if !first {
+        e = e.mt(SECTION_GAP - SECTION_PAD_TOP).child(el().key(format!("rule-{label}")).w_full().h(HAIRLINE).fill(theme.line));
+    }
+    e.child(title)
 }
 
 /// `e` pressable with key `key` (hover `sel`, scale 0.98).
@@ -631,6 +719,22 @@ fn option(
     motion: Motion,
     pick: impl Fn(&mut App) + 'static,
 ) -> El {
+    option_in(s, hooks, key, label, ui_font(), chosen, theme, motion, pick)
+}
+
+/// [`option`] with the label in `font`.
+#[allow(clippy::too_many_arguments)]
+fn option_in(
+    s: &App,
+    hooks: Hooks<App>,
+    key: String,
+    label: &str,
+    font: TextStyle,
+    chosen: bool,
+    theme: &Theme,
+    motion: Motion,
+    pick: impl Fn(&mut App) + 'static,
+) -> El {
     let mark = el().w(ICON).h(ICON).center();
     let mark = if chosen {
         mark.child(icon(&glyphs::CHECK, ICON).color(theme.fg))
@@ -649,7 +753,7 @@ fn option(
         .child(mark)
         .child(
             text(label.to_owned())
-                .font(ui_font())
+                .font(font)
                 .color(if chosen { theme.fg } else { theme.fg2 })
                 .truncate()
                 .shrink()
@@ -788,6 +892,79 @@ mod tests {
 
     fn texts(rt: &Runtime<App>) -> Vec<String> {
         rt.elements().into_iter().filter_map(|e| e.text).collect()
+    }
+
+    /// Feedback group 3, item 10: the search keeps the fonts whose name has every word, ignoring case.
+    #[test]
+    fn the_font_search_filters_by_words() {
+        let fonts: Vec<String> = ["Inter", "SF Pro", "American Typewriter", "Avenir Next", "Times New Roman", "New York"].map(String::from).to_vec();
+        assert_eq!(filter_fonts(&fonts, ""), fonts, "empty: all");
+        assert_eq!(filter_fonts(&fonts, "new"), ["Times New Roman", "New York"]);
+        assert_eq!(filter_fonts(&fonts, "  NEW  york "), ["New York"], "words, any case");
+        assert_eq!(filter_fonts(&fonts, "type"), ["American Typewriter"]);
+        assert!(filter_fonts(&fonts, "zzz").is_empty());
+        assert_eq!(preview_face("American Typewriter"), TextStyle::new(FONT_PREVIEW, UI_WEIGHT).family(rune::Family::Named("American Typewriter")), "each row in its own face");
+        assert_eq!(preview_face("Inter").family, rune::Family::Sans);
+    }
+
+    /// In the panel: typing in "Search fonts" leaves only the matching rows, and "No matching fonts"
+    /// when none; closing the panel clears the search.
+    #[test]
+    fn the_font_list_follows_the_search() {
+        let mut rt = open("# Title\n\nText.\n", true);
+        cmd(&mut rt, ',');
+        assert!(has(&rt, "set-font-search"));
+        assert!(has(&rt, "set-font-Inter"));
+        rt.update(|s: &mut App, _| {
+            s.settings_panel.font_query.replace_text("sf pr");
+            s.settings_panel.search_fonts();
+        });
+        settle(&mut rt);
+        let rows: Vec<String> = rt.elements().into_iter().filter_map(|e| e.key).filter(|k| k.starts_with("set-font-") && !k.starts_with("set-font-s") && !k.starts_with("set-font-f")).collect();
+        assert!(!rows.is_empty() && rows.iter().all(|k| k.starts_with("set-font-SF Pro")), "only the matches: {rows:?}");
+        assert!(!has(&rt, "set-font-Inter"));
+        rt.update(|s: &mut App, _| {
+            s.settings_panel.font_query.replace_text("no such font here");
+            s.settings_panel.search_fonts();
+        });
+        settle(&mut rt);
+        assert!(texts(&rt).iter().any(|t| t == NO_FONTS));
+        cmd(&mut rt, ',');
+        cmd(&mut rt, ',');
+        assert!(has(&rt, "set-font-Inter"), "reopened: the full list");
+    }
+
+    /// Feedback group 3, item 9: every section after the first starts with a rule and a title in `fg2`.
+    #[test]
+    fn sections_are_set_apart() {
+        let mut rt = open("# Title\n\nText.\n", true);
+        cmd(&mut rt, ',');
+        assert!(!has(&rt, &format!("rule-{ROOTS}")), "no rule above the first section");
+        for label in [FONT, SIZE, WIDTH, THEME, FIRE_SECTION, super::super::shortcuts::TITLE] {
+            assert!(has(&rt, &format!("rule-{label}")), "a rule above {label}");
+            assert!(has(&rt, label), "the title {label}");
+        }
+    }
+
+    /// Feedback group 3, item 12: with the fire on, the panel ends with room as tall as the lit fire, so
+    /// scrolled to the end its last row sits above the flames; with the fire off, the usual margin.
+    #[test]
+    fn the_last_settings_stay_above_the_fire() {
+        let mut rt = open("# Title\n\nText.\n", true);
+        rt.update(|s: &mut App, _| s.settings.fire = true);
+        cmd(&mut rt, ',');
+        let r = rt.elements().into_iter().find(|e| e.key.as_deref() == Some("settings-scroll")).unwrap().rect;
+        for _ in 0..40 {
+            rt.wheel(r[0] + 40.0, r[1] + 100.0, -400.0);
+            rt.frame(1.0 / 120.0);
+        }
+        settle(&mut rt);
+        let last = rt.elements().into_iter().filter(|e| e.key.as_deref().is_some_and(|k| k.starts_with("keys-row-"))).map(|e| e.rect).fold([0.0f32; 4], |a, r| if r[1] > a[1] { r } else { a });
+        let fire = rt.elements().into_iter().find(|e| e.key.as_deref() == Some("fire")).expect("the fire slot").rect;
+        let lit_top = fire[1] + fire[3] - crate::fx::fire::lit_height(rt.state.settings.fire_height);
+        assert!(last[1] + last[3] <= lit_top + 0.5, "the last row {last:?} above the lit fire (top {lit_top})");
+        assert_eq!(bottom_room(false, 6.5), SECTION_PAD_TOP);
+        assert!(bottom_room(true, 6.5) > bottom_room(true, 1.0));
     }
 
     /// Cmd+, opens the panel (in place of the outline), Cmd+, and Esc close it.
@@ -1034,6 +1211,9 @@ mod tests {
         }
         let find = |rt: &Runtime<App>, k: &str| rt.elements().into_iter().find(|e| e.key.as_deref() == Some(k)).unwrap_or_else(|| panic!("missing {k}"));
         let click = |rt: &mut Runtime<App>, k: &str, right: bool| {
+            let key = k.to_owned();
+            rt.update(move |_, tx| tx.scroll_into_view_in("settings-scroll", key.clone()));
+            settle(rt);
             let r = find(rt, k).rect;
             let x = if right { r[0] + r[2] - 1.0 } else { r[0] + r[2] / 2.0 };
             let y = r[1] + r[3] / 2.0;
@@ -1050,7 +1230,7 @@ mod tests {
         settle(&mut rt);
         assert_eq!(rt.state.settings.fire_strength, 1.5, "the arrow moves one step");
         click(&mut rt, "set-fire-height", true);
-        assert_eq!(rt.state.settings.fire_height, 1.6);
+        assert_eq!(rt.state.settings.fire_height, *crate::fx::fire::HEIGHTS.last().unwrap());
         click(&mut rt, "set-fire-speed", true);
         assert_eq!(rt.state.settings.fire_speed, 3.0);
         // The colors are at the bottom of the panel: scroll it down there.

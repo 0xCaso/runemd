@@ -46,6 +46,8 @@ pub struct Signals<S> {
     /// The text column is at least [`TWO_COLUMNS`] wide: label blocks go on two
     /// columns (`label_columns`).
     pub columns: bool,
+    /// The space under the last row (`fx::fire::doc_bottom`): the resting fire sits there.
+    pub bottom: f32,
 }
 
 /// From how wide the text column is (without the row margins) label blocks
@@ -223,7 +225,7 @@ pub fn view<S: 'static>(s: &S, doc_of: fn(&S) -> &Document, style: &MarkdownStyl
         )
         .virtual_rows_version(rows_version(doc))
         .on_visible_rows(move |s: &mut S, rows| on_rows(s, generation, rows));
-    let bottom = col().w_full().h(BOTTOM);
+    let bottom = col().w_full().h(signals.bottom);
     let edge = signals.edge;
     // The `on_layout`s only say where view and page are: the view runs again only if what it
     // shows changes (`live_only` otherwise), not on every scroll frame.

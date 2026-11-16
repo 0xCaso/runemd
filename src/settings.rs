@@ -368,7 +368,7 @@ impl FireKnob {
     pub fn label(self, v: f32) -> String {
         match self {
             FireKnob::Strength => format!("{:.0} %", v * 100.0),
-            FireKnob::Height => format!("{:.0} pt", fire::FIRE_H * v),
+            FireKnob::Height => format!("{:.0} pt", fire::lit_height(v)),
             FireKnob::Speed => format!("{}×", format!("{v}").replace('.', ",")),
         }
     }

@@ -38,9 +38,32 @@ const LIGHT_INTENSITY: f32 = 1.0;
 /// The intensities the "Intensity" slider chooses from (multiplies `FireParams::intensity`);
 /// contains 1 (today).
 pub const STRENGTHS: [f32; 7] = [0.4, 0.6, 0.8, 1.0, 1.25, 1.5, 1.75];
-/// The "Height" heights, as a factor of `FIRE_H` and `REST_H`; contains 1. The highest rest
-/// (`REST_H` × 1.6 = 41.6) stays below the space at the end of the document (48).
-pub const HEIGHTS: [f32; 7] = [0.5, 0.65, 0.8, 1.0, 1.2, 1.4, 1.6];
+/// The "Height" heights, as a factor of `REST_H` (and of `FIRE_H` up to `SPAN_MAX`); contains 1.
+/// The top steps (feedback group 3, item 11) raise the resting flames to about a quarter of an
+/// 800 pt window, where Matteo drew the line; the end of the document gets room for them
+/// (`doc_bottom`).
+pub const HEIGHTS: [f32; 12] = [0.5, 0.65, 0.8, 1.0, 1.2, 1.4, 1.6, 2.2, 3.0, 4.0, 5.2, 6.5];
+/// Past this factor the lit fire rises no further above the resting one: at 6.5 the lit flames would
+/// otherwise fill the window.
+const SPAN_MAX: f32 = 1.6;
+
+/// The resting flame height at factor `k`, pt.
+pub fn rest_height(k: f32) -> f32 {
+    REST_H * k
+}
+
+/// The lit flame height at factor `k`, pt: `FIRE_H × k` up to `SPAN_MAX`, then the resting height plus
+/// the rise it had there.
+pub fn lit_height(k: f32) -> f32 {
+    rest_height(k) + (FIRE_H - REST_H) * k.min(SPAN_MAX)
+}
+
+/// The space below the last row of the document: `doc_view::BOTTOM`, or more when the resting fire is
+/// taller, so at the end of the document the flames cover no text.
+pub fn doc_bottom(fire: bool, k: f32) -> f32 {
+    let base = crate::ui::doc_view::BOTTOM;
+    if fire { base.max(rest_height(k) + 6.0) } else { base }
+}
 /// The "Speed" speeds, as a factor of `SPEED`; contains 1. They do not change the wake-ups at
 /// rest (`REST_FRAME`), so not the CPU at rest either.
 pub const SPEEDS: [f32; 7] = [0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0];
@@ -142,9 +165,9 @@ pub fn height(phase: Phase, still: bool) -> f32 {
     height_scaled(phase, still, 1.0)
 }
 
-/// [`height`] with `FIRE_H` and `REST_H` times the factor `k` ("Height").
+/// [`height`] at the factor `k` ("Height"): from [`rest_height`] to [`lit_height`].
 pub fn height_scaled(phase: Phase, still: bool, k: f32) -> f32 {
-    let (fire, rest) = (FIRE_H * k, REST_H * k);
+    let (fire, rest) = (lit_height(k), rest_height(k));
     let span = fire - rest;
     match phase {
         Phase::Rest => rest,
@@ -423,12 +446,32 @@ mod tests {
         assert!((rest - REST_H * 1.4).abs() < 1e-3, "the rest too");
     }
 
-    /// The highest rest stays below the space at the end of the document: with the scroll at the end it
-    /// covers no text.
+    /// Every resting height stays below the space at the end of the document (which grows with it): with
+    /// the scroll at the end the flames cover no text. Up to 1.6 that space is the usual 48.
     #[test]
-    fn the_highest_rest_stays_below_the_document_bottom() {
-        let top = HEIGHTS.iter().fold(0.0f32, |a, k| a.max(*k));
-        assert!(height_scaled(Phase::Rest, false, top) < crate::ui::doc_view::BOTTOM);
+    fn the_rest_stays_below_the_document_bottom() {
+        for k in HEIGHTS {
+            assert!(height_scaled(Phase::Rest, false, k) < doc_bottom(true, k), "{k}");
+        }
+        assert_eq!(doc_bottom(true, 1.6), crate::ui::doc_view::BOTTOM);
+        assert_eq!(doc_bottom(false, 6.5), crate::ui::doc_view::BOTTOM, "no fire, no extra room");
+    }
+
+    /// Feedback group 3, item 11: the top step raises the resting flames to about a quarter of an 800 pt
+    /// window (Matteo's line, 22–25 % above the bottom edge); the lit fire rises above it by at most the
+    /// old top rise, and the steps up to 1.6 are as before.
+    #[test]
+    fn the_top_height_reaches_a_quarter_of_the_window() {
+        let top = *HEIGHTS.last().unwrap();
+        let rest = rest_height(top);
+        assert!((150.0..=200.0).contains(&rest), "rest at the top step: {rest}");
+        assert!(lit_height(top) - rest <= (FIRE_H - REST_H) * 1.6 + 1e-3);
+        assert!(lit_height(top) < 340.0, "the lit fire does not fill the window: {}", lit_height(top));
+        for k in [0.5, 1.0, 1.6] {
+            assert!((lit_height(k) - FIRE_H * k).abs() < 1e-3, "{k}: as before");
+        }
+        assert!(HEIGHTS.windows(2).all(|w| w[0] < w[1]));
+        assert!(HEIGHTS.len() <= 16, "the step index fits the slot's 4 bits");
     }
 
     #[test]
