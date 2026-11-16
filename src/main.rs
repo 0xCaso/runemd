@@ -175,6 +175,11 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
     let sidebar = ui::sidebar::view(s, hooks, sidebar_w, &theme, reduced, !cx.hover_none());
     // The sidebar's right edge can be dragged (`App::drag_sidebar`); above everything, in the sidebar's margin.
     let sidebar_edge = edge("sidebar-edge", true).pin(Some(sidebar_w - ui::theme::EDGE_W), Some(0.0), None, Some(0.0));
+    // Only these bands move the window (`window_chrome`): above the sidebar (the traffic lights), the
+    // frame above the panel, and the tab bar (`ui::tabs`). AppKit's own titlebar band would also zoom the
+    // window on a double click on a tab (feedback group 3, item 6).
+    let drag_top = el().key("drag-sidebar").pin(Some(0.0), Some(0.0), None, None).w(sidebar_w - ui::theme::EDGE_W).h(ui::theme::SIDEBAR_TOP).window_drag();
+    let drag_frame = el().key("drag-frame").pin(Some(sidebar_w), Some(0.0), Some(0.0), None).h(ui::theme::FRAME).window_drag();
     let main = el().key("main").grow(1.0).min_w(0.0).h_full().pt(ui::theme::FRAME).pr(ui::theme::FRAME).pb(ui::theme::FRAME).child(panel);
     // The window width for the handlers (`App::wide`: the heading outline is visible); the
     // view reads it from `cx`. It updates without running the view again.
@@ -187,7 +192,7 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
     // a layer above. Without native glass (headless, material off) the root's fill
     // is the solid tint (`glass_fallback`) and the layer, of the same color, changes nothing.
     let tint = el().key("glass-tint").pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0)).fill(theme.glass);
-    rune::row().key("app").on_layout_tx(width).w_full().h_full().system_material(rune::SystemMaterial::Glass).fill(theme.glass_fallback()).child(tint).child(sidebar).child(main).child(sidebar_edge)
+    rune::row().key("app").on_layout_tx(width).w_full().h_full().system_material(rune::SystemMaterial::Glass).fill(theme.glass_fallback()).child(tint).child(sidebar).child(main).child(drag_top).child(drag_frame).child(sidebar_edge)
         .children(ui::tabs::width_popover(s, &theme))
         .children(ui::quick_open::panel(s, hooks, cx.layout("quick-rows"), s.settings.sidebar.width, &theme, reduced, !cx.hover_none()))
         .on_window_focus(|s: &mut App, focused, _| s.window_active = focused)
@@ -429,6 +434,12 @@ fn poll(s: &mut App, clock: f64, tx: &mut Tx) -> bool {
     changed
 }
 
+/// The window frame: full-size content as before, and only `.window_drag()` regions move it (the
+/// tab bar, the band above the sidebar and the frame above the panel), so presses on tabs are the app's.
+fn window_chrome() -> rune::Chrome {
+    rune::Chrome { drag_regions: true, ..rune::Chrome::DEFAULT }
+}
+
 fn main() {
     open::install();
     rune::prewarm_gpu();
@@ -441,5 +452,5 @@ fn main() {
     // `RUNEMD_GLASS` (photos) it also opens at the top left, at (200, 120), above the photo's background.
     let photo = std::env::var_os("RUNEMD_GLASS").is_some();
     let options = rune::WindowOptions { transparent: true, position: photo.then_some((200, 120)), ..rune::WindowOptions::default() };
-    rune::App::new(spec).window_options(options).on_close(|s, _| if !rune::quitting() { s.save_all() }).on_quit(|s, _| s.save_all()).compositor(fx::FxCompositor::default()).on_frame_encoded(probe::on_frame).run();
+    rune::App::new(spec).window_options(options).chrome(window_chrome()).on_close(|s, _| if !rune::quitting() { s.save_all() }).on_quit(|s, _| s.save_all()).compositor(fx::FxCompositor::default()).on_frame_encoded(probe::on_frame).run();
 }

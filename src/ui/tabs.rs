@@ -125,7 +125,9 @@ pub fn view(s: &App, hooks: Hooks<App>, theme: &Theme, reduced: bool, hover: boo
     let strip = row().key("tabs-scroll").grow(1.0).shrink().min_w(0.0).scroll_x().child(list);
     let key = el().key("source-key").border(HAIRLINE, theme.line).radius(R_KBD).px(KBD_PAD_X).py(KBD_PAD_Y)
         .child(text(SOURCE_KEY).font(TextStyle::new(KBD_TEXT, KBD_WEIGHT)).color(theme.fg3));
-    let mut bar = row().key("tab-bar").w_full().h(TAB_BAR_H).px(TAB_BAR_PAD_X - RING_W).gap(TAB_GAP).center_y().child(strip);
+    // The bar moves the window like a title bar (`main`: `Chrome::drag_regions`); its tabs and buttons
+    // keep their presses, so a double click on a tab pins it and does not zoom the window.
+    let mut bar = row().key("tab-bar").window_drag().w_full().h(TAB_BAR_H).px(TAB_BAR_PAD_X - RING_W).gap(TAB_GAP).center_y().child(strip);
     // Find (Cmd+F): the field sits in the bar, right of the tabs, so the document does not move.
     if s.find.open {
         bar = bar.child(super::find::field(s, theme).mr(ROW_GAP));
@@ -287,6 +289,43 @@ mod tests {
 
     fn value(rt: &Runtime<App>) -> String {
         find(rt, "width-slider-value").and_then(|e| e.text).expect("value")
+    }
+
+    /// Feedback group 3, item 6: a double click on the preview tab pins it (italic → normal) and asks
+    /// nothing of the window; the bar around the tabs is a drag region, so a double click there is the
+    /// title bar's (zoom). With `Chrome::drag_regions` AppKit no longer zooms on its own in the band.
+    #[test]
+    fn a_double_click_on_a_tab_pins_it_and_does_not_zoom() {
+        let d = tempfile::tempdir().unwrap();
+        let p = d.path().join("preview.md");
+        std::fs::write(&p, "# Preview\n").unwrap();
+        let mut rt = open();
+        rt.update(|s: &mut App, _| _ = s.open_preview(p.clone()));
+        settle(&mut rt);
+        let tab = rt.state.tabs.iter().find(|t| t.preview).map(|t| t.doc.id).expect("a preview tab");
+        let r = find(&rt, &format!("t-{tab:x}-label")).expect("tab label").rect;
+        let (x, y) = (r[0] + r[2] / 2.0, r[1] + r[3] / 2.0);
+        rt.set_native_titlebar_band(28.0);
+        for _ in 0..2 {
+            rt.pointer_move(x, y);
+            rt.pointer_down(x, y);
+            assert_eq!(rt.take_titlebar_action(), None, "a press on a tab never moves or zooms the window");
+            rt.pointer_up(x, y);
+        }
+        settle(&mut rt);
+        assert!(!rt.state.tabs.iter().any(|t| t.preview), "pinned");
+        let bar = find(&rt, "tab-bar").unwrap().rect;
+        let tools = find(&rt, "bar-tools").unwrap().rect;
+        let (gx, gy) = ((r[0] + r[2] + tools[0]) / 2.0 + 40.0, bar[1] + bar[3] / 2.0);
+        assert!(gx < tools[0], "an empty spot of the bar");
+        rt.pointer_move(gx, gy);
+        rt.pointer_down(gx, gy);
+        assert_eq!(rt.take_titlebar_action(), Some(rune::TitlebarAction::Drag), "the bar drags the window");
+        rt.pointer_up(gx, gy);
+        rt.pointer_down(gx, gy);
+        assert_eq!(rt.take_titlebar_action(), Some(rune::TitlebarAction::DoubleClick), "and zooms it on a double click");
+        rt.pointer_up(gx, gy);
+        assert!(crate::window_chrome().drag_regions, "only drag regions move the window");
     }
 
     /// Feedback group 3, item 4: gear, ↔ and "⌘E source" with even gaps: the gear and ↔ 4 apart, and the
