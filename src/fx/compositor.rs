@@ -41,7 +41,7 @@ fn rect_pt(i: &Instance) -> Rect {
 fn ring_layer(i: &Instance, clock: f64) -> FxLayer {
     let radius = i.radii.iter().fold(0.0f32, |a, v| a.max(v.abs())) / i.params[3].max(f32::EPSILON);
     if ring::slot_calm(i.uv) {
-        return ring::calm_layer(rect_pt(i), radius, ring::slot_dark(i.uv), ring::slot_calm_width(i.uv));
+        return ring::calm_layer(rect_pt(i), radius, ring::slot_dark(i.uv), ring::slot_calm_look(i.uv));
     }
     let (t, reduced) = ring::slot_time(i.uv, clock);
     ring::layer_rounded(rect_pt(i), radius, t, reduced, ring::slot_dark(i.uv))
@@ -59,17 +59,17 @@ pub fn edges(rt: &rune::Runtime<App>) -> Vec<(u32, bool)> {
         .collect()
 }
 
-/// The width of each metal edge in the last frame of `rt`, as the compositor paints it: (slot id,
-/// border in pt). Only for tests of the calm and writing widths (metal-tab).
+/// Each metal edge in the last frame of `rt`, as the compositor paints it: (slot id, fill). Only
+/// for tests of the calm and writing widths and metals (metal-tab).
 #[cfg(test)]
-pub fn edge_widths(rt: &rune::Runtime<App>) -> Vec<(u32, f32)> {
+pub fn edge_fills(rt: &rune::Runtime<App>) -> Vec<(u32, rune_fx::FillParams)> {
     rt.instances
         .iter()
         .enumerate()
         .filter(|(_, i)| i.params[1] == KIND_EFFECT)
         .filter_map(|(n, i)| rt.marks.get(n).copied().filter(|m| Mark::is_ring(*m)).map(|m| (m, i)))
         .map(|(m, i)| match ring_layer(i, rt.clock).fx {
-            rune_fx::Fx::Fill(p) => (m, p.border),
+            rune_fx::Fx::Fill(p) => (m, p),
             other => panic!("not a fill: {other:?}"),
         })
         .collect()

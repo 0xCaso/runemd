@@ -423,7 +423,7 @@ pub fn panel<S: 'static>(s: &S, hooks: Hooks<S>, list: Option<[f32; 4]>, theme: 
     // thick width (follow-up 2026-11-16). The host sits outside the panel's rounded clip, so the edge
     // drawn outside its rect is not cut.
     let host = el().key("quick-edge").w_full().max_w(QUICK_W).radius(R_PANEL).child(surface);
-    let host = fx::ring::slot_calm_w(host, Mark::QuickPanel, fx::ring::edge(writing, true), reduced, theme.dark, fx::ring::RING_W);
+    let host = fx::ring::slot_as(host, Mark::QuickPanel, fx::ring::edge(writing, true), reduced, theme.dark, fx::ring::Calm::Panel);
     let veil = col().key("quick-scrim").absolute(0.0, 0.0).w_full().h_full().fill(theme.panel.alpha(SCRIM)).items_center().pt(QUICK_TOP).px(QUICK_SIDE).child(host);
     vec![veil]
 }
@@ -559,11 +559,45 @@ mod tests {
             assert!(rt.state.effects_lit());
         }
 
-        /// The width the compositor paints for slot `mark` in the last frame.
-        fn width(rt: &mut Runtime<App>, mark: Mark) -> f32 {
+        /// The fill the compositor paints for slot `mark` in the last frame.
+        fn fill(rt: &mut Runtime<App>, mark: Mark) -> rune_fx::FillParams {
             rt.track_marks = true;
             rt.frame(1.0 / 60.0);
-            crate::fx::edge_widths(rt).into_iter().find(|e| e.0 == mark.id()).unwrap_or_else(|| panic!("no edge on {mark:?}")).1
+            crate::fx::edge_fills(rt).into_iter().find(|e| e.0 == mark.id()).unwrap_or_else(|| panic!("no edge on {mark:?}")).1
+        }
+
+        /// The width the compositor paints for slot `mark` in the last frame.
+        fn width(rt: &mut Runtime<App>, mark: Mark) -> f32 {
+            fill(rt, mark).border
+        }
+
+        fn metal(rt: &mut Runtime<App>, mark: Mark) -> rune_fx::LiquidMetalParams {
+            match fill(rt, mark).style {
+                rune_fx::FillStyle::LiquidMetal(m) => m,
+                other => panic!("not liquid metal: {other:?}"),
+            }
+        }
+
+        fn lum(c: rune_fx::Rgb) -> f32 {
+            0.2126 * c.0[0] + 0.7152 * c.0[1] + 0.0722 * c.0[2]
+        }
+
+        /// Follow-up 2026-11-16 (case c_bf56ebdc): in light, the panel's calm edge is lighter metal
+        /// than the tab's, so the long thick edge reads as light as the tab's; in dark both are the
+        /// same gunmetal.
+        #[test]
+        fn in_light_the_calm_panel_edge_is_lighter_than_the_tab() {
+            let (_d, mut rt) = open();
+            rt.update(|s: &mut App, _| s.set_theme(crate::settings::ThemePref::Light));
+            quick_on_a(&mut rt);
+            let (panel, tab) = (metal(&mut rt, Mark::QuickPanel), metal(&mut rt, Mark::TabRing(0)));
+            assert_eq!(panel.flow, 0.0, "still frozen");
+            assert!(lum(panel.tint) > lum(tab.tint), "panel {:?} vs tab {:?}", panel.tint, tab.tint);
+            assert_eq!(tab, crate::fx::ring::calm_metal(false, crate::fx::ring::Calm::Tab), "the tab is unchanged");
+
+            rt.update(|s: &mut App, _| s.set_theme(crate::settings::ThemePref::Dark));
+            settle(&mut rt);
+            assert_eq!(metal(&mut rt, Mark::QuickPanel), metal(&mut rt, Mark::TabRing(0)), "dark: same gunmetal");
         }
 
         /// Follow-up 2026-11-16 (case c_bf56ebdc): the open panel always has the thick edge,

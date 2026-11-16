@@ -8,7 +8,7 @@ pub mod ring;
 
 pub use compositor::FxCompositor;
 #[cfg(test)]
-pub use compositor::{edge_widths, edges};
+pub use compositor::{edge_fills, edges};
 pub use marks::Mark;
 // `FxLayer` is rune-fx's drawable layer, used as it is.
 #[allow(unused_imports)]
