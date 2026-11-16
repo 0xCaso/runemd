@@ -277,6 +277,8 @@ pub struct Sidebar {
     pub new_file: super::new_file::NewFile,
     /// The tree row to scroll into view (the file just opened); `poll` takes it.
     reveal: Option<String>,
+    /// The first tree row in view (`on_visible_rows`), for the sticky rows.
+    tree_top: usize,
 }
 
 impl Sidebar {
@@ -388,6 +390,41 @@ impl Sidebar {
             i -= f.rows();
         }
         None
+    }
+
+    /// Where row `i` sits: the flat index of its root row and of its parent folder's row, if it has one.
+    /// Nothing for a root row: it is its own title.
+    fn context(&self, i: usize) -> Vec<usize> {
+        let Some((k, Some(at))) = self.flat(i) else { return Vec::new() };
+        let base: usize = self.folders[..k].iter().map(Folder::rows).sum();
+        let mut out = vec![base];
+        let tree = &self.folders[k].tree;
+        let parent = tree.visible_id(at).and_then(|id| Path::new(id).parent()).filter(|p| !p.as_os_str().is_empty()).map(|p| p.to_string_lossy().into_owned());
+        if let Some(parent) = parent
+            && let Some(j) = (0..at).rev().find(|&j| tree.visible_id(j) == Some(parent.as_str()))
+        {
+            out.push(base + 1 + j);
+        }
+        out
+    }
+
+    /// The sticky rows at the top of the tree while it scrolls (feedback group 3, item 8): the root (repo
+    /// or folder) of the first row in view and the deepest folder that holds it, as flat indices. They
+    /// cover the top rows, so they are worked out for the first row under them.
+    pub fn sticky(&self) -> Vec<usize> {
+        let first = self.context(self.tree_top);
+        if first.is_empty() {
+            return first;
+        }
+        let under = self.context(self.tree_top + first.len());
+        if under.is_empty() { first } else { under }
+    }
+
+    /// The tree's rows in view changed (`on_visible_rows`). True if the sticky rows change.
+    pub fn tree_scrolled(&mut self, rows: std::ops::Range<usize>) -> bool {
+        let before = self.sticky();
+        self.tree_top = rows.start;
+        self.sticky() != before
     }
 
     /// The key of row `i` below Recent (see [`flat_id`]).
@@ -830,8 +867,7 @@ fn star<S: 'static>(k: usize, f: &Folder, hooks: Hooks<S>, theme: &Theme) -> El 
 /// A root row (mockup "al posto", `.froot`): arrow, repo (or folder) icon in
 /// `fg3`, name; on the right the branch in `fg3` (it shrinks first) and the favourite star. A favourite
 /// name is 13/600 in `fg`, another one 13/400 in `fg2`. A click expands or collapses the root.
-fn folder_row<S: 'static>(s: &S, hooks: Hooks<S>, k: usize, width: f32, theme: &Theme, motion: Motion) -> El {
-    let sb = (hooks.get)(s);
+fn folder_row<S: 'static>(sb: &Sidebar, hooks: Hooks<S>, k: usize, width: f32, theme: &Theme, motion: Motion) -> El {
     let Some(f) = sb.folders.get(k) else { return el() };
     let chevron = icon(&glyphs::CHEVRON_DOWN, CHEVRON).color(theme.fg3).icon_rotation(if f.expanded { 0.0 } else { -std::f32::consts::FRAC_PI_2 });
     let glyph = if f.git { &REPO_ICON } else { &glyphs::FOLDER };
@@ -886,22 +922,55 @@ fn add_folder<S: 'static>(sb: &Sidebar, hooks: Hooks<S>, theme: &Theme, motion: 
 }
 
 /// The roots and their trees: 26 pt rows, 16 indent, guide lines, the open file's root
-/// expanded down to the file.
+/// expanded down to the file. While it scrolls, the root of the rows in view and their deepest folder
+/// stay at the top (`Sidebar::sticky`), on the glass, with a line under them.
 fn tree<S: 'static>(sb: &Sidebar, hooks: Hooks<S>, width: f32, theme: &Theme, motion: Motion) -> El {
-    let theme = *theme;
+    let th = *theme;
     let rows = col()
         .key("tree-rows")
         .w_full()
         .growth(GrowthSpec::default())
-        .virtual_rows(sb.flat_len(), TREE_ROW, move |s: &S, i| Cow::Owned((hooks.get)(s).flat_key(i)), move |s: &S, i| tree_row(s, hooks, i, width, &theme, motion))
-        .virtual_rows_version(sb.tree_version);
-    col().key("tree").pt(RING_ROOM).w_full().grow(1.0).min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(rows)
+        .virtual_rows(sb.flat_len(), TREE_ROW, move |s: &S, i| Cow::Owned((hooks.get)(s).flat_key(i)), move |s: &S, i| tree_row(s, hooks, i, width, &th, motion))
+        .virtual_rows_version(sb.tree_version)
+        .on_visible_rows(move |s: &mut S, rows| (hooks.get_mut)(s).tree_scrolled(rows));
+    let scroll = col().key("tree").pt(RING_ROOM).w_full().grow(1.0).min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(rows);
+    let sticky = sb.sticky();
+    let mut wrap = col().key("tree-wrap").w_full().grow(1.0).min_h(0.0).child(scroll);
+    if !sticky.is_empty() {
+        let mut head = col().key("tree-sticky").pin(Some(0.0), Some(0.0), Some(0.0), None).pt(RING_ROOM).fill(theme.glass_fallback());
+        for (n, i) in sticky.iter().enumerate() {
+            head = head.child(el().key(format!("sticky-{n}")).w_full().child(sticky_row(sb, hooks, *i, width, theme, motion)));
+        }
+        wrap = wrap.child(head.child(el().key("tree-sticky-line").w_full().h(HAIRLINE).fill(theme.line)));
+    }
+    wrap
+}
+
+/// A sticky row: the root row as it is, or a folder row with its arrow at its indent (no guides).
+fn sticky_row<S: 'static>(sb: &Sidebar, hooks: Hooks<S>, i: usize, width: f32, theme: &Theme, motion: Motion) -> El {
+    let Some((k, at)) = sb.flat(i) else { return el() };
+    let Some(at) = at else { return folder_row(sb, hooks, k, width, theme, motion) };
+    let Some((node, r)) = sb.folders[k].tree.row(at) else { return el() };
+    let id = r.id.to_owned();
+    let open = r.expanded.unwrap_or(true);
+    let chevron = icon(&glyphs::CHEVRON_DOWN, CHEVRON).color(theme.fg3).icon_rotation(if open { 0.0 } else { -std::f32::consts::FRAC_PI_2 });
+    let e = row()
+        .w_full()
+        .h(TREE_ROW)
+        .px(TREE_ROW_PAD)
+        .gap(ROW_GAP)
+        .center_y()
+        .child(el().size(CHEVRON, CHEVRON).center().child(chevron))
+        .child(text(node.name.clone()).key(format!("sticky-name-{k}-{id}")).font(ui_font()).color(theme.fg2).truncate_middle().shrink().min_w(0.0))
+        .on_press(move |s: &mut S| (hooks.get_mut)(s).toggle(k, &id));
+    let e = pressable(e, format!("sticky-{}", flat_id(k, r.id)), sb, hooks, theme, motion, true);
+    row().w_full().h(TREE_ROW).pr(RING_ROOM).child(e.grow(1.0).shrink().min_w(0.0).ml(TREE_X + r.depth as f32 * TREE_INDENT))
 }
 
 fn tree_row<S: 'static>(s: &S, hooks: Hooks<S>, i: usize, width: f32, theme: &Theme, motion: Motion) -> El {
     let sb = (hooks.get)(s);
     let Some((k, at)) = sb.flat(i) else { return el() };
-    let Some(at) = at else { return folder_row(s, hooks, k, width, theme, motion) };
+    let Some(at) = at else { return folder_row(sb, hooks, k, width, theme, motion) };
     let Some((node, r)) = sb.folders[k].tree.row(at) else { return el() };
     let depth = r.depth as f32;
     // On the right, the room for the ring: the tree scroll clips what goes past its edges.
@@ -1033,6 +1102,68 @@ mod tests {
         for e in rows {
             assert!(e.rect[0] + e.rect[2] <= right + 0.5, "{} leaves the tree: {:?}, right edge {right}", e.path, e.rect);
         }
+    }
+
+    /// Feedback group 3, item 8: scrolled, the tree keeps its root and the deepest folder of the rows in
+    /// view at the top; at the top of the tree there is nothing sticky.
+    #[test]
+    fn the_tree_keeps_its_root_and_folder_at_the_top() {
+        let mut files: Vec<String> = (1..=40).map(|n| format!("docs/decisions/note-{n:02}.md")).collect();
+        files.push("README.md".into());
+        let refs: Vec<&str> = files.iter().map(String::as_str).collect();
+        let (_d, root) = repo_with(&refs);
+        let mut app = crate::App::bare(crate::index::Library::load(vec![root.clone()], None));
+        app.library.index = Index::from_entries(files.iter().enumerate().map(|(i, f)| entry(&root.join(f), i as u64)).collect());
+        app.settings.recent_collapsed = true;
+        app.open_paths(vec![root.join(&files[0])]);
+        app.sidebar.refresh(&app.library.index, &[], SystemTime::now());
+        let mut rt = rune::Runtime::new(app, crate::view, (1280.0, 700.0), rune::Env::new(true, 2.0));
+        rt.poll = Some(crate::poll);
+        let settle = |rt: &mut rune::Runtime<crate::App>| {
+            rt.frame(0.0);
+            for _ in 0..400 {
+                if !rt.frame(1.0 / 120.0) { break; }
+            }
+        };
+        settle(&mut rt);
+        let find = |rt: &rune::Runtime<crate::App>, key: &str| rt.elements().into_iter().find(|e| e.key.as_deref() == Some(key) && !e.exiting);
+        rt.update(|_: &mut crate::App, tx| tx.scroll_to_instant("tree", 0.0, 0.0));
+        settle(&mut rt);
+        assert!(find(&rt, "tree-sticky").is_none(), "at the top: nothing sticky, the rows are their own titles");
+        let tree = find(&rt, "tree").unwrap().rect;
+        rt.wheel(tree[0] + 40.0, tree[1] + 100.0, -600.0);
+        settle(&mut rt);
+        let head = find(&rt, "tree-sticky").expect("sticky rows when scrolled").rect;
+        assert!((head[1] - tree[1]).abs() < 1.0, "at the top of the tree: {head:?} {tree:?}");
+        let texts: Vec<String> = rt.elements().into_iter().filter(|e| e.path.contains("tree-sticky")).filter_map(|e| e.text).collect();
+        assert!(texts.iter().any(|t| t == "proj"), "the repo: {texts:?}");
+        assert!(texts.iter().any(|t| t == "decisions"), "the deepest folder of the rows in view: {texts:?}");
+        assert!(!texts.iter().any(|t| t == "docs"), "only the root and the deepest folder: {texts:?}");
+        assert_eq!(rt.state.sidebar.sticky().len(), 2);
+    }
+
+    /// The sticky rows from the first row in view: none for a root row, the root alone for a row at the
+    /// root's level, the root and the parent folder deeper down.
+    #[test]
+    fn sticky_rows_follow_the_first_row_in_view() {
+        let (_d, root) = repo_with(&["a.md", "docs/b.md", "docs/deep/c.md", "docs/deep/d.md"]);
+        let entries: Vec<Entry> = ["a.md", "docs/b.md", "docs/deep/c.md", "docs/deep/d.md"].iter().enumerate().map(|(i, f)| entry(&root.join(f), i as u64)).collect();
+        let index = Index::from_entries(entries);
+        let mut sb = Sidebar::default();
+        sb.set_saved(vec![root.clone()], &index);
+        sb.set_open(&root.join("docs/deep/c.md"), &index);
+        let keys: Vec<String> = (0..sb.flat_len()).map(|i| sb.flat_key(i)).collect();
+        let at = |k: &str| keys.iter().position(|x| x == k).unwrap_or_else(|| panic!("{k} in {keys:?}"));
+        let sticky_at = |sb: &mut Sidebar, top: usize| {
+            sb.tree_scrolled(top..top + 5);
+            sb.sticky().iter().map(|i| sb.flat_key(*i)).collect::<Vec<_>>()
+        };
+        assert!(sticky_at(&mut sb, 0).is_empty(), "the root row at the top");
+        assert_eq!(sticky_at(&mut sb, at("0:docs/deep")), ["0:", "0:docs/deep"], "docs/deep goes under the sticky rows: its files decide");
+        let docs = sticky_at(&mut sb, at("0:docs"));
+        assert_eq!(docs.first().map(String::as_str), Some("0:"), "the repo first: {docs:?}");
+        assert!(docs.len() <= 2, "at most the root and one folder: {docs:?}");
+        assert_eq!(sticky_at(&mut sb, at("0:docs/deep/c.md") - 1), ["0:", "0:docs/deep"], "the rows under the sticky ones decide");
     }
 
     /// Feedback group 3, item 7: a click on "Recent" collapses it (no rows, the tree moves up and gets
