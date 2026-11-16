@@ -50,6 +50,13 @@ struct Frames {
 thread_local! { static FRAMES: RefCell<Frames> = RefCell::default(); }
 
 pub fn on_frame(f: &FrameEncoded) {
+    // `MDSPIKE_FRAMES=path`: one line per drawn or skipped frame, with its CPU cost (bench/forge_frame.sh).
+    if std::env::var_os("MDSPIKE_FRAMES").is_some() && matches!(f.outcome(), FrameOutcome::Drawn | FrameOutcome::Skipped) {
+        log_to("MDSPIKE_FRAMES", &format!(
+            "frame epoch_ms={:.1} drawn={} update_ms={:.3} encode_ms={:.3} hz={:.0}",
+            epoch_ms(f.at()), u8::from(f.outcome() == FrameOutcome::Drawn), f.update_ms().unwrap_or(0.0), f.encode_ms().unwrap_or(0.0), f.refresh_hz().unwrap_or(0.0)
+        ));
+    }
     FRAMES.with_borrow_mut(|fr| {
         if !fr.first && f.outcome() == FrameOutcome::Drawn {
             fr.first = true;
