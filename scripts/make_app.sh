@@ -7,6 +7,7 @@ rm -rf "$app"; mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources/Fonts"
 cp target/perf/runemd "$app/Contents/MacOS/runemd"
 cp assets/Info.plist "$app/Contents/Info.plist"
 cp assets/fonts/* "$app/Contents/Resources/Fonts/"
+cp assets/RuneMD.icns "$app/Contents/Resources/RuneMD.icns"
 KC="$HOME/Library/Keychains/runemd.keychain-db"
 [ -f "$KC" ] || { echo "$KC missing: run scripts/make_cert.sh" >&2; exit 1; }
 security unlock-keychain -p runemd "$KC"
