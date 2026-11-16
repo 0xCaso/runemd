@@ -1177,11 +1177,12 @@ impl App {
         !self.rings.is_empty()
     }
 
-    /// A per-slot effect is lit (ring, fire or caret of the front tab): only then does the compositor
-    /// walk the instances. The source shows no fire and no caret.
+    /// A per-slot effect is lit (ring, calm edge, fire or caret of the front tab): only then does the
+    /// compositor walk the instances. The source shows no fire and no caret. The calm edge is on the
+    /// active tab and on the chosen ⌘P row (metal-tab).
     pub fn effects_lit(&self) -> bool {
         let fire = self.settings.fire;
-        self.ring_lit() || self.tab().is_some_and(|t| matches!(t.mode, Mode::Read) && (fire || t.caret_since.is_some()))
+        self.ring_lit() || !self.tabs.is_empty() || self.sidebar.quick.active() || self.tab().is_some_and(|t| matches!(t.mode, Mode::Read) && (fire || t.caret_since.is_some()))
     }
 
     /// The fire of the front tab is at rest and moving: without a display link, `poll` requests a
@@ -1457,7 +1458,8 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let mut app = app_with_root(root.path());
         app.create_file("test");
-        assert!(!app.ring_lit() && !app.effects_lit());
+        // The new tab has the calm edge (metal-tab), which is not a ring that lights.
+        assert!(!app.ring_lit());
         assert!(app.live.writing(Instant::now()).is_empty(), "no \"writing\"");
     }
 

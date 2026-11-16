@@ -12,7 +12,8 @@ use std::path::{Path, PathBuf};
 use rune::{Color, Key, KeyEvent, TextEdit, Tx, TextStyle, col, row, text, text_input, icon, El, ScrollSpec, el};
 use rune_kit::glyphs;
 
-use super::sidebar::{Hooks, Motion, pressable, row_meta, small_font, ui_font};
+use super::sidebar::{Hooks, Motion, pressable, ring_host, row_meta, small_font, ui_font};
+use crate::fx::{self, Mark};
 use super::theme::{FIELD_H, FIELD_MARGIN_BOTTOM, FIELD_MARGIN_X, HAIRLINE, ICON, KBD_PAD_X, KBD_PAD_Y, KBD_TEXT, KBD_WEIGHT, R_FIELD, R_KBD, R_PANEL, R_ROW, ROW_GAP, ROW_PAD, SECTION_PAD_BOTTOM, SECTION_PAD_TOP, TAB_BAR_H, FRAME, Theme, UI_SMALL, UI_WEIGHT};
 
 /// Maximum results (assumption: past this you do not scroll, you type more).
@@ -309,7 +310,7 @@ fn name_width(row_w: f32, name_w: f32, time_w: f32) -> f32 {
 /// preview and the row becomes the choice, the panel stays; double click: pinned tab and the
 /// panel closes.
 #[allow(clippy::too_many_arguments)]
-fn result_row<S: 'static>(sb: &super::sidebar::Sidebar, hooks: Hooks<S>, i: usize, r: &super::sidebar::RecentRow, label: &str, row_w: f32, theme: &Theme, motion: Motion) -> El {
+fn result_row<S: 'static>(sb: &super::sidebar::Sidebar, hooks: Hooks<S>, i: usize, r: &super::sidebar::RecentRow, label: &str, row_w: f32, writing: Option<f64>, theme: &Theme, motion: Motion) -> El {
     let selected = i == sb.quick.selected;
     let (name_font, place_font, time_font) = (ui_font(), TextStyle::new(UI_SMALL, UI_WEIGHT), small_font());
     // The name is measured as the view measures it; the extra half point avoids a cut from rounding.
@@ -340,7 +341,9 @@ fn result_row<S: 'static>(sb: &super::sidebar::Sidebar, hooks: Hooks<S>, i: usiz
         e = e.fill(theme.sel);
     }
     let key = row_key(&r.path);
-    pressable(e, key.clone(), sb, hooks, theme, motion, !selected).radius(R_ROW).key(key)
+    // metal-tab: the calm edge on the chosen row, the moving one on the row of a file being written.
+    let e = pressable(e, key.clone(), sb, hooks, theme, motion, !selected).radius(R_ROW);
+    ring_host(e, Mark::QuickRing(i as u32), fx::ring::edge(writing, selected), motion.reduced, theme.dark).key(key)
 }
 
 /// The Cmd+P panel, to mount at the root: a `panel` veil at 60 % over the whole window and
@@ -376,7 +379,7 @@ pub fn panel<S: 'static>(s: &S, hooks: Hooks<S>, list: Option<[f32; 4]>, theme: 
     }
     for (i, r) in sb.quick_rows.iter().enumerate() {
         let label = sb.quick_labels.get(i).map(String::as_str).unwrap_or("");
-        rows = rows.child(result_row(sb, hooks, i, r, label, row_w, theme, motion));
+        rows = rows.child(result_row(sb, hooks, i, r, label, row_w, (hooks.ring)(s, &r.path), theme, motion));
     }
     let list = rows;
     let list_max = QUICK_PAD * 2.0 + QUICK_VISIBLE * QUICK_ROW + (QUICK_VISIBLE - 1.0) * QUICK_ROW_GAP;
@@ -425,6 +428,7 @@ mod tests {
 
         use crate::app::App;
         use crate::doc::document::Document;
+        use crate::fx::Mark;
         use crate::index::{Entry, Index, Library};
 
         fn find(rt: &Runtime<App>, key: &str) -> Option<rune::ElementInfo> {
@@ -474,6 +478,86 @@ mod tests {
             rt.frame(0.0);
             settle(&mut rt);
             (dir, rt)
+        }
+
+        /// metal-tab: the slot ids with an edge, split into calm and writing.
+        fn edges(rt: &mut Runtime<App>) -> (Vec<u32>, Vec<u32>) {
+            rt.track_marks = true;
+            rt.frame(1.0 / 60.0);
+            let all = crate::fx::edges(rt);
+            let pick = |calm: bool| {
+                let mut v: Vec<u32> = all.iter().filter(|e| e.1 == calm).map(|e| e.0).collect();
+                v.sort_unstable();
+                v
+            };
+            (pick(true), pick(false))
+        }
+
+        fn quick_index(rt: &Runtime<App>, name: &str) -> u32 {
+            rt.state.sidebar.quick_rows.iter().position(|r| r.name == name).unwrap_or_else(|| panic!("{name} not in ⌘P")) as u32
+        }
+
+        fn recent_index(rt: &Runtime<App>, name: &str) -> Option<u32> {
+            rt.state.sidebar.recent.iter().position(|r| r.name == name).map(|i| i as u32)
+        }
+
+        /// ⌘P open on "a": alfa, beta and gamma are rows.
+        fn quick_on_a(rt: &mut Runtime<App>) {
+            rt.key(cmd_p());
+            settle(rt);
+            rt.update(|s: &mut App, _| {
+                s.sidebar.quick.edit.replace_text("a");
+                s.requery_sidebar();
+            });
+            settle(rt);
+        }
+
+        fn write(rt: &mut Runtime<App>, path: std::path::PathBuf) {
+            rt.update(move |s: &mut App, _| {
+                s.ring_step(&[(path.clone(), crate::live::activity::WRITING_WINDOW)], 1.0, std::time::Instant::now());
+            });
+            rt.frame(1.0 / 60.0);
+        }
+
+        /// metal-tab, calm: a frozen edge on the active tab and, with ⌘P open, on the chosen row;
+        /// nothing moves and no Recent or tree row has metal.
+        #[test]
+        fn calm_edge_on_the_active_tab_and_the_chosen_row() {
+            let (_d, mut rt) = open();
+            assert_eq!(edges(&mut rt), (vec![Mark::TabRing(0).id()], vec![]));
+            quick_on_a(&mut rt);
+            let chosen = rt.state.sidebar.quick.selected as u32;
+            assert_eq!(edges(&mut rt), (vec![Mark::TabRing(0).id(), Mark::QuickRing(chosen).id()], vec![]));
+            assert!(rt.state.effects_lit());
+        }
+
+        /// metal-tab, writing: the file being written has the moving edge on its tab, its ⌘P row
+        /// and its Recent row; the active tab of another file and the chosen row stay calm.
+        #[test]
+        fn writing_moves_the_edge_everywhere_the_file_shows() {
+            let (d, mut rt) = open();
+            let root = d.path().canonicalize().unwrap();
+            quick_on_a(&mut rt);
+            write(&mut rt, root.join("beta.md"));
+            let (calm, writing) = edges(&mut rt);
+            let chosen = rt.state.sidebar.quick.selected as u32;
+            let b = quick_index(&rt, "beta.md");
+            assert_ne!(chosen, b, "the chosen row is another file");
+            assert!(calm.contains(&Mark::TabRing(0).id()) && calm.contains(&Mark::QuickRing(chosen).id()), "{calm:?}");
+            assert!(writing.contains(&Mark::QuickRing(b).id()), "{writing:?}");
+            if let Some(r) = recent_index(&rt, "beta.md") {
+                assert!(writing.contains(&Mark::RecentRing(r).id()), "{writing:?}");
+            }
+            assert!(!writing.contains(&Mark::TabRing(0).id()));
+        }
+
+        /// metal-tab: when the active tab's file is written, its calm edge becomes the moving one.
+        #[test]
+        fn writing_the_open_file_turns_its_calm_edge_into_moving_metal() {
+            let (d, mut rt) = open();
+            write(&mut rt, d.path().canonicalize().unwrap().join("alfa.md"));
+            let (calm, writing) = edges(&mut rt);
+            assert!(!calm.contains(&Mark::TabRing(0).id()) && writing.contains(&Mark::TabRing(0).id()), "{calm:?} {writing:?}");
         }
 
         fn tabs(rt: &Runtime<App>) -> Vec<(String, bool)> {

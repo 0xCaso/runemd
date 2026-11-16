@@ -538,7 +538,8 @@ during the drag: as it was. The widths stay after a restart.
 
 | Effect | Meaning | Where | Start | End |
 |---|---|---|---|---|
-| Liquid metal (ring on 4 sides, 2.5 px, a 3 s turn) | An agent is writing this file | The file's tab, its row in "Recent", its row in the tree | Appears in 220 ms ease-out at the first change | Stops when the file no longer changes (assumption: 3 s without writes) |
+| Liquid metal (ring on 4 sides, 2.5 px, a 3 s turn) | An agent is writing this file | The file's tab, its ⌘P row, its row in "Recent", its row in the tree | Appears in 220 ms ease-out at the first change | Stops when the file no longer changes (assumption: 3 s without writes) |
+| Frozen gunmetal edge (4 sides, 1.75 px, still; `fx::ring::calm_layer`) | The tab you are reading, the ⌘P row Return opens (metal-tab, docs/decisions/2026-11-16-metal-and-rune-effects.md) | The active tab, the chosen ⌘P row | With the tab or the choice, no entrance | When the file is written it becomes the liquid ring above |
 | Rune fire (flames and embers) | At rest, low (26 px): it is the bottom of the panel. 110 px tall: there is new text below the part you are reading | Bottom of the panel, always in reading; tall, with the label "N new paragraphs further down" | From rest it rises to 110 in 420 ms ease-out | Goes back to rest in 300 ms ease-out when you scroll to the new text |
 | Caret (2 px, `fg`, pulses in 4 steps over 1.6 s: opacity 100/81/62/81 %) | An agent has just written here | At the point of the last change, also in the middle of the file: after the last word changed (or added at the end), as tall as the letter; outside the flow, the text does not move | At the first reload from outside | With the ring (the file no longer changes); if it is out of view the view does not jump |
 

@@ -13,7 +13,7 @@ use crate::App;
 /// rest does not hold the display link: the `fire::REST_FRAME` wake-ups redraw it.
 ///
 /// Rings, fire and caret do not go through `set`: the view puts a `ring::slot` slot only while
-/// the file "is writing", a `fire::slot` always in reading mode (at rest or lit) and a
+/// the file "is writing" or on the calm edge (active tab, chosen ⌘P row), a `fire::slot` always in reading mode (at rest or lit) and a
 /// `caret::slot` only while the file is being written and the point of the last edit is known; here every slot becomes the layer of
 /// its rect.
 #[derive(Default)]
@@ -37,11 +37,26 @@ fn rect_pt(i: &Instance) -> Rect {
     Rect::new(x, y, w, h)
 }
 
-/// The ring layer for a `ring::slot` slot, at Rune's time `clock`.
+/// The ring layer (calm edge or writing ring) for a `ring::slot` slot, at Rune's time `clock`.
 fn ring_layer(i: &Instance, clock: f64) -> FxLayer {
     let radius = i.radii.iter().fold(0.0f32, |a, v| a.max(v.abs())) / i.params[3].max(f32::EPSILON);
+    if ring::slot_calm(i.uv) {
+        return ring::calm_layer(rect_pt(i), radius, ring::slot_dark(i.uv));
+    }
     let (t, reduced) = ring::slot_time(i.uv, clock);
     ring::layer_rounded(rect_pt(i), radius, t, reduced, ring::slot_dark(i.uv))
+}
+
+/// The metal edges in the last frame of `rt`, in drawing order: (slot id, calm). Only for tests
+/// of which places get the calm or the moving edge (metal-tab).
+#[cfg(test)]
+pub fn edges(rt: &rune::Runtime<App>) -> Vec<(u32, bool)> {
+    rt.instances
+        .iter()
+        .enumerate()
+        .filter(|(_, i)| i.params[1] == KIND_EFFECT)
+        .filter_map(|(n, i)| rt.marks.get(n).copied().filter(|m| Mark::is_ring(*m)).map(|m| (m, ring::slot_calm(i.uv))))
+        .collect()
 }
 
 /// The fire phase of a `fire::slot` slot, given when it last went out (`out`).

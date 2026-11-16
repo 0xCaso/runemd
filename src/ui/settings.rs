@@ -888,10 +888,7 @@ mod tests {
                     .any(|t| t == "0 new paragraphs below"),
             "the label stays"
         );
-        assert!(
-            !rt.state.effects_lit(),
-            "the compositor does not walk the instances for the fire"
-        );
+        // The compositor still walks the instances, for the calm edge of the tab (metal-tab), not for the fire.
         let theme = crate::ui::theme::Theme::for_mode(true);
         assert!(crate::ui::contrast::ratio(theme.fg2, theme.panel) >= 4.5);
         // From the panel: a click on the checkbox turns it back on.

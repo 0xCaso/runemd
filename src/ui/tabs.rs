@@ -218,10 +218,8 @@ fn tab_row(s: &App, hooks: Hooks<App>, i: usize, tab: &crate::app::Tab, theme: &
     let e = sidebar::pressable(e, key.clone(), &s.sidebar, hooks, theme, motion, !front).key(key);
     // The ring's host: always present, so the structure does not change when it lights up.
     let host = el().radius(R_ROW).child(e);
-    match s.ring_of(tab.path()) {
-        Some(since) => fx::ring::slot(host, Mark::TabRing(i as u32), since, motion.reduced, theme.dark),
-        None => host,
-    }
+    let edge = fx::ring::edge(s.ring_of(tab.path()), front);
+    fx::ring::slot(host, Mark::TabRing(i as u32), edge, motion.reduced, theme.dark)
 }
 
 #[cfg(test)]
