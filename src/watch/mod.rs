@@ -182,17 +182,36 @@ impl Core {
 
 /// The `wanted` files in `dir`, and below if `recursive`; read errors ignored. It does not enter
 /// skipped folders nor symbolic links to folders (a cycle would never end).
+///
+/// One path buffer for the whole walk: a path is allocated only for a file it returns, not for each
+/// of the ~170k entries under `~/Desktop/GitHub` (docs/perf-memory-2026-11-16.md, fix 5).
 pub(crate) fn walk(dir: &Path, recursive: bool, out: &mut Vec<PathBuf>) {
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    // Below a skipped folder nothing is wanted (`filter::wanted` looks at every component); the
+    // folders the walk enters are never skipped ones.
+    if filter::skipped(dir) {
+        return;
+    }
+    walk_in(&mut dir.to_path_buf(), recursive, out);
+}
+
+/// `walk` of the folder in `buf`, which it leaves as it found it.
+fn walk_in(buf: &mut PathBuf, recursive: bool, out: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(&*buf) else { return };
     for entry in entries.flatten() {
-        let path = entry.path();
         let Ok(kind) = entry.file_type() else { continue };
+        let name = entry.file_name();
         if kind.is_dir() {
-            if recursive && !path.file_name().is_some_and(filter::skipped_name) {
-                walk(&path, true, out);
+            if recursive && !filter::skipped_name(&name) {
+                buf.push(&name);
+                walk_in(buf, true, out);
+                buf.pop();
             }
-        } else if filter::wanted(&path) && (!kind.is_symlink() || path.is_file()) {
-            out.push(path);
+        } else if filter::markdown_name(&name) {
+            buf.push(&name);
+            if !kind.is_symlink() || buf.is_file() {
+                out.push(buf.clone());
+            }
+            buf.pop();
         }
     }
 }
@@ -831,6 +850,52 @@ mod tests {
         let mut core = Core::new();
         core.rescan(&[Root { path: root, recursive: true }], Instant::now());
         assert!(core.pending());
+    }
+
+    /// The walk before fix 5 (a path per entry), kept as the reference the walk must match.
+    fn walk_with_a_path_per_entry(dir: &Path, recursive: bool, out: &mut Vec<PathBuf>) {
+        let Ok(entries) = std::fs::read_dir(dir) else { return };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let Ok(kind) = entry.file_type() else { continue };
+            if kind.is_dir() {
+                if recursive && !path.file_name().is_some_and(filter::skipped_name) {
+                    walk_with_a_path_per_entry(&path, true, out);
+                }
+            } else if filter::wanted(&path) && (!kind.is_symlink() || path.is_file()) {
+                out.push(path);
+            }
+        }
+    }
+
+    #[test]
+    fn the_walk_finds_what_a_path_per_entry_found() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_path_buf();
+        for d in ["sub/deep", ".git", "target", "node_modules/p", "folder.md", ".claude", "x/target/y"] {
+            fs::create_dir_all(root.join(d)).unwrap();
+        }
+        for f in ["a.md", "B.MARKDOWN", "c.txt", "sub/d.md", "sub/deep/e.Md", ".git/f.md", "target/g.md", "node_modules/p/h.md", "folder.md/i.md", ".claude/plan.md", "x/target/y/j.md", "noext"] {
+            fs::write(root.join(f), "x").unwrap();
+        }
+        let link = |to: &str, at: &str| std::os::unix::fs::symlink(to, root.join(at)).unwrap();
+        link("a.md", "to-file.md");
+        link("nowhere.md", "dangling.md");
+        link("sub", "to-folder.md");
+        link("..", "sub/up");
+        for (start, recursive) in [(root.clone(), true), (root.clone(), false), (root.join("sub"), true), (root.join("target"), true), (root.join("x/target"), true), (root.join("sub/"), true), (root.join("sub/.."), true), (root.join("missing"), true), (root.join("a.md"), true)] {
+            let (mut got, mut want) = (Vec::new(), Vec::new());
+            walk(&start, recursive, &mut got);
+            walk_with_a_path_per_entry(&start, recursive, &mut want);
+            got.sort();
+            want.sort();
+            assert_eq!(got, want, "{} recursive={recursive}", start.display());
+        }
+        let mut all = Vec::new();
+        walk(&root, true, &mut all);
+        all.sort();
+        let names: Vec<_> = all.iter().map(|p| p.strip_prefix(&root).unwrap().to_string_lossy().into_owned()).collect();
+        assert_eq!(names, [".claude/plan.md", "B.MARKDOWN", "a.md", "folder.md/i.md", "sub/d.md", "sub/deep/e.Md", "to-file.md"]);
     }
 
     #[test]

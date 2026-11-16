@@ -17,11 +17,15 @@ pub fn skipped(path: &Path) -> bool {
 
 /// True for a `.md` or `.markdown` file (any case) that is not below a skipped folder.
 pub fn wanted(path: &Path) -> bool {
-    let is_markdown = path
+    markdown_name(path.as_os_str()) && !skipped(path)
+}
+
+/// True if the file name (or path) `name` ends in `.md` or `.markdown`, any case.
+pub fn markdown_name(name: &std::ffi::OsStr) -> bool {
+    Path::new(name)
         .extension()
         .and_then(|e| e.to_str())
-        .is_some_and(|e| e.eq_ignore_ascii_case("md") || e.eq_ignore_ascii_case("markdown"));
-    is_markdown && !skipped(path)
+        .is_some_and(|e| e.eq_ignore_ascii_case("md") || e.eq_ignore_ascii_case("markdown"))
 }
 
 #[cfg(test)]
