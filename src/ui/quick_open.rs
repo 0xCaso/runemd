@@ -419,10 +419,11 @@ pub fn panel<S: 'static>(s: &S, hooks: Hooks<S>, list: Option<[f32; 4]>, theme: 
         .child(line())
         .child(foot)
         .modal(true, move |s: &mut S| (hooks.get_mut)(s).quick.close());
-    // metal-tab: the metal edge around the whole panel, calm (frozen gunmetal) or moving. The host
-    // sits outside the panel's rounded clip, so the edge drawn outside its rect is not cut.
+    // metal-tab: the metal edge around the whole panel, calm (frozen gunmetal) or moving, always the
+    // thick width (follow-up 2026-11-16). The host sits outside the panel's rounded clip, so the edge
+    // drawn outside its rect is not cut.
     let host = el().key("quick-edge").w_full().max_w(QUICK_W).radius(R_PANEL).child(surface);
-    let host = fx::ring::slot(host, Mark::QuickPanel, fx::ring::edge(writing, true), reduced, theme.dark);
+    let host = fx::ring::slot_calm_w(host, Mark::QuickPanel, fx::ring::edge(writing, true), reduced, theme.dark, fx::ring::RING_W);
     let veil = col().key("quick-scrim").absolute(0.0, 0.0).w_full().h_full().fill(theme.panel.alpha(SCRIM)).items_center().pt(QUICK_TOP).px(QUICK_SIDE).child(host);
     vec![veil]
 }
@@ -556,6 +557,27 @@ mod tests {
             assert_eq!(edges(&mut rt), (vec![Mark::TabRing(0).id(), Mark::QuickPanel.id()], vec![]));
             panel_edge_wraps_the_panel(&mut rt);
             assert!(rt.state.effects_lit());
+        }
+
+        /// The width the compositor paints for slot `mark` in the last frame.
+        fn width(rt: &mut Runtime<App>, mark: Mark) -> f32 {
+            rt.track_marks = true;
+            rt.frame(1.0 / 60.0);
+            crate::fx::edge_widths(rt).into_iter().find(|e| e.0 == mark.id()).unwrap_or_else(|| panic!("no edge on {mark:?}")).1
+        }
+
+        /// Follow-up 2026-11-16 (case c_bf56ebdc): the open panel always has the thick edge,
+        /// calm and writing; the active tab keeps the two widths.
+        #[test]
+        fn the_panel_edge_is_always_thick_and_the_tab_keeps_two_widths() {
+            use crate::fx::ring::{CALM_W, RING_W};
+            let (d, mut rt) = open();
+            quick_on_a(&mut rt);
+            assert_eq!(width(&mut rt, Mark::QuickPanel), RING_W, "calm panel");
+            assert_eq!(width(&mut rt, Mark::TabRing(0)), CALM_W, "calm tab");
+            write(&mut rt, d.path().canonicalize().unwrap().join("alfa.md"));
+            assert_eq!(width(&mut rt, Mark::QuickPanel), RING_W, "writing panel");
+            assert_eq!(width(&mut rt, Mark::TabRing(0)), RING_W, "writing tab");
         }
 
         /// metal-tab, writing a listed file: the ⌘P panel edge moves (no row edge, the chosen row

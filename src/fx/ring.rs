@@ -5,7 +5,7 @@
 //! in Recent and the row in the tree.
 //!
 //! metal-tab (docs/decisions/2026-11-16-metal-and-rune-effects.md): when calm, the active tab and
-//! the whole ⌘P panel have a thin frozen gunmetal edge ([`CALM_W`]); while an agent writes the file
+//! the whole ⌘P panel have a frozen gunmetal edge ([`CALM_W`] on the tab, [`RING_W`] on the panel); while an agent writes the file
 //! (for the panel: any file in its list) the same place gets the moving ring
 //! (docs/decisions/2026-11-16-metal-tab-quick-open-panel.md). [`edge`] picks one of the two.
 
@@ -42,12 +42,12 @@ pub fn edge(writing: Option<f64>, chosen: bool) -> Edge {
     }
 }
 
-/// The calm edge around `rect`: frozen gunmetal, [`CALM_W`] outside the row, visible at once,
-/// never animating (it holds no display link).
-pub fn calm_layer(rect: Rect, radius: f32, dark: bool) -> FxLayer {
-    let r = rect.inflate(CALM_W);
-    let shape = Shape::rounded(r.x, r.y, r.w, r.h, radius + CALM_W);
-    Fx::fill(calm_metal(dark).border(CALM_W)).on(shape).at(0.0).reduced(true).opacity(1.0)
+/// The calm edge around `rect`: frozen gunmetal, `width` outside the row ([`CALM_W`] on the tab,
+/// [`RING_W`] on the open ⌘P panel), visible at once, never animating (it holds no display link).
+pub fn calm_layer(rect: Rect, radius: f32, dark: bool, width: f32) -> FxLayer {
+    let r = rect.inflate(width);
+    let shape = Shape::rounded(r.x, r.y, r.w, r.h, radius + width);
+    Fx::fill(calm_metal(dark).border(width)).on(shape).at(0.0).reduced(true).opacity(1.0)
 }
 
 /// The calm edge's metal: Rune's gunmetal, still (no flow). In light the gunmetal's deep floor
@@ -111,9 +111,15 @@ const LIGHT_STUDIO: u32 = 0xe6e7ea;
 /// clock (`poll` receives it, the compositor reads `Runtime::clock`). The compositor paints it with
 /// [`layer_rounded`] or [`calm_layer`] on the rect and radius of `el`. `Off` leaves `el` as it is.
 pub fn slot(el: El, mark: Mark, edge: Edge, reduced: bool, dark: bool) -> El {
+    slot_calm_w(el, mark, edge, reduced, dark, CALM_W)
+}
+
+/// Like [`slot`], with the calm edge `calm_w` wide: the open ⌘P panel always has the thick
+/// edge, [`RING_W`], calm and writing (follow-up in docs/decisions/2026-11-16-metal-tab-quick-open-panel.md).
+pub fn slot_calm_w(el: El, mark: Mark, edge: Edge, reduced: bool, dark: bool, calm_w: f32) -> El {
     let data = match edge {
         Edge::Off => return el,
-        Edge::Calm => calm_data(dark),
+        Edge::Calm => calm_data(dark, calm_w),
         Edge::Writing(since) => slot_data(since, reduced, dark),
     };
     el.effect(mark.id()).effect_bleed(RING_W).effect_data(data)
@@ -122,9 +128,14 @@ pub fn slot(el: El, mark: Mark, edge: Edge, reduced: bool, dark: bool) -> El {
 /// `effect_data[1]` of a calm slot (0 and 1 are the writing ring, moving or reduced).
 const CALM_MODE: f32 = 2.0;
 
-/// `effect_data` of a calm [`slot`].
-pub fn calm_data(dark: bool) -> [f32; 4] {
-    [0.0, CALM_MODE, 0.0, if dark { 0.0 } else { 1.0 }]
+/// `effect_data` of a calm [`slot`]: the edge width, the calm mode, the theme.
+pub fn calm_data(dark: bool, width: f32) -> [f32; 4] {
+    [width, CALM_MODE, 0.0, if dark { 0.0 } else { 1.0 }]
+}
+
+/// From the `effect_data` of a calm [`slot`]: the edge width ([`CALM_W`] if unset).
+pub fn slot_calm_width(data: [f32; 4]) -> f32 {
+    if data[0] > 0.0 { data[0] } else { CALM_W }
 }
 
 /// From the `effect_data` of a [`slot`]: the calm edge.
@@ -261,7 +272,7 @@ mod tests {
     #[test]
     fn calm_edge_is_thin_frozen_gunmetal() {
         assert!((1.5..=2.0).contains(&CALM_W));
-        let l = calm_layer(row(), 6.0, true);
+        let l = calm_layer(row(), 6.0, true, CALM_W);
         assert_eq!(fill(&l).border, CALM_W);
         let m = metal_of(&l);
         assert_eq!(m.tint, LiquidMetalParams::gunmetal().tint);
@@ -277,14 +288,26 @@ mod tests {
     fn the_light_calm_edge_is_darker() {
         let lum = |c: rune_fx::Rgb| 0.2126 * c.0[0] + 0.7152 * c.0[1] + 0.0722 * c.0[2];
         assert!(lum(calm_metal(false).tint) < lum(calm_metal(true).tint));
-        assert_eq!(metal_of(&calm_layer(row(), 6.0, false)).tint, calm_metal(false).tint);
+        assert_eq!(metal_of(&calm_layer(row(), 6.0, false, CALM_W)).tint, calm_metal(false).tint);
     }
 
     #[test]
     fn calm_data_is_told_apart_from_writing() {
-        assert!(slot_calm(calm_data(true)) && slot_calm(calm_data(false)));
+        assert!(slot_calm(calm_data(true, CALM_W)) && slot_calm(calm_data(false, RING_W)));
         assert!(!slot_calm(slot_data(3.0, true, true)) && !slot_calm(slot_data(3.0, false, false)));
-        assert!(slot_dark(calm_data(true)) && !slot_dark(calm_data(false)));
+        assert!(slot_dark(calm_data(true, CALM_W)) && !slot_dark(calm_data(false, CALM_W)));
+        assert_eq!(slot_calm_width(calm_data(true, RING_W)), RING_W);
+        assert_eq!(slot_calm_width(calm_data(true, CALM_W)), CALM_W);
+        assert_eq!(slot_calm_width([0.0, CALM_MODE, 0.0, 0.0]), CALM_W, "unset width falls back to CALM_W");
+    }
+
+    /// The thick calm edge (open ⌘P panel) is as wide as the writing ring and still frozen gunmetal.
+    #[test]
+    fn the_thick_calm_edge_is_ring_wide_and_frozen() {
+        let l = calm_layer(row(), 6.0, true, RING_W);
+        assert_eq!(fill(&l).border, RING_W);
+        assert_eq!(metal_of(&l).flow, 0.0);
+        assert!(!l.is_animating());
     }
 
     #[test]
