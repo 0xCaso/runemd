@@ -189,7 +189,6 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
     let tint = el().key("glass-tint").pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0)).fill(theme.glass);
     rune::row().key("app").on_layout_tx(width).w_full().h_full().system_material(rune::SystemMaterial::Glass).fill(theme.glass_fallback()).child(tint).child(sidebar).child(main).child(sidebar_edge)
         .children(ui::tabs::width_popover(s, &theme))
-        .children(ui::shortcuts::popover(s, &theme))
         .children(ui::quick_open::panel(s, hooks, cx.layout("quick-rows"), s.settings.sidebar.width, &theme, reduced, !cx.hover_none()))
         .on_window_focus(|s: &mut App, focused, _| s.window_active = focused)
 }
@@ -274,11 +273,10 @@ fn on_key(s: &mut App, key: &rune::KeyEvent, tx: &mut Tx) -> bool {
         s.toggle_settings();
         return true;
     }
-    // Esc first closes the width or shortcuts popover, then the settings.
+    // Esc first closes the width popover, then the settings.
     let esc = matches!(key.key, rune::Key::Escape) && !key.mods.cmd && !key.mods.shift && !key.mods.alt && !key.mods.ctrl;
-    if esc && (s.width_popover || s.keys_popover) {
+    if esc && s.width_popover {
         s.width_popover = false;
-        s.keys_popover = false;
         return true;
     }
     if esc && s.settings_panel.close() {

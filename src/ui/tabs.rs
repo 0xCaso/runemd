@@ -2,8 +2,8 @@
 //! open files, each tab as wide as its name with `ROW_PAD` on the sides (at most 240, the name
 //! cut in the middle), the front one with
 //! `sel` fill, the "is writing" ring around the file's tab, "⌘E source" on the
-//! right and, to its left, the text width ↔ button: it opens a popover with
-//! the settings slider (same `settings.column`); ⌘⌥+ and ⌘⌥- take one step.
+//! right and, to its left, the gear (settings, `ui::shortcuts`) and the text width ↔ button: it opens a
+//! popover with the settings slider (same `settings.column`, continuous); ⌘⌥+ and ⌘⌥- take one step.
 //!
 //! Tabs are rows like the sidebar ones (`sidebar::pressable`: hover `sel`, scale 0.98
 //! when pressed), not rune-kit's `TabStrip`: `TabStrip` gives every tab the same width
@@ -35,6 +35,11 @@ pub const WIDTH_POPOVER: &str = "width-popover";
 const WIDTH_GLYPH: f32 = 15.0;
 /// Between the button and the popover, pt.
 const POPOVER_GAP: f32 = 4.0;
+/// The tools on the right of the bar (feedback group 3, item 4): 4 pt between the gear and ↔ (their
+/// glyphs then sit 17 apart), and `SOURCE_GAP` before "⌘E source", so the ↔ glyph and the key's border
+/// are as far apart as the two glyphs; the key no longer looks stuck to ↔.
+pub const TOOL_GAP: f32 = 4.0;
+pub const SOURCE_GAP: f32 = 10.0;
 /// Below the slider in the popover: the shortcuts.
 pub const WIDTH_HINT: &str = "⌘⌥+ and ⌘⌥− one step at a time";
 
@@ -76,12 +81,9 @@ fn width_button(s: &App, theme: &Theme, motion: Motion) -> El {
     b
 }
 
-/// Opens or closes the width popover; opening it closes the shortcuts one.
+/// Opens or closes the width popover.
 pub fn toggle_width(s: &mut App) {
     s.width_popover = !s.width_popover;
-    if s.width_popover {
-        s.keys_popover = false;
-    }
 }
 
 /// The width popover, to mount at the root after the bar: a transparent ground that
@@ -128,7 +130,8 @@ pub fn view(s: &App, hooks: Hooks<App>, theme: &Theme, reduced: bool, hover: boo
     if s.find.open {
         bar = bar.child(super::find::field(s, theme).mr(ROW_GAP));
     }
-    let bar = bar.child(super::shortcuts::button(s, theme, motion)).child(width_button(s, theme, motion)).child(key);
+    let tools = row().key("bar-tools").gap(TOOL_GAP).center_y().child(super::shortcuts::button(s, theme, motion)).child(width_button(s, theme, motion)).child(key.ml(SOURCE_GAP - TOOL_GAP));
+    let bar = bar.child(tools.ml(ROW_GAP));
     rune::col().w_full().child(bar).child(el().key("tab-bar-line").w_full().h(HAIRLINE).fill(theme.line))
 }
 
@@ -286,6 +289,25 @@ mod tests {
         find(rt, "width-slider-value").and_then(|e| e.text).expect("value")
     }
 
+    /// Feedback group 3, item 4: gear, ↔ and "⌘E source" with even gaps: the gear and ↔ 4 apart, and the
+    /// key `SOURCE_GAP` from ↔, so the glyph-to-border gap matches the glyph-to-glyph one (± 2 pt).
+    #[test]
+    fn the_bar_tools_have_even_gaps() {
+        let rt = open();
+        let gear = find(&rt, crate::ui::shortcuts::SETTINGS_BUTTON).unwrap().rect;
+        let w = find(&rt, WIDTH_BUTTON).unwrap().rect;
+        let key = find(&rt, "source-key").unwrap().rect;
+        let gg = find(&rt, "settings-button-glyph").unwrap().rect;
+        let wg = find(&rt, "width-button-glyph").unwrap().rect;
+        assert!((w[0] - (gear[0] + gear[2]) - TOOL_GAP).abs() < 0.5, "gear | ↔: {gear:?} {w:?}");
+        assert!((key[0] - (w[0] + w[2]) - SOURCE_GAP).abs() < 0.5, "↔ | ⌘E: {w:?} {key:?}");
+        let glyphs = wg[0] - (gg[0] + gg[2]);
+        let to_key = key[0] - (wg[0] + wg[2]);
+        assert!((glyphs - to_key).abs() <= 3.0, "glyph to glyph {glyphs}, glyph to key {to_key}");
+        let bar = find(&rt, "tab-bar").unwrap().rect;
+        assert!(key[0] + key[2] <= bar[0] + bar[2] + 1.0, "inside the bar");
+    }
+
     /// The ↔ button sits left of "⌘E source" and opens the popover with the width
     /// slider; Esc or a click outside close it. ⌘⌥+ and ⌘⌥- change the same
     /// `settings.column` as the settings slider, even with the popover closed.
@@ -312,6 +334,43 @@ mod tests {
         settle(&mut rt);
         assert_eq!(rt.state.settings.column, 760.0);
         assert_eq!(value(&rt), "760 pt");
+        rt.key(cmd_alt('-'));
+        settle(&mut rt);
+
+        // A drag lands between the old steps, per pt, and both sliders show it; the drag end saves it.
+        let slider = find(&rt, "width-slider").unwrap();
+        let y = slider.rect[1] + slider.rect[3] / 2.0;
+        let x0 = slider.rect[0] + 6.0;
+        rt.pointer_move(x0, y);
+        rt.pointer_down(x0, y);
+        let x1 = slider.rect[0] + 6.0 + (slider.rect[2] - 12.0) * crate::settings::column_t(803.0);
+        rt.pointer_move(x1, y);
+        rt.frame(1.0 / 60.0);
+        let mid = rt.state.settings.column;
+        assert!((mid - 803.0).abs() <= 1.0 && mid.fract() == 0.0, "continuous, whole pt: {mid}");
+        rt.pointer_up(x1, y);
+        settle(&mut rt);
+        assert_eq!(value(&rt), format!("{mid:.0} pt"));
+        assert!(rt.state.width_popover, "the drag keeps the popover open");
+        rt.update(|s: &mut App, _| {
+            s.width_popover = false;
+            s.toggle_settings();
+        });
+        settle(&mut rt);
+        assert_eq!(find(&rt, "set-width-value").and_then(|e| e.text), Some(format!("{mid:.0} pt")), "the settings slider shows the same value");
+        rt.update(|s: &mut App, _| {
+            s.toggle_settings();
+            s.width_popover = true;
+        });
+        settle(&mut rt);
+        // ⌘⌥+ from between the steps: the next step.
+        rt.key(cmd_alt('='));
+        settle(&mut rt);
+        assert_eq!(rt.state.settings.column, 840.0, "the shortcut goes to the next step");
+        rt.key(cmd_alt('-'));
+        rt.key(cmd_alt('-'));
+        settle(&mut rt);
+        assert_eq!(rt.state.settings.column, 680.0);
 
         // A click at the end of the slider: "Full", like the settings one.
         let slider = find(&rt, "width-slider").unwrap();

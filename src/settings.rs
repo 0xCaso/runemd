@@ -24,22 +24,53 @@ pub const SIZES: [f32; 7] = [13.0, 14.0, 15.5, 17.0, 18.5, 20.0, 22.0];
 
 /// "Full": the text column follows the panel width, minus the row margins.
 pub const COLUMN_FULL: f32 = 0.0;
-/// The text column widths the "Text width" slider chooses from, pt:
-/// from 680 (DESIGN.md, `spacing.column`) in steps of 80, the last one "Full".
+/// The text column widths ⌘⌥+ and ⌘⌥− step through, pt: from 680 (DESIGN.md, `spacing.column`) in
+/// steps of 80, the last one "Full". The slider is continuous between `COLUMN_MIN` and `COLUMN_MAX`
+/// (per pt, feedback group 3, item 5), then "Full" at its end.
 pub const COLUMNS: [f32; 9] = [680.0, 760.0, 840.0, 920.0, 1000.0, 1080.0, 1160.0, 1240.0, COLUMN_FULL];
 /// The default column width, pt.
 pub const DEFAULT_COLUMN: f32 = 680.0;
+/// The narrowest and widest column the slider gives before "Full", pt.
+pub const COLUMN_MIN: f32 = 680.0;
+pub const COLUMN_MAX: f32 = 1240.0;
+/// The share of the slider for `COLUMN_MIN..=COLUMN_MAX`; past it, "Full". Where 1240 sat when the
+/// slider had nine steps, so the thumb keeps its places.
+const COLUMN_LINEAR: f32 = 7.0 / 8.0;
+/// One arrow key on the slider, pt.
+pub const COLUMN_NUDGE: f32 = 10.0;
 
-/// The `COLUMNS` step nearest to the slider point `t` (0..1).
+/// A width the setting can hold: "Full" or a whole pt in `COLUMN_MIN..=COLUMN_MAX`.
+pub fn valid_column(column: f32) -> bool {
+    column == COLUMN_FULL || ((COLUMN_MIN..=COLUMN_MAX).contains(&column) && column.fract() == 0.0)
+}
+
+/// The width at slider point `t` (0..1): whole pt from `COLUMN_MIN` to `COLUMN_MAX` along
+/// `COLUMN_LINEAR`, then `COLUMN_MAX`, and "Full" in the last half of what is left.
 pub fn column_at(t: f32) -> f32 {
-    let last = COLUMNS.len() - 1;
-    COLUMNS[(t.clamp(0.0, 1.0) * last as f32).round() as usize]
+    let t = t.clamp(0.0, 1.0);
+    if t > (1.0 + COLUMN_LINEAR) / 2.0 {
+        return COLUMN_FULL;
+    }
+    (COLUMN_MIN + (t / COLUMN_LINEAR).min(1.0) * (COLUMN_MAX - COLUMN_MIN)).round()
 }
 
 /// The slider point (0..1) of the width `column`.
 pub fn column_t(column: f32) -> f32 {
-    let at = COLUMNS.iter().position(|c| *c == column).unwrap_or(0);
-    at as f32 / (COLUMNS.len() - 1) as f32
+    if column == COLUMN_FULL {
+        return 1.0;
+    }
+    ((column - COLUMN_MIN) / (COLUMN_MAX - COLUMN_MIN)).clamp(0.0, 1.0) * COLUMN_LINEAR
+}
+
+/// The arrow keys on the slider: `COLUMN_NUDGE` pt in direction `by`; past `COLUMN_MAX`, "Full", and
+/// back from "Full" to `COLUMN_MAX`.
+pub fn nudge_column(column: f32, by: i32) -> f32 {
+    match (column == COLUMN_FULL, by > 0) {
+        (true, true) => COLUMN_FULL,
+        (true, false) => COLUMN_MAX,
+        (false, true) if column >= COLUMN_MAX => COLUMN_FULL,
+        (false, _) => (column + by as f32 * COLUMN_NUDGE).clamp(COLUMN_MIN, COLUMN_MAX),
+    }
 }
 
 /// How the panel writes the width: "680 pt", or "Full".
@@ -99,7 +130,7 @@ pub struct Settings {
     pub fire_speed: f32,
     /// The color of the flames.
     pub fire_color: FireColor,
-    /// The text column width, pt, one of `COLUMNS` (`COLUMN_FULL` is "Full").
+    /// The text column width, whole pt in `COLUMN_MIN..=COLUMN_MAX`, or `COLUMN_FULL` ("Full").
     pub column: f32,
     /// The sidebar and the heading outline: width and learned widths (`panes`).
     pub sidebar: Pane,
@@ -176,7 +207,7 @@ impl Settings {
             fire_color: prefs.get(FIRE_COLOR).unwrap_or(d.fire_color),
             column: prefs
                 .get::<f32>(COLUMN)
-                .filter(|c| COLUMNS.contains(c))
+                .filter(|c| valid_column(*c))
                 .unwrap_or(d.column),
             sidebar: prefs.get::<Pane>(SIDEBAR).map_or(d.sidebar, |p| p.sanitized(panes::SIDEBAR)),
             outline: prefs.get::<Pane>(OUTLINE).map_or(d.outline, |p| p.sanitized(panes::OUTLINE)),
@@ -201,11 +232,18 @@ impl Settings {
         prefs.set(SAVED, &self.saved)
     }
 
-    /// The width after the current one in `COLUMNS`, in the direction `step` (−1 or +1); clamped
-    /// at the ends.
+    /// The next width of `COLUMNS` in the direction `step` (−1 or +1) from the current one, which may
+    /// sit between two (the slider is continuous); clamped at the ends.
     pub fn step_column(&self, step: i32) -> f32 {
-        let at = COLUMNS.iter().position(|c| *c == self.column).unwrap_or(0) as i32;
-        COLUMNS[(at + step).clamp(0, COLUMNS.len() as i32 - 1) as usize]
+        let c = self.column;
+        let steps = &COLUMNS[..COLUMNS.len() - 1];
+        if step > 0 {
+            if c == COLUMN_FULL { COLUMN_FULL } else { steps.iter().copied().find(|x| *x > c).unwrap_or(COLUMN_FULL) }
+        } else if c == COLUMN_FULL {
+            COLUMN_MAX
+        } else {
+            steps.iter().copied().rev().find(|x| *x < c).unwrap_or(COLUMN_MIN)
+        }
     }
 
     /// The current value of `knob`.
@@ -414,7 +452,8 @@ mod tests {
         );
     }
 
-    /// The text width: 680 by default, steps of 80 up to 1240 and then "Full" (0).
+    /// The text width: 680 by default; the shortcuts step by 80 up to 1240 and then "Full" (0), also from
+    /// a width between two steps; the slider is continuous per pt (feedback group 3, item 5).
     #[test]
     fn text_width_steps_from_680_to_full() {
         let mut s = Settings::default();
@@ -428,13 +467,52 @@ mod tests {
         s.column = COLUMN_FULL;
         assert_eq!(s.step_column(1), COLUMN_FULL, "stops at the last");
         assert_eq!(s.step_column(-1), 1240.0);
+        s.column = 803.0;
+        assert_eq!((s.step_column(1), s.step_column(-1)), (840.0, 760.0), "between two steps: the next one each way");
+        s.column = 840.0;
+        assert_eq!((s.step_column(1), s.step_column(-1)), (920.0, 760.0));
         assert_eq!(column_at(0.0), 680.0);
         assert_eq!(column_at(1.0), COLUMN_FULL);
-        assert_eq!(column_at(0.49), 1000.0, "the nearest step");
         assert_eq!(column_at(-3.0), 680.0, "below 0: the first");
         assert_eq!(column_at(7.0), COLUMN_FULL, "above 1: Full");
         assert_eq!(column_t(COLUMN_FULL), 1.0);
-        assert_eq!(column_t(123.0), 0.0, "off-step: the first");
+        assert_eq!(column_t(123.0), 0.0, "below the range: the start");
+    }
+
+    /// The slider is continuous: every whole pt from 680 to 1240 has its own point, one pt apart is a
+    /// small move, and the round trip gives the same width; 760 and 840 are no longer neighbours.
+    #[test]
+    fn the_width_slider_is_continuous_per_pt() {
+        for c in (680..=1240).map(|c| c as f32) {
+            assert_eq!(column_at(column_t(c)), c, "round trip at {c}");
+            assert!(valid_column(c));
+        }
+        assert!(column_at(column_t(760.0) + 0.01) > 760.0 && column_at(column_t(760.0) + 0.01) < 840.0, "between the old steps");
+        let one_pt = column_t(801.0) - column_t(800.0);
+        assert!(one_pt > 0.0 && one_pt < 0.01, "one pt is a small move: {one_pt}");
+        assert_eq!(column_at(0.5), 1000.0, "linear along the range");
+        assert_eq!(column_t(1240.0), COLUMN_LINEAR, "1240 where the old step sat");
+        assert_eq!(column_at(0.9), 1240.0, "past the range, before Full: 1240");
+        assert!(!valid_column(679.0) && !valid_column(1241.0) && !valid_column(800.5));
+        assert_eq!(nudge_column(800.0, 1), 810.0);
+        assert_eq!(nudge_column(685.0, -1), 680.0, "clamped");
+        assert_eq!(nudge_column(1240.0, 1), COLUMN_FULL);
+        assert_eq!(nudge_column(COLUMN_FULL, -1), 1240.0);
+    }
+
+    /// A width between the old steps survives a restart; a broken one goes back to the default.
+    #[test]
+    fn a_continuous_width_is_saved() {
+        let mut prefs = Prefs::memory();
+        let s = Settings { column: 803.0, ..Settings::default() };
+        s.save(&mut prefs).unwrap();
+        assert_eq!(Settings::load(&prefs).column, 803.0);
+        prefs.set(COLUMN, &803.5f32).unwrap();
+        assert_eq!(Settings::load(&prefs).column, DEFAULT_COLUMN);
+    }
+
+    #[test]
+    fn column_labels() {
         assert_eq!(column_label(680.0), "680 pt");
         assert_eq!(column_label(COLUMN_FULL), "Full");
         assert_eq!(max_width(680.0), Some(680.0));
@@ -447,8 +525,8 @@ mod tests {
         let s = Settings { column: COLUMN_FULL, ..Settings::default() };
         s.save(&mut prefs).unwrap();
         assert_eq!(Settings::load(&prefs).column, COLUMN_FULL);
-        prefs.set(COLUMN, &700.0f32).unwrap();
-        assert_eq!(Settings::load(&prefs).column, 680.0, "not a step");
+        prefs.set(COLUMN, &1300.0f32).unwrap();
+        assert_eq!(Settings::load(&prefs).column, 680.0, "out of the range");
     }
 
     /// Pane widths come back after a restart; a saved value out of the limits comes back

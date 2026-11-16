@@ -343,8 +343,6 @@ pub struct App {
     pub(crate) settings_panel: ui::settings::Panel,
     /// The text width popover (↔ button in the tab bar) is open.
     pub(crate) width_popover: bool,
-    /// The shortcuts popover (⌘ button next to ↔) is open.
-    pub(crate) keys_popover: bool,
     /// `RUNEMD_THEME` (`light` or `dark`), read once at startup: it wins over the chosen theme.
     theme_env: Option<bool>,
     /// `RUNEMD_REDUCE_MOTION` (`1` or `0`), read once at startup: it wins over the system
@@ -398,7 +396,6 @@ impl App {
             prefs,
             settings_panel: ui::settings::Panel::default(),
             width_popover: false,
-            keys_popover: false,
             theme_env: match std::env::var("RUNEMD_THEME").as_deref() {
                 Ok("light") => Some(false),
                 Ok("dark") => Some(true),
@@ -457,7 +454,7 @@ impl App {
     }
 
     /// Saves the settings; an error is reported on the terminal and the value stays for this session.
-    fn save_settings(&mut self) {
+    pub(crate) fn save_settings(&mut self) {
         if let Err(e) = self.settings.save(&mut self.prefs) {
             eprintln!("runemd: settings not saved: {e}");
         }
@@ -494,20 +491,28 @@ impl App {
         }
     }
 
-    /// The width of the text column (one of `settings::COLUMNS`). The row heights
+    /// The width of the text column (`settings::valid_column`). The row heights
     /// change: the block that was at the top of the view goes back to the top (`scroll_block_to_top`).
     pub fn set_column(&mut self, column: f32, tx: &mut Tx) {
+        if self.set_column_live(column, tx) {
+            self.save_settings();
+        }
+    }
+
+    /// [`App::set_column`] without saving: while the slider is dragged (continuous, one write per pt
+    /// would be many), saved by [`App::save_settings`] when the drag ends. True if it changed.
+    pub fn set_column_live(&mut self, column: f32, tx: &mut Tx) -> bool {
         self.settings_panel.clear_notice();
-        if self.settings.column == column || !crate::settings::COLUMNS.contains(&column) {
-            return;
+        if self.settings.column == column || !crate::settings::valid_column(column) {
+            return false;
         }
         self.settings.column = column;
-        self.save_settings();
         if let Some(tab) = self.tab().filter(|t| matches!(t.mode, Mode::Read))
             && let Some(i) = tab.doc.blocks.iter().position(|b| b.id == tab.visible_first).filter(|&i| i > 0)
         {
             scroll_block_to_top(tab, i, tx);
         }
+        true
     }
 
     /// Turns the fire at the bottom of the pane on or off; the new-text label stays.

@@ -373,6 +373,8 @@ pub fn view(s: &App, hooks: Hooks<App>, theme: &Theme, reduced: bool, hover: boo
         .child(fire_toggle(s, hooks, theme, motion))
         .child(fire_look(s, hooks, theme, motion));
 
+    body = body.child(section(super::shortcuts::TITLE, theme)).child(super::shortcuts::list(theme));
+
     let scroll = col()
         .key("settings-scroll")
         .w_full()
@@ -397,17 +399,20 @@ pub fn view(s: &App, hooks: Hooks<App>, theme: &Theme, reduced: bool, hover: boo
         .child(scroll)
 }
 
-/// "Text width": the slider in steps of `settings::COLUMNS` (from 680 to "Full").
+/// "Text width": continuous per pt from 680 to 1240, then "Full" (`settings::column_at`). The same
+/// slider in the ↔ popover and in the settings, on the same `settings.column`. Dragging changes the
+/// width live and saves it when the drag ends; the arrows move it by `settings::COLUMN_NUDGE`.
 pub(crate) fn width_slider(key: &'static str, column: f32, theme: &Theme) -> El {
-    stepped_slider(
+    slider(
         key,
         WIDTH,
         crate::settings::column_t(column),
         crate::settings::column_label(column),
         true,
         theme,
-        |s: &mut App, at, tx: &mut Tx| s.set_column(crate::settings::column_at(at), tx),
-        |s: &mut App, step, tx: &mut Tx| s.set_column(s.settings.step_column(step), tx),
+        |s: &mut App, at, tx: &mut Tx| _ = s.set_column_live(crate::settings::column_at(at), tx),
+        |s: &mut App, by, tx: &mut Tx| s.set_column(crate::settings::nudge_column(s.settings.column, by), tx),
+        |s: &mut App| s.save_settings(),
     )
 }
 
@@ -426,6 +431,22 @@ pub(crate) fn stepped_slider(
     theme: &Theme,
     at: impl Fn(&mut App, f32, &mut Tx) + 'static,
     step: impl Fn(&mut App, i32, &mut Tx) + 'static,
+) -> El {
+    slider(key, label, t, value, enabled, theme, at, step, |_: &mut App| {})
+}
+
+/// [`stepped_slider`] with `end`, called when a drag ends.
+#[allow(clippy::too_many_arguments)]
+fn slider(
+    key: &'static str,
+    label: &'static str,
+    t: f32,
+    value: String,
+    enabled: bool,
+    theme: &Theme,
+    at: impl Fn(&mut App, f32, &mut Tx) + 'static,
+    step: impl Fn(&mut App, i32, &mut Tx) + 'static,
+    end: impl Fn(&mut App) + 'static,
 ) -> El {
     let track = |grow: f32, color| el().grow(grow).h(TRACK).radius(TRACK / 2.0).fill(color);
     let thumb = el().size(THUMB, THUMB).radius(THUMB / 2.0).fill(theme.fg2);
@@ -446,6 +467,7 @@ pub(crate) fn stepped_slider(
             .focusable(true)
             .on_drag(move |s: &mut App, d: &mut rune::Drag, tx: &mut Tx| {
                 if d.phase == rune::Phase::Up {
+                    end(s);
                     return;
                 }
                 at(s, ((d.x - THUMB / 2.0) / (d.w - THUMB).max(1.0)).clamp(0.0, 1.0), tx);
