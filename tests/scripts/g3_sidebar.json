@@ -1,0 +1,9 @@
+[
+ {"t": 0.8, "type": "move", "x": 700, "y": 400},
+ {"t": 1.2, "type": "mark", "name": "open"},
+ {"t": 1.4, "type": "tap", "key": "section-recent"},
+ {"t": 1.6, "type": "move", "x": 700, "y": 400},
+ {"t": 2.0, "type": "mark", "name": "collapsed"},
+ {"t": 2.2, "type": "wheel", "x": 120, "y": 700, "dy": 260},
+ {"t": 2.9, "type": "mark", "name": "scrolled"}
+]

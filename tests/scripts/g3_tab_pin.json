@@ -1,0 +1,6 @@
+[
+ {"t": 1.0, "type": "tap", "key": "recent-ROOT/runemd/README.md"},
+ {"t": 1.6, "type": "mark", "name": "preview"},
+ {"t": 1.8, "type": "double-click", "key": "TABKEY"},
+ {"t": 2.4, "type": "mark", "name": "pinned"}
+]

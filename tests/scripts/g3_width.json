@@ -1,0 +1,6 @@
+[
+ {"t": 0.5, "type": "tap", "key": "width-button"},
+ {"t": 0.9, "type": "drag", "key": "width-slider", "dx": -200, "dur": 0.3},
+ {"t": 1.4, "type": "drag", "key": "width-slider", "dx": 23, "dur": 0.2},
+ {"t": 2.0, "type": "mark", "name": "open"}
+]

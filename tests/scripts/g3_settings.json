@@ -1,0 +1,16 @@
+[
+ {"t": 0.5, "type": "key", "name": ",", "cmd": true},
+ {"t": 1.0, "type": "move", "x": 1150, "y": 690},
+ {"t": 1.1, "type": "mark", "name": "open"},
+ {"t": 1.2, "type": "wheel", "x": 1150, "y": 690, "dy": -420},
+ {"t": 1.6, "type": "mark", "name": "middle"},
+ {"t": 1.8, "type": "drag", "key": "set-fire-height", "dx": 300, "dur": 0.2},
+ {"t": 2.2, "type": "move", "x": 700, "y": 300},
+ {"t": 2.3, "type": "mark", "name": "high"},
+ {"t": 2.5, "type": "wheel", "x": 1150, "y": 690, "dy": -4000},
+ {"t": 3.2, "type": "mark", "name": "end"},
+ {"t": 3.8, "type": "wheel", "x": 1150, "y": 690, "dy": 6000},
+ {"t": 4.2, "type": "tap", "key": "set-font-search"},
+ {"t": 4.4, "type": "type", "text": "new", "every": 0.05},
+ {"t": 5.0, "type": "mark", "name": "search"}
+]
