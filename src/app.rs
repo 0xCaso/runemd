@@ -383,6 +383,9 @@ pub struct App {
     pub(crate) recovery: Option<PathBuf>,
     /// Rasterizes the empty screen's wordmark (`ui::forge`); born in `setup` with the waker, `None` in tests.
     pub(crate) images: Option<rune::ImageCache>,
+    /// When the last ring went out with no other lit (Rune clock): the empty screen's fire falls from
+    /// there. `None` while one is lit, and before any agent wrote.
+    writing_stopped: Option<f64>,
 }
 
 impl App {
@@ -417,6 +420,7 @@ impl App {
             find: ui::find::Find::default(),
             recovery: edit::recovery::default_dir(),
             images: None,
+            writing_stopped: None,
         };
         app.sync_saved();
         app
@@ -1294,6 +1298,17 @@ impl App {
         self.rings.values().copied().reduce(f64::min)
     }
 
+    /// When the last agent stopped writing (Rune clock), with none writing now: the empty screen's fire
+    /// eases back down from there (forge-empty).
+    pub fn writing_stopped(&self) -> Option<f64> {
+        self.writing_stopped
+    }
+
+    /// The file an agent started writing last, among those writing now (the empty screen's agent line).
+    pub fn writing_file(&self) -> Option<&Path> {
+        self.rings.iter().max_by(|a, b| a.1.total_cmp(b.1)).map(|(p, _)| p.as_path())
+    }
+
     /// The clock at which the ring of `path` lit, if it is "writing" (tab and sidebar).
     pub fn ring_of(&self, path: &Path) -> Option<f64> {
         self.rings.get(path).copied()
@@ -1313,6 +1328,11 @@ impl App {
         let wake = rearm(&mut self.ring_wake, writing.iter().map(|(_, d)| *d).min(), clock, now);
         let rings: BTreeMap<PathBuf, f64> = writing.iter().map(|(p, _)| (p.clone(), self.rings.get(p).copied().unwrap_or(clock))).collect();
         let changed = rings != self.rings;
+        if rings.is_empty() && !self.rings.is_empty() {
+            self.writing_stopped = Some(clock);
+        } else if !rings.is_empty() {
+            self.writing_stopped = None;
+        }
         self.rings = rings;
         (changed, wake)
     }

@@ -11,6 +11,8 @@ pub enum Mark {
     Caret,
     /// The fire inside the wordmark on the empty screen (forge-empty): one slot.
     Forge,
+    /// The empty screen's "An agent is writing <file>" line: one ring.
+    ForgeLine,
 }
 
 const FIRE: u32 = 1;
@@ -19,6 +21,7 @@ const FORGE: u32 = 3;
 // Tab rings start at 100: below are the fixed ids (fire 1, caret 2, forge 3).
 const TAB: (u32, u32) = (100, 4_999);
 const QUICK: u32 = 5_000;
+const FORGE_LINE: u32 = 5_001;
 const RECENT: u32 = 10_000;
 const TREE: u32 = 20_000;
 
@@ -33,6 +36,7 @@ impl Mark {
             Mark::Fire => FIRE,
             Mark::Caret => CARET,
             Mark::Forge => FORGE,
+            Mark::ForgeLine => FORGE_LINE,
         }
     }
 
@@ -52,6 +56,7 @@ mod tests {
         assert_ne!(Mark::RecentRing(3).id(), Mark::TreeRing(3).id());
         assert!(Mark::TabRing(1_000_000).id() < Mark::QuickPanel.id());
         assert!(Mark::QuickPanel.id() < Mark::RecentRing(0).id());
+        assert!(Mark::QuickPanel.id() < Mark::ForgeLine.id() && Mark::ForgeLine.id() < Mark::RecentRing(0).id());
         assert_ne!(Mark::Fire.id(), Mark::Caret.id());
         assert_eq!(Mark::Fire.id(), Mark::Fire.id());
         assert_eq!(Mark::Caret.id(), 2);
@@ -65,7 +70,7 @@ mod tests {
 
     #[test]
     fn rings_are_told_apart_from_fire_and_caret() {
-        for m in [Mark::TabRing(0), Mark::QuickPanel, Mark::RecentRing(4), Mark::TreeRing(70_000)] {
+        for m in [Mark::TabRing(0), Mark::QuickPanel, Mark::ForgeLine, Mark::RecentRing(4), Mark::TreeRing(70_000)] {
             assert!(Mark::is_ring(m.id()), "{m:?}");
         }
         assert!(!Mark::is_ring(Mark::Fire.id()));

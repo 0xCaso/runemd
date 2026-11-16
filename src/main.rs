@@ -145,7 +145,7 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
         None => {
             let scale = cx.env().scale;
             let images = s.images.as_ref().map(|c| [c.svg(ui::forge::LETTERS_SVG, ui::forge::PLATE_W, scale), c.load(ui::forge::PLATE_PNG)]);
-            let forge = ui::forge::Forge { writing: s.writing_since(), reduced, active_window: s.window_active, pane_w: cx.layout_with("forge", |r| r[2]), images };
+            let forge = ui::forge::Forge { writing: s.writing_since(), stopped: s.writing_stopped(), file: s.writing_file().map(PathBuf::from), reduced, active_window: s.window_active, pane_w: cx.layout_with("forge", |r| r[2]), images };
             el().grow(1.0).h_full().child(ui::forge::view(forge, &theme))
         }
     };
