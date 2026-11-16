@@ -78,6 +78,7 @@ fn init() -> App {
 
 fn setup(s: &mut App, waker: Waker) {
     open::queue::set_waker(waker.clone());
+    s.images = Some(rune::ImageCache::new(waker.clone()));
     s.find.set_waker(waker.clone());
     s.live.start(waker.clone(), s.library.roots().to_vec());
     s.library.start(waker);
@@ -139,7 +140,14 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
             let doc = rune::col().w_full().h_full().children(refused).child(el().w_full().grow(1.0).min_h(0.0).child(doc));
             rune::row().key("doc-pane").transition(ui::theme::mode_transition(reduced)).w_full().grow(1.0).min_h(0.0).child(el().grow(1.0).min_w(0.0).h_full().child(doc)).children(outline).children(outline_edge)
         }
-        None => el().grow(1.0),
+        // No file open: the wordmark with the fire in its letters (forge-empty). The letters rasterize
+        // at the largest strip width and the display scale; the handles are shared by content.
+        None => {
+            let scale = cx.env().scale;
+            let images = s.images.as_ref().map(|c| [c.svg(ui::forge::LETTERS_SVG, ui::forge::PLATE_W, scale), c.load(ui::forge::PLATE_PNG)]);
+            let forge = ui::forge::Forge { writing: s.writing_since(), reduced, active_window: s.window_active, pane_w: cx.layout_with("forge", |r| r[2]), images };
+            el().grow(1.0).h_full().child(ui::forge::view(forge, &theme))
+        }
     };
     // Full panel with the tab bar and the document, `FRAME` from the top, right and
     // bottom edges; on the left the sidebar, all on the system glass.

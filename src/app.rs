@@ -381,6 +381,8 @@ pub struct App {
     /// The folder of the recovery copies (`edit::recovery`); `None` in tests that do not give it,
     /// so no test writes into the real one.
     pub(crate) recovery: Option<PathBuf>,
+    /// Rasterizes the empty screen's wordmark (`ui::forge`); born in `setup` with the waker, `None` in tests.
+    pub(crate) images: Option<rune::ImageCache>,
 }
 
 impl App {
@@ -414,6 +416,7 @@ impl App {
             spare_edit: TextEdit::default(),
             find: ui::find::Find::default(),
             recovery: edit::recovery::default_dir(),
+            images: None,
         };
         app.sync_saved();
         app
@@ -1177,12 +1180,11 @@ impl App {
         !self.rings.is_empty()
     }
 
-    /// A per-slot effect is lit (ring, calm edge, fire or caret of the front tab): only then does the
-    /// compositor walk the instances. The source shows no fire and no caret. The calm edge is on the
-    /// active tab and around the ⌘P panel (metal-tab).
+    /// A per-slot effect is lit: only then does the compositor walk the instances. Every screen has
+    /// one: with a tab, the calm edge on the active tab (metal-tab); with no tab, the wordmark's
+    /// fire (forge-empty). Rings, the ⌘P panel, the fire and the caret come on top of those.
     pub fn effects_lit(&self) -> bool {
-        let fire = self.settings.fire;
-        self.ring_lit() || !self.tabs.is_empty() || self.sidebar.quick.active() || self.tab().is_some_and(|t| matches!(t.mode, Mode::Read) && (fire || t.caret_since.is_some()))
+        true
     }
 
     /// The fire of the front tab is at rest and moving: without a display link, `poll` requests a
@@ -1284,6 +1286,12 @@ impl App {
             // An edit pins the preview tab.
             t.preview = false;
         }
+    }
+
+    /// Since when (Rune clock) an agent writes a Markdown file in the watched folders: the first
+    /// ring still lit. The empty screen's fire moves while it is `Some` (forge-empty).
+    pub fn writing_since(&self) -> Option<f64> {
+        self.rings.values().copied().reduce(f64::min)
     }
 
     /// The clock at which the ring of `path` lit, if it is "writing" (tab and sidebar).

@@ -71,3 +71,7 @@ Spec in `docs/spec.md`, plan in `docs/plan.md`, design in `DESIGN.md`, decisions
 ## License
 
 [MIT](LICENSE)
+
+Fonts: Inter (`assets/fonts/`, [SIL OFL 1.1](assets/fonts/OFL.txt)). The RuneMD wordmark on the
+empty screen is made of Outfit 800 glyph outlines (`assets/wordmark/`, `scripts/make_wordmark.py`; no font file
+ships), [SIL OFL 1.1](assets/fonts/OFL-Outfit.txt), Copyright 2021 The Outfit Project Authors.

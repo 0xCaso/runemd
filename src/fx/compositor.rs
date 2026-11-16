@@ -5,7 +5,7 @@ use rune::render::{EffectSite, Instance, KIND_EFFECT};
 use rune_fx::{FxFrame, FxLayer, FxOptions, FxRenderer, FxSlot, Rect};
 
 use super::marks::Mark;
-use super::{caret, fire, ring};
+use super::{caret, fire, forge, ring};
 use crate::App;
 
 /// A single compositor for the window. Without effects (no layer, no slot) the frame is
@@ -143,6 +143,10 @@ impl Compositor<App> for FxCompositor {
                 }
                 saw_fire = true;
                 layer
+            } else if mark == Mark::Forge.id() {
+                // The empty screen's wordmark: the slot is the letters' box (`fx::forge`).
+                let s = forge::slot_state(i.uv, clock);
+                forge::layer(rect_pt(i), s.motion, s.t, clock as f32)
             } else if mark == Mark::Caret.id() {
                 let (layer, moving) = caret_layer(i, clock);
                 pulsing |= moving;
