@@ -40,8 +40,11 @@ pub const PLATE_MIN_W: f32 = 200.0;
 pub const MARGIN: f32 = 48.0;
 /// Between the strip and the line under it, pt.
 pub const GAP: f32 = 20.0;
-/// The line under the wordmark.
-pub const TAGLINE: &str = "Read the Markdown your agents write, while they write it.";
+/// The line under the wordmark (docs/decisions/2026-11-16-tagline-reader-first.md): the reader first,
+/// the agents second. It may wrap to two lines, centred, no wider than the strip.
+pub const TAGLINE: &str = "A beautiful native Markdown reader for macOS. It also shows what your agents write, live.";
+/// The tagline's widest line, pt.
+pub const TAGLINE_W: f32 = 460.0;
 
 /// The strip's width in a pane `pane_w` wide.
 pub fn plate_w(pane_w: f32) -> f32 {
@@ -106,7 +109,7 @@ pub fn view(f: Forge, theme: &Theme) -> El {
     // A soft shadow under the strip: on the light panel the chrome's light edges would melt into it.
     let shadow = if theme.dark { rune::Color::BLACK.alpha(0.45) } else { rune::Color::BLACK.alpha(0.16) };
     let mark = el().key("forge-mark").w(w).h(h).radius(plate_radius(w)).shadow(2.0, 10.0, shadow).label("RuneMD").child(letters).child(fire).child(plate);
-    let line = text(TAGLINE).key("forge-line").font(TextStyle::new(theme::BODY_TEXT, theme::UI_WEIGHT)).color(theme.fg2);
+    let line = text(TAGLINE).key("forge-line").font(TextStyle::new(theme::BODY_TEXT, theme::UI_WEIGHT)).color(theme.fg2).align(rune::Align::Center).max_w(TAGLINE_W.min(w));
     let buttons = row().key("forge-buttons").gap(8.0).mt(BUTTONS_GAP - GAP).child(open_file(theme)).child(add_folder(theme));
     // A zero-height anchor under the buttons: the agent line hangs from it.
     let agent = f.writing.zip(f.file).map(|(since, path)| agent_line(path, since, f.reduced, theme));
@@ -357,6 +360,18 @@ mod tests {
         let tab = rt.state.tab().expect("a tab");
         assert_eq!(tab.doc.path, p);
         assert!(!tab.preview, "pinned");
+    }
+
+    /// The tagline is the reader-first line, centred under the strip, at most two lines.
+    #[test]
+    fn the_tagline_is_the_reader_first_line() {
+        let mut rt = Runtime::new(empty_app(), crate::view, (1280.0, 800.0), Env::new(true, 2.0));
+        settle(&mut rt);
+        let line = rt.elements().into_iter().find(|e| e.key.as_deref() == Some("forge-line")).unwrap();
+        assert_eq!(line.text.as_deref(), Some("A beautiful native Markdown reader for macOS. It also shows what your agents write, live."));
+        let (mark, r) = (rect(&rt, "forge-mark"), line.rect);
+        assert!(((r[0] + r[2] / 2.0) - (mark[0] + mark[2] / 2.0)).abs() < 1.0, "centred: {r:?}");
+        assert!(r[2] <= TAGLINE_W + 0.5 && r[3] < 3.0 * crate::ui::theme::BODY_TEXT * 1.6, "at most two lines: {r:?}");
     }
 
     /// Opening a file replaces the empty screen.
