@@ -2,9 +2,11 @@
 
 <p align="center"><img src="docs/images/runemd-wordmark.png" alt="RuneMD wordmark: a liquid chrome plate with RuneMD cut in, fire inside the letters" width="420"></p>
 
-A native macOS Markdown reader for the files that coding agents write, live. While an agent edits a
-plan, a spec or a README, RuneMD shows the change as it lands: it marks the file that is being written,
-points to new text further down, and keeps your place in the document.
+A beautiful native Markdown reader for macOS. It also shows what your agents write, live.
+
+Open any Markdown file and read it with clean typography, tabs, an outline, Quick Open and Mermaid
+diagrams. When a coding agent edits a plan, a spec or a README, RuneMD shows the change as it lands: it
+marks the file that is being written, points to new text further down, and keeps your place.
 
 Written in Rust with [Rune](https://github.com/anomalyco/rune). It starts in under 350 ms, also with
 1 MB files.
