@@ -204,6 +204,17 @@ impl Theme {
         self.glass.alpha(1.0)
     }
 
+    /// The favourite star on a root row (feedback group 3, item 3): yellow fill and its edge. In dark the
+    /// yellow alone is 3:1 on the glass; in light no yellow is, so a dark amber edge carries the shape and
+    /// the yellow fills it. The empty star is `fg3`.
+    pub fn star(&self) -> (Color, Color) {
+        if self.dark {
+            (oklcha(0.88, 0.17, 95.0, 1.0), oklcha(0.88, 0.17, 95.0, 1.0))
+        } else {
+            (oklcha(0.84, 0.16, 88.0, 1.0), oklcha(0.38, 0.08, 65.0, 1.0))
+        }
+    }
+
     pub fn for_mode(dark: bool) -> Theme {
         if dark {
             Theme {

@@ -1,7 +1,7 @@
 //! The sidebar (DESIGN.md, "Layout" and "Sidebar row"): the "Open file ⌘P" field, "Recent" on
-//! two lines and, below a rule, the saved folders, each with its tree; the folder of the
-//! open file opens by itself, with "Save" if it is not saved (record
-//! `2026-11-15-folders-instead-of-tree`). At the bottom, "Add folder".
+//! two lines and, under "Favourites", the favourite (saved) folders, each with its tree and a filled
+//! star; the folder of the open file opens by itself, with an empty star if it is not a favourite
+//! (record `2026-11-15-folders-instead-of-tree`, feedback group 3, item 3). At the bottom, "Add folder".
 //!
 //! The state (`Sidebar`) is recomputed only when the index, the open file, the saved folders or the
 //! branch change: the view reads rows that are already built, without touching the disk. The trees come
@@ -43,8 +43,7 @@ pub const RECENT_LINE_GAP: f32 = 2.0;
 const BRANCH_GAP: f32 = 4.0;
 /// The branch icon is smaller than the others (mockup A, 12 against 14).
 const BRANCH_ICON: f32 = 12.0;
-/// The rule between Recent and the repo: 12 above, 8 below, `ROW_PAD` at the sides (mockup A, `.sep`).
-const SEP_TOP: f32 = 12.0;
+/// Above "Add folder", 8 (mockup A, `.sep`).
 const SEP_BOTTOM: f32 = 8.0;
 
 /// The maximum height of Recent in a sidebar `sidebar_h` tall: `RECENT_SHARE`, rounded
@@ -72,10 +71,9 @@ pub static BRANCH_ICON_GLYPH: Icon = Icon {
 /// The level 0 guide line sits below the root arrow; each level adds one
 /// `TREE_INDENT` further right, below the arrow of the folder above.
 const GUIDE_X: f32 = TREE_ROW_PAD + CHEVRON / 2.0;
-/// "Save" and "Remove": 6 pt at the sides, 1 above and below, radius 4 (mockup "al posto", `.pin`).
-const CHIP_PAD_X: f32 = 6.0;
-const CHIP_PAD_Y: f32 = 1.0;
-const CHIP_R: f32 = 4.0;
+/// The favourite star: a 20 pt target around a 14 pt star, radius 4.
+const STAR_BOX: f32 = 20.0;
+const STAR_R: f32 = 4.0;
 /// A root name does not shrink and goes up to 120 pt (mockup "al posto", `.froot .rn`,
 /// `flex:none`): the branch shrinks instead, and keeps at least 48 pt.
 const ROOT_NAME_MAX: f32 = 120.0;
@@ -266,8 +264,6 @@ pub struct Sidebar {
     pub folders: Vec<Folder>,
     /// Grows at each change of the rows below Recent: Rune reads the keys again.
     pub tree_version: u64,
-    /// The saved root under the pointer: its row shows "Remove" instead of the branch.
-    hover_folder: Option<PathBuf>,
     /// The row pressed now (its key): scales to 0.98 until the pointer goes up.
     pressed: Option<String>,
     /// macOS denies reading a watched folder (Desktop): the sidebar says so.
@@ -555,14 +551,6 @@ impl Sidebar {
         }
     }
 
-    /// The pointer enters (`on`) or leaves the row of root `root`. True if it changes.
-    pub fn hover_folder(&mut self, root: &Path, on: bool) -> bool {
-        let next = if on { Some(root.to_owned()) } else { self.hover_folder.clone().filter(|r| r != root) };
-        let changed = next != self.hover_folder;
-        self.hover_folder = next;
-        changed
-    }
-
     /// Recomputes the relative times at `now`. True if a label changed.
     pub fn tick(&mut self, now: SystemTime) -> bool {
         let labels: Vec<String> = self.recent.iter().map(|r| relative_time::format(now.duration_since(r.mtime).unwrap_or_default())).collect();
@@ -610,9 +598,9 @@ pub struct Hooks<S> {
     pub query: fn(&mut S),
     /// Cmd+N, Return: creates the file and opens it in the source. True if the field closes.
     pub create: fn(&mut S, String, &mut Tx) -> bool,
-    /// "Save" on the open file's root, or the folder picked with "Add folder".
+    /// The empty star on the open file's root, or the folder picked with "Add folder": a favourite.
     pub save: fn(&mut S, PathBuf),
-    /// "Remove" on the row of a saved folder.
+    /// The filled star on a favourite root: no longer a favourite.
     pub unsave: fn(&mut S, PathBuf),
 }
 
@@ -661,9 +649,8 @@ pub fn view<S: 'static>(s: &S, hooks: Hooks<S>, width: f32, theme: &Theme, reduc
         side = side.child(section("Recent", theme)).child(list);
     }
     if !sb.folders.is_empty() {
-        // No label: the roots are the titles of their trees, below a rule.
-        let sep = el().key("repo-sep").h(HAIRLINE).mx(ROW_PAD).mt(SEP_TOP).mb(SEP_BOTTOM).fill(theme.line);
-        side = side.child(sep).child(tree(sb, hooks, width, theme, motion));
+        // "Favourites": the favourite roots, and the open file's root when it is not one.
+        side = side.child(section("Favourites", theme)).child(tree(sb, hooks, width, theme, motion));
     } else {
         side = side.child(el().grow(1.0).min_h(0.0));
     }
@@ -786,24 +773,31 @@ pub static PLUS_ICON: Icon = Icon {
     body: r#"<path d="M8 3V13M3 8H13" stroke="currentColor" stroke-linecap="round"/>"#,
 };
 
-/// A small action on a root row ("Save", "Remove"): 12/500 in [`row_meta`] inside
-/// a half-point `line` border, radius 4 (mockup "al posto", `.pin`).
-fn chip<S: 'static>(label: &'static str, key: String, root: PathBuf, act: fn(&mut S, PathBuf), theme: &Theme) -> El {
-    text(label)
-        .key(key)
-        .font(small_font())
-        .color(row_meta(theme))
-        .px(CHIP_PAD_X)
-        .py(CHIP_PAD_Y)
-        .radius(CHIP_R)
-        .border(HAIRLINE, theme.line)
+/// The favourite star on a root row (feedback group 3, item 3): empty in `fg3` when the root is not a
+/// favourite (a click makes it one), filled yellow when it is (a click removes it). Always visible.
+fn star<S: 'static>(k: usize, f: &Folder, hooks: Hooks<S>, theme: &Theme) -> El {
+    let root = f.root.clone();
+    let (glyphs, label): (El, &str) = if f.saved {
+        let (fill, edge) = theme.star();
+        let layer = |e: El| e.pin(Some((STAR_BOX - ICON) / 2.0), Some((STAR_BOX - ICON) / 2.0), None, None);
+        (el().size(STAR_BOX, STAR_BOX).child(layer(icon(&glyphs::STAR_FILLED, ICON).color(fill))).child(layer(icon(&glyphs::STAR, ICON).color(edge))), "Remove from favourites")
+    } else {
+        (el().size(STAR_BOX, STAR_BOX).center().child(icon(&glyphs::STAR, ICON).color(theme.fg3)), "Add to favourites")
+    };
+    let act = if f.saved { hooks.unsave } else { hooks.save };
+    el().key(format!("folder-star-{k}"))
+        .size(STAR_BOX, STAR_BOX)
+        .radius(STAR_R)
+        .role("button")
+        .label(label)
+        .cursor(rune::Cursor::Pointer)
+        .child(glyphs)
         .on_press(move |s: &mut S| act(s, root.clone()))
 }
 
 /// A root row (mockup "al posto", `.froot`): arrow, repo (or folder) icon in
-/// `fg3`, name; on the right the branch in `fg3` (it shrinks first) and "Save" if not saved; on
-/// a saved one, on hover, "Remove" takes the place of the branch (constraints 2 and 5). A saved name is 13/600 in `fg`, an unsaved one 13/400 in
-/// `fg2`. A click expands or collapses the root.
+/// `fg3`, name; on the right the branch in `fg3` (it shrinks first) and the favourite star. A favourite
+/// name is 13/600 in `fg`, another one 13/400 in `fg2`. A click expands or collapses the root.
 fn folder_row<S: 'static>(s: &S, hooks: Hooks<S>, k: usize, width: f32, theme: &Theme, motion: Motion) -> El {
     let sb = (hooks.get)(s);
     let Some(f) = sb.folders.get(k) else { return el() };
@@ -823,10 +817,7 @@ fn folder_row<S: 'static>(s: &S, hooks: Hooks<S>, k: usize, width: f32, theme: &
         .child(icon(glyph, ICON).color(theme.fg3).key(format!("folder-icon-{k}")))
         .child(name)
         .child(el().grow(1.0).min_w(0.0));
-    let hovered = motion.hover && sb.hover_folder.as_ref() == Some(&f.root);
-    if f.saved && hovered {
-        e = e.child(chip("Remove", format!("folder-remove-{k}"), f.root.clone(), hooks.unsave, theme));
-    } else if let Some(b) = &f.branch {
+    if let Some(b) = &f.branch {
         let line = row()
             .gap(BRANCH_GAP)
             .center_y()
@@ -836,15 +827,7 @@ fn folder_row<S: 'static>(s: &S, hooks: Hooks<S>, k: usize, width: f32, theme: &
             .child(text(b.clone()).key(format!("folder-branch-{k}")).font(TextStyle::new(UI_SMALL, UI_WEIGHT)).color(theme.fg3).truncate_middle().shrink().min_w(0.0));
         e = e.child(line);
     }
-    if !f.saved {
-        e = e.child(chip("Save", format!("folder-save-{k}"), f.root.clone(), hooks.save, theme));
-    }
-    let root = f.root.clone();
-    let e = e
-        .on_press(move |s: &mut S| (hooks.get_mut)(s).toggle_folder(k))
-        .on_hover_change(move |s: &mut S, on: bool, _: &mut Tx| {
-            (hooks.get_mut)(s).hover_folder(&root, on);
-        });
+    let e = e.child(star(k, f, hooks, theme)).on_press(move |s: &mut S| (hooks.get_mut)(s).toggle_folder(k));
     pressable(e, flat_id(k, ""), sb, hooks, theme, motion, true)
 }
 
@@ -1184,74 +1167,75 @@ mod tests {
         assert_eq!(sb.flat_len(), 1 + 1 + sb.folders[1].rows());
     }
 
-    /// Constraints 2, 4 and 5 in the app: "Save" puts the root among the saved ones (and in prefs, and among the
-    /// watched ones if none covers it); "Remove" removes it and the file's root comes back with "Save".
-    /// In the view: "Save" on the unsaved one, "Remove" on hover on the saved one in place of the branch.
+    /// Feedback group 3, item 3, in the app: the empty star on the open file's root makes it a favourite
+    /// (saved, in prefs, and watched if none covers it) and fills yellow; the filled star removes it and the
+    /// root comes back with the empty star. The star sits after the branch, on the root's line, under
+    /// "Favourites".
     #[test]
-    fn save_and_remove_from_the_row() {
+    fn the_star_toggles_a_favourite() {
         let (_d, repo) = repo_with(&["docs/a.md"]);
         let mut app = crate::App::bare(crate::index::Library::load(Vec::new(), None));
         app.settings.saved.clear();
         app.open_paths(vec![repo.join("docs/a.md")]);
         assert_eq!(app.sidebar.folders.iter().map(|f| f.saved).collect::<Vec<_>>(), [false]);
         let mut rt = rune::Runtime::new(app, crate::view, (1280.0, 800.0), rune::Env::new(true, 2.0));
-        rt.frame(0.0);
-        for _ in 0..200 {
-            if !rt.frame(1.0 / 120.0) { break; }
-        }
+        let settle = |rt: &mut rune::Runtime<crate::App>| {
+            rt.frame(0.0);
+            for _ in 0..200 {
+                if !rt.frame(1.0 / 120.0) { break; }
+            }
+        };
+        settle(&mut rt);
         let find = |rt: &rune::Runtime<crate::App>, key: &str| rt.elements().into_iter().find(|e| e.key.as_deref() == Some(key) && !e.exiting);
-        let save = find(&rt, "folder-save-0").expect("\"Save\" on the unsaved root").rect;
+        assert!(find(&rt, "Favourites").is_some(), "the section is called Favourites");
+        let star = find(&rt, "folder-star-0").expect("a star on the root");
+        assert_eq!(star.label.as_deref(), Some("Add to favourites"));
         let branch = find(&rt, "folder-branch-0").expect("the branch stays").rect;
-        assert!(save[0] >= branch[0] + branch[2] - 0.5, "\"Save\" after the branch");
-        // The root on one line (mockup "al posto"): icon, name, on the right branch and "Save".
+        assert!(star.rect[0] >= branch[0] + branch[2] - 0.5, "the star after the branch");
         let (name, icon) = (find(&rt, "folder-name-0").unwrap().rect, find(&rt, "folder-icon-0").unwrap().rect);
         let mid = |r: [f32; 4]| r[1] + r[3] / 2.0;
         assert!(branch[0] >= name[0] + name[2] - 0.5, "branch right of the name: {name:?} {branch:?}");
-        for r in [icon, branch, save] {
+        for r in [icon, branch, star.rect] {
             assert!((mid(r) - mid(name)).abs() < 1.5, "one line: {r:?} against {name:?}");
         }
-        let (x, y) = (save[0] + save[2] / 2.0, save[1] + save[3] / 2.0);
-        rt.pointer_move(x, y);
-        rt.pointer_down(x, y);
-        rt.pointer_up(x, y);
-        for _ in 0..200 {
-            if !rt.frame(1.0 / 120.0) { break; }
-        }
+        let press = |rt: &mut rune::Runtime<crate::App>, r: [f32; 4]| {
+            let (x, y) = (r[0] + r[2] / 2.0, r[1] + r[3] / 2.0);
+            rt.pointer_move(x, y);
+            rt.pointer_down(x, y);
+            rt.pointer_up(x, y);
+        };
+        press(&mut rt, star.rect);
+        settle(&mut rt);
         assert_eq!(rt.state.settings.saved, std::slice::from_ref(&repo));
         assert!(rt.state.library.roots().contains(&repo), "watched: its tree has its Markdown files");
         let f = &rt.state.sidebar.folders[0];
-        assert!(f.saved && f.expanded, "the root stays expanded");
-        assert_eq!(rt.state.sidebar.folders.len(), 1, "no unsaved row");
-        // The pointer is over the row: "Remove" in place of the branch.
-        assert!(find(&rt, "folder-save-0").is_none());
-        let remove = find(&rt, "folder-remove-0").expect("\"Remove\" on hover").rect;
-        let (x, y) = (remove[0] + remove[2] / 2.0, remove[1] + remove[3] / 2.0);
-        rt.pointer_move(x, y);
-        rt.pointer_down(x, y);
-        rt.pointer_up(x, y);
-        for _ in 0..200 {
-            if !rt.frame(1.0 / 120.0) { break; }
-        }
+        assert!(f.saved && f.expanded, "a favourite, still expanded");
+        assert_eq!(rt.state.sidebar.folders.len(), 1, "no second row for it");
+        let star = find(&rt, "folder-star-0").expect("the star stays");
+        assert_eq!(star.label.as_deref(), Some("Remove from favourites"), "filled");
+        assert!(find(&rt, "folder-branch-0").is_some(), "the branch stays on a favourite too");
+        press(&mut rt, star.rect);
+        settle(&mut rt);
         assert!(rt.state.settings.saved.is_empty());
         let f = &rt.state.sidebar.folders[0];
-        assert!(!f.saved && f.expanded, "back to unsaved, expanded");
-        // Off the row the branch comes back... on the saved one; here the unsaved row has "Save".
-        rt.pointer_move(1000.0, 400.0);
-        rt.frame(1.0 / 120.0);
-        assert!(find(&rt, "folder-save-0").is_some());
+        assert!(!f.saved && f.expanded, "back to not a favourite, expanded");
+        assert_eq!(find(&rt, "folder-star-0").and_then(|e| e.label), Some("Add to favourites".into()));
     }
 
-    /// "Remove" shows only with the pointer over it; off it the branch comes back.
+    /// The filled star is yellow, and its edge stands 3:1 on the measured glass in both themes (in light a
+    /// dark amber edge carries it); the empty star is `fg3`, which already passes.
     #[test]
-    fn hover_swaps_the_branch_for_remove() {
-        let (_d, repo) = repo_with(&["a.md"]);
-        let mut sb = Sidebar::default();
-        sb.set_saved(vec![repo.clone()], &Index::default());
-        assert!(sb.hover_folder(&repo, true));
-        assert!(!sb.hover_folder(&repo, true), "unchanged");
-        assert!(!sb.hover_folder(Path::new("/other"), false), "another row does not turn this one off");
-        assert!(sb.hover_folder(&repo, false));
-        assert_eq!(sb.hover_folder, None);
+    fn the_filled_star_is_yellow_and_visible() {
+        for dark in [true, false] {
+            let t = Theme::for_mode(dark);
+            let (fill, edge) = t.star();
+            let [r, g, b, _] = [fill.r, fill.g, fill.b, fill.a];
+            assert!(r > 0.6 && g > 0.5 && b < 0.3 * r, "{dark}: yellow {fill:?}");
+            for ground in crate::ui::contrast::glass_grounds(&t) {
+                let k = crate::ui::contrast::ratio(edge, ground);
+                assert!(k >= 3.0, "{dark}: star edge {k:.2}:1 on {ground:?}");
+            }
+        }
     }
 
     /// After the last tab closes there is no open file: no repo, no tree, no selected
