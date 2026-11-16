@@ -629,6 +629,17 @@ impl App {
         self.unsave_folder(&root);
     }
 
+    /// Sidebar hook: Recent is collapsed.
+    pub fn recent_collapsed(&self) -> bool {
+        self.settings.recent_collapsed
+    }
+
+    /// Sidebar hook: a click on the "Recent" title collapses or expands the list; remembered.
+    pub fn toggle_recent(&mut self) {
+        self.settings.recent_collapsed = !self.settings.recent_collapsed;
+        self.save_settings();
+    }
+
     /// Cmd+,: opens or closes the settings panel.
     pub fn toggle_settings(&mut self) {
         self.settings_panel.toggle();

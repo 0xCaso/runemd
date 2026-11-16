@@ -138,6 +138,8 @@ pub struct Settings {
     /// The folders saved in the sidebar, in the order they were saved (record
     /// `2026-11-15-folders-instead-of-tree`, constraint 4).
     pub saved: Vec<PathBuf>,
+    /// Recent is collapsed in the sidebar (a click on its title, feedback group 3, item 7).
+    pub recent_collapsed: bool,
 }
 
 impl Default for Settings {
@@ -156,6 +158,7 @@ impl Default for Settings {
             sidebar: Pane::new(panes::SIDEBAR),
             outline: Pane::new(panes::OUTLINE),
             saved: Vec::new(),
+            recent_collapsed: false,
         }
     }
 }
@@ -184,6 +187,7 @@ const COLUMN: &str = "column";
 const SIDEBAR: &str = "sidebar";
 const OUTLINE: &str = "outline";
 const SAVED: &str = "saved_folders";
+const RECENT_COLLAPSED: &str = "recent_collapsed";
 
 impl Settings {
     /// The settings saved in `prefs`; missing or invalid values take the default.
@@ -212,6 +216,7 @@ impl Settings {
             sidebar: prefs.get::<Pane>(SIDEBAR).map_or(d.sidebar, |p| p.sanitized(panes::SIDEBAR)),
             outline: prefs.get::<Pane>(OUTLINE).map_or(d.outline, |p| p.sanitized(panes::OUTLINE)),
             saved: prefs.get(SAVED).unwrap_or(d.saved),
+            recent_collapsed: prefs.get(RECENT_COLLAPSED).unwrap_or(d.recent_collapsed),
         }
     }
 
@@ -229,7 +234,8 @@ impl Settings {
         prefs.set(COLUMN, &self.column)?;
         prefs.set(SIDEBAR, &self.sidebar)?;
         prefs.set(OUTLINE, &self.outline)?;
-        prefs.set(SAVED, &self.saved)
+        prefs.set(SAVED, &self.saved)?;
+        prefs.set(RECENT_COLLAPSED, &self.recent_collapsed)
     }
 
     /// The next width of `COLUMNS` in the direction `step` (−1 or +1) from the current one, which may
@@ -416,6 +422,7 @@ mod tests {
             sidebar: Pane { width: 300.0, learned: vec![300.0, 210.0] },
             outline: Pane { width: 240.0, learned: vec![240.0] },
             saved: vec![PathBuf::from("/a/runemd")],
+            recent_collapsed: true,
         };
         s.save(&mut prefs).unwrap();
         assert_eq!(Settings::load(&prefs), s);

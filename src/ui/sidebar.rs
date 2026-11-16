@@ -602,6 +602,10 @@ pub struct Hooks<S> {
     pub save: fn(&mut S, PathBuf),
     /// The filled star on a favourite root: no longer a favourite.
     pub unsave: fn(&mut S, PathBuf),
+    /// Recent is collapsed (remembered in the settings).
+    pub recent_collapsed: fn(&S) -> bool,
+    /// A click on the "Recent" title: collapses or expands it.
+    pub toggle_recent: fn(&mut S),
 }
 
 impl<S> Clone for Hooks<S> {
@@ -632,7 +636,10 @@ pub fn view<S: 'static>(s: &S, hooks: Hooks<S>, width: f32, theme: &Theme, reduc
     if sb.no_access {
         side = side.child(no_access(sb, hooks, theme, motion));
     }
-    if !sb.recent.is_empty() {
+    let collapsed = (hooks.recent_collapsed)(s);
+    if !sb.recent.is_empty() && collapsed {
+        side = side.child(recent_title(sb, hooks, true, theme, motion));
+    } else if !sb.recent.is_empty() {
         // At most `RECENT_SHARE` of the sidebar height, then it scrolls (with the system
         // overlay scroll bar): the repo and the tree stay in view even with many Recent rows.
         // The scroll clips what goes past its edges: inside there is `RING_ROOM` for the rings, and
@@ -646,7 +653,7 @@ pub fn view<S: 'static>(s: &S, hooks: Hooks<S>, width: f32, theme: &Theme, reduc
         if let Some(cap) = cap {
             list = list.max_h(cap);
         }
-        side = side.child(section("Recent", theme)).child(list);
+        side = side.child(recent_title(sb, hooks, false, theme, motion)).child(list);
     }
     if !sb.folders.is_empty() {
         // "Favourites": the favourite roots, and the open file's root when it is not one.
@@ -682,6 +689,31 @@ fn no_access<S: 'static>(sb: &Sidebar, hooks: Hooks<S>, theme: &Theme, motion: M
         .child(text("No access to Desktop").font(ui_font()).color(theme.fg).px(ROW_PAD).pt(SECTION_PAD_BOTTOM).pb(SECTION_PAD_BOTTOM))
         .child(link)
 }
+
+/// The "Recent" title (feedback group 3, item 7): the section label with a small chevron after it;
+/// a click collapses Recent so only the trees show, and expands it again. Remembered across launches.
+fn recent_title<S: 'static>(sb: &Sidebar, hooks: Hooks<S>, collapsed: bool, theme: &Theme, motion: Motion) -> El {
+    let chevron = icon(&glyphs::CHEVRON_DOWN, RECENT_CHEVRON).color(theme.fg3).icon_rotation(if collapsed { -std::f32::consts::FRAC_PI_2 } else { 0.0 });
+    let e = row()
+        .key("section-recent")
+        .w_full()
+        .pt(SECTION_PAD_TOP)
+        .px(ROW_PAD)
+        .pb(SECTION_PAD_BOTTOM)
+        .gap(4.0)
+        .center_y()
+        .role("button")
+        .label(if collapsed { "Show Recent" } else { "Hide Recent" })
+        .expanded(!collapsed)
+        .cursor(rune::Cursor::Pointer)
+        .child(text("Recent").key("Recent").font(small_font()).color(theme.fg3).a11y_hidden())
+        .child(chevron)
+        .on_press(move |s: &mut S| (hooks.toggle_recent)(s));
+    pressable(e, "section-recent".into(), sb, hooks, theme, motion, true).key("section-recent")
+}
+
+/// The chevron after "Recent", pt.
+const RECENT_CHEVRON: f32 = 10.0;
 
 /// A section label: 12/500 in `fg3` (`section-pad`).
 fn section(label: &'static str, theme: &Theme) -> El {
@@ -1001,6 +1033,55 @@ mod tests {
         for e in rows {
             assert!(e.rect[0] + e.rect[2] <= right + 0.5, "{} leaves the tree: {:?}, right edge {right}", e.path, e.rect);
         }
+    }
+
+    /// Feedback group 3, item 7: a click on "Recent" collapses it (no rows, the tree moves up and gets
+    /// the room), a second one expands it; the state is in the settings, so it survives a restart.
+    #[test]
+    fn the_recent_title_collapses_recent_and_is_remembered() {
+        let files: Vec<String> = (1..=8).map(|n| format!("docs/note-{n}.md")).collect();
+        let refs: Vec<&str> = files.iter().map(String::as_str).collect();
+        let (_d, root) = repo_with(&refs);
+        let mut app = crate::App::bare(crate::index::Library::load(vec![root.clone()], None));
+        app.library.index = Index::from_entries(files.iter().enumerate().map(|(i, f)| entry(&root.join(f), i as u64)).collect());
+        app.open_paths(vec![root.join(&files[0])]);
+        app.sidebar.refresh(&app.library.index, &[], SystemTime::now());
+        let mut rt = rune::Runtime::new(app, crate::view, (1280.0, 800.0), rune::Env::new(true, 2.0));
+        let settle = |rt: &mut rune::Runtime<crate::App>| {
+            rt.frame(0.0);
+            for _ in 0..400 {
+                if !rt.frame(1.0 / 120.0) { break; }
+            }
+        };
+        settle(&mut rt);
+        let find = |rt: &rune::Runtime<crate::App>, key: &str| rt.elements().into_iter().find(|e| e.key.as_deref() == Some(key) && !e.exiting);
+        let rows = |rt: &rune::Runtime<crate::App>| rt.elements().iter().filter(|e| !e.exiting && e.key.as_deref().is_some_and(|k| k.starts_with("recent-"))).count();
+        assert!(rows(&rt) >= 3, "Recent open");
+        let tree_before = find(&rt, "tree").unwrap().rect;
+        let title = find(&rt, "section-recent").expect("the Recent title");
+        assert_eq!((title.role, title.label.as_deref()), ("button", Some("Hide Recent")));
+        let press = |rt: &mut rune::Runtime<crate::App>, r: [f32; 4]| {
+            let (x, y) = (r[0] + r[2] / 2.0, r[1] + r[3] / 2.0);
+            rt.pointer_move(x, y);
+            rt.pointer_down(x, y);
+            rt.pointer_up(x, y);
+        };
+        press(&mut rt, title.rect);
+        settle(&mut rt);
+        assert!(rt.state.settings.recent_collapsed);
+        assert_eq!(rows(&rt), 0, "no Recent rows");
+        assert!(find(&rt, "recent").is_none());
+        let tree = find(&rt, "tree").unwrap().rect;
+        assert!(tree[1] < tree_before[1] && tree[3] > tree_before[3], "the tree takes the room: {tree_before:?} → {tree:?}");
+        let title = find(&rt, "section-recent").expect("the title stays");
+        assert_eq!(title.label.as_deref(), Some("Show Recent"));
+        // Remembered: the saved settings bring it back collapsed.
+        let mut prefs = rune::prefs::Prefs::memory();
+        rt.state.settings.save(&mut prefs).unwrap();
+        assert!(crate::settings::Settings::load(&prefs).recent_collapsed);
+        press(&mut rt, title.rect);
+        settle(&mut rt);
+        assert!(!rt.state.settings.recent_collapsed && rows(&rt) >= 3, "open again");
     }
 
     /// D1, D2, D3 and D5 (`docs/decisions/2026-11-14-sidebar-tabs-long-names.md`), with 60 files
