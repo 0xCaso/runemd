@@ -190,7 +190,7 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
     rune::row().key("app").on_layout_tx(width).w_full().h_full().system_material(rune::SystemMaterial::Glass).fill(theme.glass_fallback()).child(tint).child(sidebar).child(main).child(sidebar_edge)
         .children(ui::tabs::width_popover(s, &theme))
         .children(ui::shortcuts::popover(s, &theme))
-        .children(ui::quick_open::panel(s, hooks, cx.layout("quick-rows"), &theme, reduced, !cx.hover_none()))
+        .children(ui::quick_open::panel(s, hooks, cx.layout("quick-rows"), s.settings.sidebar.width, &theme, reduced, !cx.hover_none()))
         .on_window_focus(|s: &mut App, focused, _| s.window_active = focused)
 }
 

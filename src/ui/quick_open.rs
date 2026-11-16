@@ -14,15 +14,15 @@ use rune_kit::glyphs;
 
 use super::sidebar::{Hooks, Motion, pressable, row_meta, small_font, ui_font};
 use crate::fx::{self, Mark};
-use super::theme::{FIELD_H, FIELD_MARGIN_BOTTOM, FIELD_MARGIN_X, HAIRLINE, ICON, KBD_PAD_X, KBD_PAD_Y, KBD_TEXT, KBD_WEIGHT, R_FIELD, R_KBD, R_PANEL, R_ROW, ROW_GAP, ROW_PAD, SECTION_PAD_BOTTOM, SECTION_PAD_TOP, TAB_BAR_H, FRAME, Theme, UI_SMALL, UI_WEIGHT};
+use super::theme::{FIELD_H, FIELD_MARGIN_BOTTOM, FIELD_MARGIN_X, HAIRLINE, ICON, KBD_PAD_X, KBD_PAD_Y, KBD_TEXT, KBD_WEIGHT, R_FIELD, R_KBD, R_PANEL, R_ROW, ROW_GAP, ROW_PAD, SECTION_PAD_BOTTOM, SECTION_PAD_TOP, FRAME, Theme, UI_SMALL, UI_WEIGHT};
 
 /// Maximum results (assumption: past this you do not scroll, you type more).
 pub const MAX_RESULTS: usize = 50;
 
-/// The panel: 560 wide (less with a narrow window, `QUICK_SIDE` from the edges), at the top,
-/// `QUICK_TOP` from the window, below the tab bar (mockup: 72).
+/// The panel: 560 wide (less with a narrow window, `QUICK_SIDE` from the edges), centred on the main
+/// (document) panel on both axes (feedback group 3, item 2). The full panel (`FULL_H`, eight rows) is
+/// what is centred; with fewer rows it keeps the same top, so typing does not make it jump.
 pub const QUICK_W: f32 = 560.0;
-const QUICK_TOP: f32 = FRAME + TAB_BAR_H + 20.0;
 const QUICK_SIDE: f32 = 16.0;
 /// The field at the top (48, text 15), the rows (`QUICK_ROW`, margin 6, 2 between rows), the footer (36).
 const QUICK_HEAD: f32 = 48.0;
@@ -41,6 +41,10 @@ const PLACE_MIN: f32 = 40.0;
 const QUICK_VISIBLE: f32 = 8.0;
 /// The veil over the content: `panel` at 60 % (mockup).
 const SCRIM: f32 = 0.6;
+/// The list's height with `QUICK_VISIBLE` rows: past it, it scrolls.
+const LIST_MAX: f32 = QUICK_PAD * 2.0 + QUICK_VISIBLE * QUICK_ROW + (QUICK_VISIBLE - 1.0) * QUICK_ROW_GAP;
+/// The full panel's height: field, line, eight rows, line, footer.
+pub const FULL_H: f32 = QUICK_HEAD + HAIRLINE + LIST_MAX + HAIRLINE + QUICK_FOOT;
 
 
 /// A matching name always beats a matching folder.
@@ -348,7 +352,9 @@ fn result_row<S: 'static>(sb: &super::sidebar::Sidebar, hooks: Hooks<S>, i: usiz
 /// The Cmd+P panel, to mount at the root: a `panel` veil at 60 % over the whole window and
 /// above it, centered, the panel (`panel`, radius `R_PANEL`, panel border and shadow). The
 /// panel is modal: a click outside or Esc close it. Empty if closed.
-pub fn panel<S: 'static>(s: &S, hooks: Hooks<S>, list: Option<[f32; 4]>, theme: &Theme, reduced: bool, hover: bool) -> Vec<El> {
+/// `left`: the main panel's left edge in the window (the sidebar's width); the main panel is the rest of
+/// the window, `FRAME` from the top, right and bottom.
+pub fn panel<S: 'static>(s: &S, hooks: Hooks<S>, list: Option<[f32; 4]>, left: f32, theme: &Theme, reduced: bool, hover: bool) -> Vec<El> {
     let sb = (hooks.get)(s);
     if !sb.quick.active() {
         return Vec::new();
@@ -386,8 +392,7 @@ pub fn panel<S: 'static>(s: &S, hooks: Hooks<S>, list: Option<[f32; 4]>, theme: 
         rows = rows.child(result_row(sb, hooks, i, r, label, row_w, theme, motion));
     }
     let list = rows;
-    let list_max = QUICK_PAD * 2.0 + QUICK_VISIBLE * QUICK_ROW + (QUICK_VISIBLE - 1.0) * QUICK_ROW_GAP;
-    let scroll = col().key("quick").w_full().max_h(list_max).shrink().min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(list);
+    let scroll = col().key("quick").w_full().max_h(LIST_MAX).shrink().min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(list);
     let n = sb.quick_rows.len();
     let count = text(if n == 1 { "1 file".to_owned() } else { format!("{n} files") }).key("quick-count").font(small_font()).color(theme.fg3);
     let foot = row()
@@ -424,7 +429,11 @@ pub fn panel<S: 'static>(s: &S, hooks: Hooks<S>, list: Option<[f32; 4]>, theme: 
     // drawn outside its rect is not cut.
     let host = el().key("quick-edge").w_full().max_w(QUICK_W).radius(R_PANEL).child(surface);
     let host = fx::ring::slot_as(host, Mark::QuickPanel, fx::ring::edge(writing, true), reduced, theme.dark, fx::ring::Calm::Panel);
-    let veil = col().key("quick-scrim").absolute(0.0, 0.0).w_full().h_full().fill(theme.panel.alpha(SCRIM)).items_center().pt(QUICK_TOP).px(QUICK_SIDE).child(host);
+    // A box as tall as the full panel, centred on the main panel; the panel hangs from its top. On a short
+    // window the box shrinks and the list scrolls.
+    let slot = col().key("quick-slot").w_full().max_w(QUICK_W).h(FULL_H).shrink().min_h(0.0).items_center().child(host);
+    let area = col().key("quick-area").pin(Some(left), Some(FRAME), Some(FRAME), Some(FRAME)).items_center().justify_center().padding(QUICK_SIDE).child(slot);
+    let veil = el().key("quick-scrim").absolute(0.0, 0.0).w_full().h_full().fill(theme.panel.alpha(SCRIM)).child(area);
     vec![veil]
 }
 
@@ -676,7 +685,9 @@ mod tests {
             settle(&mut rt);
             let p = find(&rt, "quick-panel").expect("panel").rect;
             assert_eq!(p[2], super::super::QUICK_W);
-            assert!((p[0] + p[2] / 2.0 - 600.0).abs() < 1.0, "centered: {p:?}");
+            let main = find(&rt, "main").unwrap().rect;
+            let mid_x = main[0] + (main[2] - crate::ui::theme::FRAME) / 2.0;
+            assert!((p[0] + p[2] / 2.0 - mid_x).abs() < 1.0, "centred on the main panel: {p:?} in {main:?}");
             assert!(p[1] > 44.0, "below the tab bar: {p:?}");
             assert_eq!(find(&rt, "main").unwrap().rect, doc_before, "the document does not move");
             let foot: Vec<String> = rt.elements().into_iter().filter_map(|e| e.text).collect();
@@ -700,6 +711,53 @@ mod tests {
             click(&mut rt, x, y);
             settle(&mut rt);
             assert!(find(&rt, "quick-panel").is_some());
+        }
+
+        /// Feedback group 3, item 2: the panel is centred on the main (document) panel on both axes,
+        /// not on the window. The full panel (eight rows) is centred; with fewer rows it keeps the same
+        /// top, so typing does not move it.
+        #[test]
+        fn the_panel_is_centred_on_the_main_panel() {
+            use crate::ui::theme::FRAME;
+            let dir = tempfile::tempdir().unwrap();
+            let root = dir.path().canonicalize().unwrap();
+            let mut entries = Vec::new();
+            for n in 0..12 {
+                let p = root.join(format!("note-{n}.md"));
+                std::fs::write(&p, "# n\n").unwrap();
+                entries.push(Entry { path: p, mtime: std::time::SystemTime::now() });
+            }
+            let mut state = App::bare(Library::load(Vec::new(), None));
+            state.library.index = Index::from_entries(entries);
+            let mut rt = Runtime::new(state, crate::view, (1300.0, 900.0), Env::new(true, 2.0));
+            rt.on_key = Some(crate::on_key);
+            rt.frame(0.0);
+            settle(&mut rt);
+            rt.key(cmd_p());
+            settle(&mut rt);
+            rt.update(|s: &mut App, _| {
+                s.sidebar.quick.edit.replace_text("note");
+                s.requery_sidebar();
+            });
+            settle(&mut rt);
+            let main = find(&rt, "main").unwrap().rect;
+            // The main panel inside "main": `FRAME` from the top, right and bottom.
+            let area = [main[0], main[1] + FRAME, main[2] - FRAME, main[3] - 2.0 * FRAME];
+            let full = find(&rt, "quick-panel").expect("panel").rect;
+            assert!((full[3] - super::super::FULL_H).abs() < 1.0, "eight rows: the full panel {full:?}");
+            let (cx, cy) = (full[0] + full[2] / 2.0, full[1] + full[3] / 2.0);
+            assert!((cx - (area[0] + area[2] / 2.0)).abs() < 1.0, "across: {full:?} in {area:?}");
+            assert!((cy - (area[1] + area[3] / 2.0)).abs() < 1.0, "down: {full:?} in {area:?}");
+            assert!(area[0] > 100.0, "the main panel starts after the sidebar: {area:?}");
+            // Fewer rows: shorter, same top.
+            rt.update(|s: &mut App, _| {
+                s.sidebar.quick.edit.replace_text("note-1");
+                s.requery_sidebar();
+            });
+            settle(&mut rt);
+            let few = find(&rt, "quick-panel").unwrap().rect;
+            assert!(few[3] < full[3], "fewer rows: {few:?}");
+            assert!((few[1] - full[1]).abs() < 1.0, "the same top: {few:?} / {full:?}");
         }
 
         /// Record 2026-11-15-quick-open-one-line, constraint 1: each row is on a single line,
