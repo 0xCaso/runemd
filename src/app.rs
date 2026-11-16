@@ -1191,11 +1191,18 @@ impl App {
         true
     }
 
-    /// The fire of the front tab is at rest and moving: without a display link, `poll` requests a
-    /// wakeup every `fx::fire::REST_FRAME` to redraw it. Still (inactive window, "reduce
-    /// motion") or lit (the display link moves it): no.
+    /// The fire of the front tab is at rest and moving, or the empty screen's wordmark fire is calm or
+    /// falling (forge-empty): without a display link, `poll` requests a wakeup every
+    /// `fx::fire::REST_FRAME` to redraw it. Still (inactive window, "reduce motion") or lit (the
+    /// display link moves it): no. The fall holds the display link anyway; the extra wakes cost nothing.
     pub fn fire_rests(&self) -> bool {
-        self.settings.fire && self.window_active && !self.reduced_seen.get() && self.tab().is_some_and(|t| matches!(t.mode, Mode::Read) && t.fire_since.is_none())
+        if !self.window_active || self.reduced_seen.get() {
+            return false;
+        }
+        match self.tab() {
+            Some(t) => self.settings.fire && matches!(t.mode, Mode::Read) && t.fire_since.is_none(),
+            None => self.writing_since().is_none(),
+        }
     }
 
     /// Cmd+E on the front tab: enters the source or, if already there, saves if there are changes and

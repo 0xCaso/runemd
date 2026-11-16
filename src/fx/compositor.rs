@@ -10,7 +10,7 @@ use crate::App;
 
 /// A single compositor for the window. Without effects (no layer, no slot) the frame is
 /// Rune's default one and `animating()` is false: no frames, no cost. The fire at
-/// rest does not hold the display link: the `fire::REST_FRAME` wake-ups redraw it.
+/// rest and the calm wordmark fire do not hold the display link: the `fire::REST_FRAME` wake-ups redraw them.
 ///
 /// Rings, fire and caret do not go through `set`: the view puts a `ring::slot` slot only while
 /// the file "is writing" or on the calm edge (active tab, ⌘P panel), a `fire::slot` always in reading mode (at rest or lit) and a
@@ -115,7 +115,7 @@ impl Compositor<App> for FxCompositor {
         let mut layers: Vec<FxLayer> = Vec::new();
         let mut slots: Vec<FxSlot> = Vec::new();
         let mut pulsing = false;
-        let mut paced_fire = None;
+        let mut paced: Vec<usize> = Vec::new();
         let mut saw_fire = false;
         for (n, i) in f.rt.instances.iter().enumerate() {
             if i.params[1] != KIND_EFFECT {
@@ -139,13 +139,17 @@ impl Compositor<App> for FxCompositor {
                 // not with the display link.
                 if fire::paced(phase) {
                     self.fire_out = None;
-                    paced_fire = Some(layers.len());
+                    paced.push(layers.len());
                 }
                 saw_fire = true;
                 layer
             } else if mark == Mark::Forge.id() {
                 // The empty screen's wordmark: the slot is the letters' box (`fx::forge`).
+                // Calm, it moves with the same `fire::REST_FRAME` wake-ups (`App::fire_rests`).
                 let s = forge::slot_state(i.uv, clock);
+                if forge::paced(s.motion, s.t) {
+                    paced.push(layers.len());
+                }
                 forge::layer(rect_pt(i), s.motion, s.t, clock as f32)
             } else if mark == Mark::Caret.id() {
                 let (layer, moving) = caret_layer(i, clock);
@@ -166,7 +170,7 @@ impl Compositor<App> for FxCompositor {
         }
         // Still as soon as no layer moves: a ring with "reduce motion" does not hold the
         // display link, and one that went out is no longer among the instances. The pulsing caret does.
-        self.moving = pulsing || layers.iter().enumerate().any(|(k, l)| Some(k) != paced_fire && l.is_animating());
+        self.moving = pulsing || layers.iter().enumerate().any(|(k, l)| !paced.contains(&k) && l.is_animating());
         self.drew = !layers.is_empty();
         fx.set_srgb_blend(f.srgb_blend());
         fx.add_format(device, wgpu::TextureFormat::Rgba16Float);

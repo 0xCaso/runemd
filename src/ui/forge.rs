@@ -281,14 +281,15 @@ mod tests {
         forge::slot_state(rt.instances[n].uv, rt.clock).motion
     }
 
-    /// The fire is calm with no agent writing and moves while one writes (the "writing" rings);
-    /// with "reduce motion" or the window inactive it stays still.
+    /// The fire moves gently with no agent writing (paced wake-ups) and at full rate while one writes
+    /// (the "writing" rings); with "reduce motion" or the window inactive it stays still.
     #[test]
     fn the_fire_follows_the_writing_signal() {
         let mut rt = Runtime::new(empty_app(), crate::view, (1280.0, 800.0), Env::new(true, 2.0));
         rt.track_marks = true;
         settle(&mut rt);
         assert_eq!(motion_of(&rt), forge::Motion::Calm);
+        assert!(rt.state.fire_rests(), "calm: the paced wake-ups move it");
         let writing = vec![(std::path::PathBuf::from("/tmp/notes.md"), std::time::Duration::from_secs(10))];
         let clock = rt.clock;
         let step = |rt: &mut Runtime<crate::App>, f: &dyn Fn(&mut crate::App)| {
@@ -301,7 +302,8 @@ mod tests {
         assert_eq!(step(&mut rt, &|s| (s.window_active, s.motion_env) = (true, Some(true))), forge::Motion::Still, "reduce motion");
         assert_eq!(step(&mut rt, &|s| s.motion_env = None), forge::Motion::Moving);
         assert_eq!(step(&mut rt, &|s| _ = s.ring_step(&[], clock + 11.0, std::time::Instant::now())), forge::Motion::Falling, "it falls back when the agent stops");
-        assert_eq!(step(&mut rt, &|s| s.motion_env = Some(true)), forge::Motion::Calm, "reduce motion: calm at once");
+        assert_eq!(step(&mut rt, &|s| s.motion_env = Some(true)), forge::Motion::Frozen, "reduce motion: calm and still at once");
+        assert!(!rt.state.fire_rests(), "reduce motion: no wake-ups");
     }
 
     fn press(rt: &mut Runtime<crate::App>, key: &str) {
