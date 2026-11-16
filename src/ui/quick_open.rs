@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use rune::{Color, Key, KeyEvent, TextEdit, Tx, TextStyle, col, row, text, text_input, icon, El, ScrollSpec, el};
 use rune_kit::glyphs;
 
-use super::sidebar::{Hooks, Motion, pressable, ring_host, row_meta, small_font, ui_font};
+use super::sidebar::{Hooks, Motion, pressable, row_meta, small_font, ui_font};
 use crate::fx::{self, Mark};
 use super::theme::{FIELD_H, FIELD_MARGIN_BOTTOM, FIELD_MARGIN_X, HAIRLINE, ICON, KBD_PAD_X, KBD_PAD_Y, KBD_TEXT, KBD_WEIGHT, R_FIELD, R_KBD, R_PANEL, R_ROW, ROW_GAP, ROW_PAD, SECTION_PAD_BOTTOM, SECTION_PAD_TOP, TAB_BAR_H, FRAME, Theme, UI_SMALL, UI_WEIGHT};
 
@@ -310,7 +310,7 @@ fn name_width(row_w: f32, name_w: f32, time_w: f32) -> f32 {
 /// preview and the row becomes the choice, the panel stays; double click: pinned tab and the
 /// panel closes.
 #[allow(clippy::too_many_arguments)]
-fn result_row<S: 'static>(sb: &super::sidebar::Sidebar, hooks: Hooks<S>, i: usize, r: &super::sidebar::RecentRow, label: &str, row_w: f32, writing: Option<f64>, theme: &Theme, motion: Motion) -> El {
+fn result_row<S: 'static>(sb: &super::sidebar::Sidebar, hooks: Hooks<S>, i: usize, r: &super::sidebar::RecentRow, label: &str, row_w: f32, theme: &Theme, motion: Motion) -> El {
     let selected = i == sb.quick.selected;
     let (name_font, place_font, time_font) = (ui_font(), TextStyle::new(UI_SMALL, UI_WEIGHT), small_font());
     // The name is measured as the view measures it; the extra half point avoids a cut from rounding.
@@ -341,9 +341,8 @@ fn result_row<S: 'static>(sb: &super::sidebar::Sidebar, hooks: Hooks<S>, i: usiz
         e = e.fill(theme.sel);
     }
     let key = row_key(&r.path);
-    // metal-tab: the calm edge on the chosen row, the moving one on the row of a file being written.
-    let e = pressable(e, key.clone(), sb, hooks, theme, motion, !selected).radius(R_ROW);
-    ring_host(e, Mark::QuickRing(i as u32), fx::ring::edge(writing, selected), motion.reduced, theme.dark).key(key)
+    // No metal on the row: the edge goes around the whole panel (docs/decisions/2026-11-16-metal-tab-quick-open-panel.md).
+    pressable(e, key.clone(), sb, hooks, theme, motion, !selected).radius(R_ROW).key(key)
 }
 
 /// The Cmd+P panel, to mount at the root: a `panel` veil at 60 % over the whole window and
@@ -377,9 +376,14 @@ pub fn panel<S: 'static>(s: &S, hooks: Hooks<S>, list: Option<[f32; 4]>, theme: 
         let none = if sb.quick.empty_query() { "No recent files" } else { "No matching files" };
         rows = rows.child(text(none).key("quick-none").font(small_font()).color(theme.fg3).px(ROW_PAD).pt(SECTION_PAD_TOP).pb(SECTION_PAD_BOTTOM));
     }
+    // metal-tab: the panel edge moves while an agent writes any listed file, lit at the earliest one.
+    let mut writing: Option<f64> = None;
     for (i, r) in sb.quick_rows.iter().enumerate() {
         let label = sb.quick_labels.get(i).map(String::as_str).unwrap_or("");
-        rows = rows.child(result_row(sb, hooks, i, r, label, row_w, (hooks.ring)(s, &r.path), theme, motion));
+        if let Some(since) = (hooks.ring)(s, &r.path) {
+            writing = Some(writing.map_or(since, |w| w.min(since)));
+        }
+        rows = rows.child(result_row(sb, hooks, i, r, label, row_w, theme, motion));
     }
     let list = rows;
     let list_max = QUICK_PAD * 2.0 + QUICK_VISIBLE * QUICK_ROW + (QUICK_VISIBLE - 1.0) * QUICK_ROW_GAP;
@@ -415,7 +419,11 @@ pub fn panel<S: 'static>(s: &S, hooks: Hooks<S>, list: Option<[f32; 4]>, theme: 
         .child(line())
         .child(foot)
         .modal(true, move |s: &mut S| (hooks.get_mut)(s).quick.close());
-    let veil = col().key("quick-scrim").absolute(0.0, 0.0).w_full().h_full().fill(theme.panel.alpha(SCRIM)).items_center().pt(QUICK_TOP).px(QUICK_SIDE).child(surface);
+    // metal-tab: the metal edge around the whole panel, calm (frozen gunmetal) or moving. The host
+    // sits outside the panel's rounded clip, so the edge drawn outside its rect is not cut.
+    let host = el().key("quick-edge").w_full().max_w(QUICK_W).radius(R_PANEL).child(surface);
+    let host = fx::ring::slot(host, Mark::QuickPanel, fx::ring::edge(writing, true), reduced, theme.dark);
+    let veil = col().key("quick-scrim").absolute(0.0, 0.0).w_full().h_full().fill(theme.panel.alpha(SCRIM)).items_center().pt(QUICK_TOP).px(QUICK_SIDE).child(host);
     vec![veil]
 }
 
@@ -493,6 +501,24 @@ mod tests {
             (pick(true), pick(false))
         }
 
+        /// The ⌘P edges must be one slot around the whole panel, never on a row: the slot with
+        /// the panel mark wraps "quick-panel" (its rect, widened by the bleed).
+        fn panel_edge_wraps_the_panel(rt: &mut Runtime<App>) {
+            rt.track_marks = true;
+            rt.frame(1.0 / 60.0);
+            let panel = find(rt, "quick-panel").expect("panel").rect;
+            let slots: Vec<[f32; 4]> = rt
+                .instances
+                .iter()
+                .enumerate()
+                .filter(|(n, i)| i.params[1] == rune::render::KIND_EFFECT && rt.marks.get(*n).copied() == Some(Mark::QuickPanel.id()))
+                .map(|(_, i)| i.rect.map(|v| v / i.params[3].max(f32::EPSILON)))
+                .collect();
+            assert_eq!(slots.len(), 1, "one edge for the whole panel, none on rows: {slots:?}");
+            let r = slots[0];
+            assert!(r[2] >= panel[2] && r[3] >= panel[3], "the edge wraps the panel {panel:?}, not a row: {r:?}");
+        }
+
         fn quick_index(rt: &Runtime<App>, name: &str) -> u32 {
             rt.state.sidebar.quick_rows.iter().position(|r| r.name == name).unwrap_or_else(|| panic!("{name} not in ⌘P")) as u32
         }
@@ -519,36 +545,56 @@ mod tests {
             rt.frame(1.0 / 60.0);
         }
 
-        /// metal-tab, calm: a frozen edge on the active tab and, with ⌘P open, on the chosen row;
-        /// nothing moves and no Recent or tree row has metal.
+        /// metal-tab, calm (docs/decisions/2026-11-16-metal-tab-quick-open-panel.md): a frozen edge
+        /// on the active tab and, with ⌘P open, on the whole panel; no ⌘P row has an edge and
+        /// nothing moves.
         #[test]
-        fn calm_edge_on_the_active_tab_and_the_chosen_row() {
+        fn calm_edge_on_the_active_tab_and_the_quick_panel() {
             let (_d, mut rt) = open();
             assert_eq!(edges(&mut rt), (vec![Mark::TabRing(0).id()], vec![]));
             quick_on_a(&mut rt);
-            let chosen = rt.state.sidebar.quick.selected as u32;
-            assert_eq!(edges(&mut rt), (vec![Mark::TabRing(0).id(), Mark::QuickRing(chosen).id()], vec![]));
+            assert_eq!(edges(&mut rt), (vec![Mark::TabRing(0).id(), Mark::QuickPanel.id()], vec![]));
+            panel_edge_wraps_the_panel(&mut rt);
             assert!(rt.state.effects_lit());
         }
 
-        /// metal-tab, writing: the file being written has the moving edge on its tab, its ⌘P row
-        /// and its Recent row; the active tab of another file and the chosen row stay calm.
+        /// metal-tab, writing a listed file: the ⌘P panel edge moves (no row edge, the chosen row
+        /// included); the file's Recent row moves too; the active tab of another file stays calm.
         #[test]
-        fn writing_moves_the_edge_everywhere_the_file_shows() {
+        fn writing_a_listed_file_moves_the_panel_edge() {
             let (d, mut rt) = open();
             let root = d.path().canonicalize().unwrap();
             quick_on_a(&mut rt);
+            quick_index(&rt, "beta.md");
             write(&mut rt, root.join("beta.md"));
             let (calm, writing) = edges(&mut rt);
-            let chosen = rt.state.sidebar.quick.selected as u32;
-            let b = quick_index(&rt, "beta.md");
-            assert_ne!(chosen, b, "the chosen row is another file");
-            assert!(calm.contains(&Mark::TabRing(0).id()) && calm.contains(&Mark::QuickRing(chosen).id()), "{calm:?}");
-            assert!(writing.contains(&Mark::QuickRing(b).id()), "{writing:?}");
+            assert_eq!(calm, vec![Mark::TabRing(0).id()], "only the active tab is calm");
+            assert!(writing.contains(&Mark::QuickPanel.id()), "{writing:?}");
+            panel_edge_wraps_the_panel(&mut rt);
             if let Some(r) = recent_index(&rt, "beta.md") {
                 assert!(writing.contains(&Mark::RecentRing(r).id()), "{writing:?}");
             }
             assert!(!writing.contains(&Mark::TabRing(0).id()));
+        }
+
+        /// metal-tab: a file that is written but not in the ⌘P list leaves the panel edge calm.
+        #[test]
+        fn writing_an_unlisted_file_keeps_the_panel_calm() {
+            let (d, mut rt) = open();
+            let root = d.path().canonicalize().unwrap();
+            rt.key(cmd_p());
+            settle(&mut rt);
+            rt.update(|s: &mut App, _| {
+                s.sidebar.quick.edit.replace_text("beta");
+                s.requery_sidebar();
+            });
+            settle(&mut rt);
+            assert!(rt.state.sidebar.quick_rows.iter().all(|r| r.name != "gamma.md"), "gamma is not listed");
+            write(&mut rt, root.join("gamma.md"));
+            let (calm, writing) = edges(&mut rt);
+            assert!(calm.contains(&Mark::QuickPanel.id()), "{calm:?}");
+            assert!(!writing.contains(&Mark::QuickPanel.id()), "{writing:?}");
+            panel_edge_wraps_the_panel(&mut rt);
         }
 
         /// metal-tab: when the active tab's file is written, its calm edge becomes the moving one.

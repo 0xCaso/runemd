@@ -1179,7 +1179,7 @@ impl App {
 
     /// A per-slot effect is lit (ring, calm edge, fire or caret of the front tab): only then does the
     /// compositor walk the instances. The source shows no fire and no caret. The calm edge is on the
-    /// active tab and on the chosen ⌘P row (metal-tab).
+    /// active tab and around the ⌘P panel (metal-tab).
     pub fn effects_lit(&self) -> bool {
         let fire = self.settings.fire;
         self.ring_lit() || !self.tabs.is_empty() || self.sidebar.quick.active() || self.tab().is_some_and(|t| matches!(t.mode, Mode::Read) && (fire || t.caret_since.is_some()))

@@ -13,7 +13,7 @@ use crate::App;
 /// rest does not hold the display link: the `fire::REST_FRAME` wake-ups redraw it.
 ///
 /// Rings, fire and caret do not go through `set`: the view puts a `ring::slot` slot only while
-/// the file "is writing" or on the calm edge (active tab, chosen ⌘P row), a `fire::slot` always in reading mode (at rest or lit) and a
+/// the file "is writing" or on the calm edge (active tab, ⌘P panel), a `fire::slot` always in reading mode (at rest or lit) and a
 /// `caret::slot` only while the file is being written and the point of the last edit is known; here every slot becomes the layer of
 /// its rect.
 #[derive(Default)]

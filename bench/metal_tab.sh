@@ -1,8 +1,9 @@
 #!/bin/sh
 # metal-tab (docs/decisions/2026-11-16-metal-and-rune-effects.md), headless and in real time: a repo
 # with a few notes, two tabs open (the front one is the file an agent writes), ⌘P open on "paths".
-# Calm: frozen edge on the active tab and the chosen ⌘P row. Writing: a shell appends to the open
-# file and the edge moves on its tab, its ⌘P row, its Recent row and its tree row.
+# Calm: frozen edge on the active tab and the whole ⌘P panel. Writing: a shell appends to the open
+# file (listed in ⌘P) and the edge moves on its tab, the ⌘P panel, its Recent row and its tree row;
+# no ⌘P row has an edge (docs/decisions/2026-11-16-metal-tab-quick-open-panel.md).
 # usage: bench/metal_tab.sh [WORKDIR]  → WORKDIR/metal-tab-<calm|writing>-<theme>[-quick].png
 set -eu
 cd "$(dirname "$0")/.."

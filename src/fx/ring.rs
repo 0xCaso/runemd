@@ -5,8 +5,9 @@
 //! in Recent and the row in the tree.
 //!
 //! metal-tab (docs/decisions/2026-11-16-metal-and-rune-effects.md): when calm, the active tab and
-//! the chosen ⌘P row have a thin frozen gunmetal edge ([`CALM_W`]); while an agent writes the file
-//! the same place gets the moving ring. [`edge`] picks one of the two.
+//! the whole ⌘P panel have a thin frozen gunmetal edge ([`CALM_W`]); while an agent writes the file
+//! (for the panel: any file in its list) the same place gets the moving ring
+//! (docs/decisions/2026-11-16-metal-tab-quick-open-panel.md). [`edge`] picks one of the two.
 
 use std::f32::consts::TAU;
 
@@ -20,19 +21,19 @@ pub const RING_W: f32 = 2.5;
 /// Width of the calm edge, pt (metal-tab, constraint 3: about 1.5 to 2).
 pub const CALM_W: f32 = 1.75;
 
-/// The metal around a place that shows a file (tab, ⌘P row, Recent row, tree row).
+/// The metal around a place that shows a file (tab, ⌘P panel, Recent row, tree row).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Edge {
     /// No metal.
     Off,
-    /// Frozen gunmetal: the active tab or the chosen ⌘P row, while nobody writes the file.
+    /// Frozen gunmetal: the active tab or the open ⌘P panel, while nobody writes its file(s).
     Calm,
     /// Moving liquid chrome: an agent writes the file; lit at this Rune clock.
     Writing(f64),
 }
 
 /// The edge of a place: `writing` is the clock at which the file's ring lit (if it is writing),
-/// `chosen` says the place is the active tab or the chosen ⌘P row. Writing wins over calm.
+/// `chosen` says the place is the active tab or the ⌘P panel. Writing wins over calm.
 pub fn edge(writing: Option<f64>, chosen: bool) -> Edge {
     match (writing, chosen) {
         (Some(since), _) => Edge::Writing(since),
