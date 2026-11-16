@@ -963,8 +963,8 @@ mod tests {
         let fire = rt.elements().into_iter().find(|e| e.key.as_deref() == Some("fire")).expect("the fire slot").rect;
         let lit_top = fire[1] + fire[3] - crate::fx::fire::lit_height(rt.state.settings.fire_height);
         assert!(last[1] + last[3] <= lit_top + 0.5, "the last row {last:?} above the lit fire (top {lit_top})");
-        assert_eq!(bottom_room(false, 6.5), SECTION_PAD_TOP);
-        assert!(bottom_room(true, 6.5) > bottom_room(true, 1.0));
+        assert_eq!(bottom_room(false, 5.5), SECTION_PAD_TOP);
+        assert!(bottom_room(true, 5.5) > bottom_room(true, 1.0));
     }
 
     /// Cmd+, opens the panel (in place of the outline), Cmd+, and Esc close it.

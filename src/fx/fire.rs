@@ -39,12 +39,12 @@ const LIGHT_INTENSITY: f32 = 1.0;
 /// contains 1 (today).
 pub const STRENGTHS: [f32; 7] = [0.4, 0.6, 0.8, 1.0, 1.25, 1.5, 1.75];
 /// The "Height" heights, as a factor of `REST_H` (and of `FIRE_H` up to `SPAN_MAX`); contains 1.
-/// The top steps (feedback group 3, item 11) raise the resting flames to about a quarter of an
-/// 800 pt window, where Matteo drew the line; the end of the document gets room for them
-/// (`doc_bottom`).
-pub const HEIGHTS: [f32; 12] = [0.5, 0.65, 0.8, 1.0, 1.2, 1.4, 1.6, 2.2, 3.0, 4.0, 5.2, 6.5];
-/// Past this factor the lit fire rises no further above the resting one: at 6.5 the lit flames would
-/// otherwise fill the window.
+/// The top steps (feedback group 3, item 11) raise the resting flames to about 22 % of an 800 pt
+/// window, where Matteo drew the line (measured headless: the tongues reach about 1.25 × the
+/// resting height); the end of the document gets room for them (`doc_bottom`).
+pub const HEIGHTS: [f32; 12] = [0.5, 0.65, 0.8, 1.0, 1.2, 1.4, 1.6, 2.2, 3.0, 4.0, 4.8, 5.5];
+/// Past this factor the lit fire rises no further above the resting one: at 5.5 the lit flames would
+/// otherwise fill most of the window.
 const SPAN_MAX: f32 = 1.6;
 
 /// The resting flame height at factor `k`, pt.
@@ -58,11 +58,14 @@ pub fn lit_height(k: f32) -> f32 {
     rest_height(k) + (FIRE_H - REST_H) * k.min(SPAN_MAX)
 }
 
+/// How far the resting tongues reach above their height (measured headless at the top step).
+const TONGUES: f32 = 1.3;
+
 /// The space below the last row of the document: `doc_view::BOTTOM`, or more when the resting fire is
 /// taller, so at the end of the document the flames cover no text.
 pub fn doc_bottom(fire: bool, k: f32) -> f32 {
     let base = crate::ui::doc_view::BOTTOM;
-    if fire { base.max(rest_height(k) + 6.0) } else { base }
+    if fire { base.max(rest_height(k) * TONGUES + 6.0) } else { base }
 }
 /// The "Speed" speeds, as a factor of `SPEED`; contains 1. They do not change the wake-ups at
 /// rest (`REST_FRAME`), so not the CPU at rest either.
@@ -453,18 +456,19 @@ mod tests {
         for k in HEIGHTS {
             assert!(height_scaled(Phase::Rest, false, k) < doc_bottom(true, k), "{k}");
         }
-        assert_eq!(doc_bottom(true, 1.6), crate::ui::doc_view::BOTTOM);
-        assert_eq!(doc_bottom(false, 6.5), crate::ui::doc_view::BOTTOM, "no fire, no extra room");
+        assert_eq!(doc_bottom(true, 1.0), crate::ui::doc_view::BOTTOM, "the default keeps its 48");
+        assert!(doc_bottom(true, 5.5) >= rest_height(5.5) * TONGUES, "room for the tongues too");
+        assert_eq!(doc_bottom(false, 5.5), crate::ui::doc_view::BOTTOM, "no fire, no extra room");
     }
 
-    /// Feedback group 3, item 11: the top step raises the resting flames to about a quarter of an 800 pt
-    /// window (Matteo's line, 22–25 % above the bottom edge); the lit fire rises above it by at most the
+    /// Feedback group 3, item 11: the top step raises the resting flames (with their tongues) to about
+    /// 22 % of an 800 pt window (Matteo's line, 22–25 % above the bottom edge); the lit fire rises above it by at most the
     /// old top rise, and the steps up to 1.6 are as before.
     #[test]
     fn the_top_height_reaches_a_quarter_of_the_window() {
         let top = *HEIGHTS.last().unwrap();
         let rest = rest_height(top);
-        assert!((150.0..=200.0).contains(&rest), "rest at the top step: {rest}");
+        assert!((160.0..=200.0).contains(&(rest * TONGUES)), "rest at the top step: {rest}");
         assert!(lit_height(top) - rest <= (FIRE_H - REST_H) * 1.6 + 1e-3);
         assert!(lit_height(top) < 340.0, "the lit fire does not fill the window: {}", lit_height(top));
         for k in [0.5, 1.0, 1.6] {

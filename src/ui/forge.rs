@@ -109,7 +109,8 @@ pub fn view(f: Forge, theme: &Theme) -> El {
     // A soft shadow under the strip: on the light panel the chrome's light edges would melt into it.
     let shadow = if theme.dark { rune::Color::BLACK.alpha(0.45) } else { rune::Color::BLACK.alpha(0.16) };
     let mark = el().key("forge-mark").w(w).h(h).radius(plate_radius(w)).shadow(2.0, 10.0, shadow).label("RuneMD").child(letters).child(fire).child(plate);
-    let line = text(TAGLINE).key("forge-line").font(TextStyle::new(theme::BODY_TEXT, theme::UI_WEIGHT)).color(theme.fg2).align(rune::Align::Center).max_w(TAGLINE_W.min(w));
+    let line = text(TAGLINE).key("forge-line").font(TextStyle::new(theme::BODY_TEXT, theme::UI_WEIGHT)).color(theme.fg2).align(rune::Align::Center).wrap().w_full();
+    let line = col().key("forge-line-box").w(TAGLINE_W.min(w)).items_center().child(line);
     let buttons = row().key("forge-buttons").gap(8.0).mt(BUTTONS_GAP - GAP).child(open_file(theme)).child(add_folder(theme));
     // A zero-height anchor under the buttons: the agent line hangs from it.
     let agent = f.writing.zip(f.file).map(|(since, path)| agent_line(path, since, f.reduced, theme));
@@ -368,10 +369,11 @@ mod tests {
         let mut rt = Runtime::new(empty_app(), crate::view, (1280.0, 800.0), Env::new(true, 2.0));
         settle(&mut rt);
         let line = rt.elements().into_iter().find(|e| e.key.as_deref() == Some("forge-line")).unwrap();
+        let lines = rt.elements().into_iter().find(|e| e.key.as_deref() == Some("forge-line-box")).unwrap().rect;
         assert_eq!(line.text.as_deref(), Some("A beautiful native Markdown reader for macOS. It also shows what your agents write, live."));
         let (mark, r) = (rect(&rt, "forge-mark"), line.rect);
         assert!(((r[0] + r[2] / 2.0) - (mark[0] + mark[2] / 2.0)).abs() < 1.0, "centred: {r:?}");
-        assert!(r[2] <= TAGLINE_W + 0.5 && r[3] < 3.0 * crate::ui::theme::BODY_TEXT * 1.6, "at most two lines: {r:?}");
+        assert!(lines[2] <= TAGLINE_W + 0.5 && r[2] <= lines[2] + 0.5 && r[3] < 3.0 * crate::ui::theme::BODY_TEXT * 1.6, "at most two lines: {r:?} in {lines:?}");
     }
 
     /// Opening a file replaces the empty screen.
