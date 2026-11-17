@@ -17,10 +17,12 @@ use rune_fx::{Fx, FxLayer, LiquidMetalParams, Rect, Shape};
 use super::Mark;
 use crate::lab::{self, RingTuning, bezier::ease};
 
-/// Ring width, pt (DESIGN.md: 2.5; docs/decisions/2026-11-15-thick-ring.md).
-pub const RING_W: f32 = 2.5;
-/// Width of the calm edge, pt (metal-tab, constraint 3: about 1.5 to 2).
-pub const CALM_W: f32 = 1.75;
+/// Ring width, pt (DESIGN.md: 3.25; docs/decisions/2026-11-15-thick-ring.md chose 2.5, and on
+/// 2026-11-17 every metal edge became about 30 % thicker before release).
+pub const RING_W: f32 = 3.25;
+/// Width of the calm edge, pt (metal-tab, constraint 3: about 1.5 to 2; 1.75 until the 2026-11-17
+/// "slightly thicker" pass, which keeps the tab at 0.7 of the ring).
+pub const CALM_W: f32 = 2.3;
 
 /// The metal around a place that shows a file (tab, ⌘P panel, Recent row, tree row).
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -228,11 +230,22 @@ mod tests {
         }
     }
 
-    /// docs/decisions/2026-11-15-thick-ring.md, constraint 1: 2.5 px, not 1.5.
+    /// docs/decisions/2026-11-15-thick-ring.md (2.5, not 1.5), then the 2026-11-17 pass: 3.25.
     #[test]
-    fn ring_is_2_5_px_wide() {
-        assert_eq!(RING_W, 2.5);
-        assert_eq!(fill(&layer(row(), 1.0, false)).border, 2.5);
+    fn ring_is_3_25_pt_wide() {
+        assert_eq!(RING_W, 3.25);
+        assert_eq!(fill(&layer(row(), 1.0, false)).border, 3.25);
+    }
+
+    /// The 2026-11-17 pass made every metal edge about 30 % thicker and kept the tab's calm edge
+    /// at 0.7 of the ring, as it was (1.75 / 2.5).
+    #[test]
+    fn every_metal_edge_is_thicker_in_the_same_proportion() {
+        const { assert!(RING_W / 2.5 >= 1.3 && RING_W / 2.5 <= 1.4) };
+        const { assert!(CALM_W / 1.75 >= 1.3 && CALM_W / 1.75 <= 1.4) };
+        assert!((CALM_W / RING_W - 1.75 / 2.5).abs() < 0.01);
+        assert_eq!(Calm::Panel.width(), RING_W);
+        assert_eq!(lab::LabTuning::DEFAULT.ring.width, RING_W);
     }
 
     #[test]
@@ -314,11 +327,11 @@ mod tests {
         assert_eq!(edge(None, false), Edge::Off);
     }
 
-    /// metal-tab, constraint 3: a thin frozen gunmetal edge, 1.5 to 2 pt, outside the row and
-    /// rounded like it; it never animates.
+    /// metal-tab, constraint 3: a thin frozen gunmetal edge (1.5 to 2 pt, then 2.3 after the
+    /// 2026-11-17 pass), thinner than the ring, outside the row and rounded like it; it never animates.
     #[test]
     fn calm_edge_is_thin_frozen_gunmetal() {
-        assert!((1.5..=2.0).contains(&CALM_W));
+        const { assert!(CALM_W < RING_W) };
         let l = calm_layer(row(), 6.0, true, Calm::Tab);
         assert_eq!(fill(&l).border, CALM_W);
         let m = metal_of(&l);

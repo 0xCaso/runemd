@@ -2,7 +2,7 @@
 # Contrast of the "writing" ring on the pixels (DESIGN.md, "Contrast"): for each point of the straight
 # sides around the tab (rect in pt from --tree, scale 2) the highest-contrast pixel over the 3 px of
 # thickness, against the tab bar (panel) and against the tab's sel fill.
-# The thickness is the ring's (`fx::ring::RING_W`, 2.5 pt) at scale 2: 5 px (before 3, with the 1.5 ring).
+# The thickness is the ring's (`fx::ring::RING_W`, 3.25 pt) at scale 2: 6.5 px; pass 6 as BAND_PX (5 for the 2.5 ring, 3 for the 1.5 one).
 # usage: python3 -I bench/ring_contrast.py PHOTO.png X Y W H [BAND_PX]   (e.g. 258 16 240 28 from bench/worst_case.sh)
 import subprocess, sys, statistics
 img, rx, ry, rw, rh = sys.argv[1], *map(float, sys.argv[2:6])

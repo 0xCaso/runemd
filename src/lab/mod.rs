@@ -326,7 +326,7 @@ mod tests {
     #[test]
     fn the_defaults_as_json_are_the_default() {
         let mut s = LabState::default();
-        let json = snap(1, r#""ringEnter":220,"ringEnterEase":[0.33,1,0.68,1],"ringTurn":3000,"ringTurnEase":[0,0,1,1],"ringWidth":2.5,"fireRise":420,"fireRiseEase":[0.33,1,0.68,1],"fireFall":300,"fireRestH":26,"fireLitH":110"#, "null");
+        let json = snap(1, r#""ringEnter":220,"ringEnterEase":[0.33,1,0.68,1],"ringTurn":3000,"ringTurnEase":[0,0,1,1],"ringWidth":3.25,"fireRise":420,"fireRiseEase":[0.33,1,0.68,1],"fireFall":300,"fireRestH":26,"fireLitH":110"#, "null");
         assert!(!apply_snapshot(&mut s, &json), "nothing changed");
         assert_eq!(s.seq, 1);
         assert_eq!(s.tuning, LabTuning::DEFAULT);
