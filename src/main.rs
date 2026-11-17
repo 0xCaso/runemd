@@ -118,7 +118,7 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
             // Labelled blocks in two columns if the text column is wide (from the last
             // layout; Rune runs the view again when the threshold is crossed).
             let columns = cx.layout_with("rows", |r| r[2] - 2.0 * ui::theme::ROW_PAD_X >= ui::doc_view::TWO_COLUMNS).unwrap_or(false);
-            let signals = ui::doc_view::Signals { marked: App::is_marked, mark: theme.mark, caret, hits: App::find_hits, edge: App::doc_edge, meta: theme.meta(), fonts: ui::markdown_style::fonts(fonts::Typeface::of(&s.settings.font, s.settings.size)), open: App::open_link, columns, bottom: fx::fire::doc_bottom(s.settings.fire, s.settings.fire_height) };
+            let signals = ui::doc_view::Signals { marked: App::is_marked, mark: theme.mark, caret, hits: App::find_hits, edge: App::doc_edge, meta: theme.meta(), fonts: ui::markdown_style::fonts(fonts::Typeface::of(&s.settings.font, s.settings.size)), open: App::open_link, columns, bottom: fx::fire::doc_bottom(s.settings.fire.shows(), s.settings.fire_height) };
             let doc = ui::doc_view::view(s, App::active_document, s.style(dark), s.settings.column, App::visible_rows, signals);
             // The heading outline on the right, only if the window is at least sidebar + column
             // + 200 wide (before the first layout it is not known: no outline). The view reads it from Rune,
@@ -173,7 +173,7 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
     if let Some(tab) = s.tab().filter(|t| matches!(t.mode, app::Mode::Read)) {
         let lit = tab.fire_since.map(|since| (since, tab.below.count()));
         let look = s.settings.fire_look(fx::fire::accent_hex(cx.accent()));
-        panel = panel.children(fire_band(lit, s.settings.fire, look, dark, &theme, reduced, s.window_active));
+        panel = panel.children(fire_band(lit, s.fire_flames(), look, dark, &theme, reduced, s.window_active));
     }
     // The "is writing" ring sits on the file's tab (`ui::tabs`) and on its rows in
     // Recent and in the tree.
@@ -201,7 +201,7 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
     rune::row().key("app").on_layout_tx(width).w_full().h_full().system_material(rune::SystemMaterial::Glass).fill(theme.glass_fallback()).child(tint).child(sidebar).child(main).child(drag_top).child(drag_frame).child(sidebar_edge)
         .children(ui::tabs::width_popover(s, &theme))
         .children(ui::quick_open::panel(s, hooks, cx.layout("quick-rows"), s.settings.sidebar.width, &theme, reduced, !cx.hover_none()))
-        .on_window_focus(|s: &mut App, focused, _| s.window_active = focused)
+        .on_window_focus(|s: &mut App, focused, _| s.window_focus(focused))
 }
 
 /// The strip that drags the edge of the sidebar (`sidebar`) or of the outline: `EDGE_W` wide, inside the
@@ -223,21 +223,22 @@ fn edge(key: &str, sidebar: bool) -> El {
 }
 
 /// The fire and its label at the bottom of the panel. `lit`: since when there is new text below the
-/// view, and how many blocks; `None` at rest (low flames, no label). With the fire
-/// turned off in the settings (`Settings::fire`) there is nothing at rest, and with new text only
+/// view, and how many blocks; `None` at rest (low flames, no label). `flames` (`App::fire_flames`):
+/// whether the flames show and when they fade at rest (Brief). Without flames (Off, or Brief
+/// faded out) there is nothing at rest, and with new text (Off) only
 /// the label, in `fg2` on a `panel` strip with the `line` line above: without the flames below,
 /// the document text must not pass behind it.
-fn fire_band(lit: Option<(f64, usize)>, fire: bool, look: fx::fire::Look, dark: bool, theme: &ui::theme::Theme, reduced: bool, active: bool) -> Vec<El> {
+fn fire_band(lit: Option<(f64, usize)>, flames: Option<Option<f64>>, look: fx::fire::Look, dark: bool, theme: &ui::theme::Theme, reduced: bool, active: bool) -> Vec<El> {
     let label = |count, ink| rune::text(ui::doc_view::fire_label(count)).key("fire-text").font(rune::TextStyle::new(ui::theme::UI_TEXT, ui::theme::UI_WEIGHT)).color(ink);
-    if !fire {
+    let Some(fade_at) = flames else {
         let Some((_, count)) = lit else { return Vec::new() };
         let line = el().w_full().h(ui::theme::HAIRLINE).fill(theme.line);
         let strip = rune::col().w_full().h(ui::theme::TAB_BAR_H).fill(theme.panel).items_center().justify_center().child(label(count, theme.fg2));
         return vec![rune::col().key("fire-label").pin(Some(0.0), None, Some(0.0), Some(0.0)).child(line).child(strip)];
-    }
+    };
     let band = |key: &str, h: f32| rune::col().key(key).pin(Some(0.0), None, Some(0.0), Some(0.0)).h(h);
     // The slot as tall as the lit fire at the chosen height; the label stays where it was.
-    let flames = fx::fire::slot(band("fire", fx::fire::lit_height(look.height)), lit.map(|(since, _)| since), dark, reduced, active, look);
+    let flames = fx::fire::slot(band("fire", fx::fire::lit_height(look.height)), lit.map(|(since, _)| since), fade_at, dark, reduced, active, look);
     let Some((_, count)) = lit else { return vec![flames] };
     let ink = if dark { theme.panel } else { theme.fg };
     let text = band("fire-label", fx::fire::FIRE_H).items_center().justify_end().pb(ui::theme::FIRE_LABEL_BOTTOM).child(label(count, ink));
@@ -403,8 +404,13 @@ fn poll(s: &mut App, clock: f64, tx: &mut Tx) -> bool {
     if let Some(d) = s.sidebar.label_wake(wall, clock) {
         tx.wake_after(d);
     }
+    // The Brief fire: a show asked for since the last poll starts now, and one wake-up ends it.
+    let (brief, end) = s.tick_fire(clock);
+    if let Some(end) = end {
+        tx.wake_at(end);
+    }
     // The fire at rest moves without a display link: a wake-up every `REST_FRAME` redraws it.
-    let resting = s.fire_rests();
+    let resting = s.fire_rests(clock);
     if resting {
         tx.wake_after(fx::fire::REST_FRAME);
     }
@@ -422,7 +428,7 @@ fn poll(s: &mut App, clock: f64, tx: &mut Tx) -> bool {
     let blurred = s.sidebar.blur_close() | s.settings_panel.expire(Instant::now());
     // The wordmark's next size is decoded: the view swaps it in.
     let wordmark = s.forge_images.borrow().next_ready();
-    let changed = opened || tabs || ring || side || blurred || found || wordmark;
+    let changed = opened || tabs || ring || side || blurred || found || wordmark || brief;
     // Only the fire at rest to redraw: a frame without running the view again.
     if resting && !changed {
         tx.live_only();

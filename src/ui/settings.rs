@@ -6,8 +6,8 @@
 //! document by a 0.5 line in `line`; section labels like the sidebar ones (small
 //! UI in `fg3`); 28 rows (`ROW`, radius 6, hover `sel`, scale 0.98 when pressed). The chosen
 //! option has the `sel` fill, `fg` text and the check mark in `fg`; the others `fg2` text. The
-//! fire checkbox has its border in `fg3` and, when on, the `fg2` fill with the check in
-//! `panel`: all ≥ 3:1 on the panel in both themes (`ui::contrast`). No accent, no pill.
+//! fire is a choice of three like the theme (Brief, Always, Off), with a note in `fg3` under Always:
+//! all ≥ 3:1 on the panel in both themes (`ui::contrast`). No accent, no pill.
 
 use std::borrow::Cow;
 use std::path::{Path, PathBuf};
@@ -20,12 +20,12 @@ use rune_kit::glyphs;
 
 use super::sidebar::{self, Hooks, Motion};
 use super::theme::{
-    HAIRLINE, ICON, OUTLINE_PAD_X, R_KBD, ROW, ROW_GAP, ROW_PAD, SECTION_PAD_BOTTOM,
+    HAIRLINE, ICON, OUTLINE_PAD_X, ROW, ROW_GAP, ROW_PAD, SECTION_PAD_BOTTOM,
     SECTION_PAD_TOP, SIDEBAR, Theme, UI_SMALL, UI_STRONG_WEIGHT, UI_TEXT,
     UI_WEIGHT,
 };
 use crate::app::App;
-use crate::settings::ThemePref;
+use crate::settings::{FireMode, ThemePref};
 
 /// The panel texts (exact).
 pub const TITLE: &str = "Settings";
@@ -45,6 +45,14 @@ pub const THEMES: [(ThemePref, &str); 3] = [
     (ThemePref::Dark, "Dark"),
 ];
 pub const FIRE: &str = "Fire at the bottom of the panel";
+/// Its three choices (decision `2026-11-17-doc-fire-at-rest`), Brief first (the default).
+pub const FIRE_MODES: [(FireMode, &str); 3] = [
+    (FireMode::Brief, "Brief"),
+    (FireMode::Always, "Always"),
+    (FireMode::Off, "Off"),
+];
+/// The note under Always (measured: 8.2–9.9 % CPU, `docs/perf-memory-2026-11-16.md`).
+pub const FIRE_ALWAYS_NOTE: &str = "Uses about 8–10 % CPU while the window is active.";
 /// The fire's own section (it used to sit under Theme without a title).
 pub const FIRE_SECTION: &str = "Fire";
 /// The font search field's placeholder and label.
@@ -252,7 +260,7 @@ pub fn view(s: &App, hooks: Hooks<App>, theme: &Theme, reduced: bool, hover: boo
     let mut body = col()
         .key("settings-body")
         .w_full()
-        .pb(bottom_room(set.fire, set.fire_height))
+        .pb(bottom_room(set.fire.shows(), set.fire_height))
         .child(title);
 
     body = body.child(section_at(ROOTS, true, theme));
@@ -448,7 +456,8 @@ pub fn view(s: &App, hooks: Hooks<App>, theme: &Theme, reduced: bool, hover: boo
 
     body = body
         .child(section(FIRE_SECTION, theme))
-        .child(fire_toggle(s, hooks, theme, motion))
+        .child(sub_label(FIRE, theme))
+        .child(fire_modes(s, hooks, theme, motion))
         .child(fire_look(s, hooks, theme, motion));
 
     body = body.child(section(super::shortcuts::TITLE, theme)).child(super::shortcuts::list(theme));
@@ -575,7 +584,7 @@ fn slider(
 /// sliders) and Color (choices). With the fire off they are dimmed (`DIMMED`) and disabled.
 fn fire_look(s: &App, hooks: Hooks<App>, theme: &Theme, motion: Motion) -> El {
     use crate::settings::FireKnob;
-    let on = s.settings.fire;
+    let on = s.settings.fire.shows();
     let mut look = col().key("set-fire-look").w_full().disabled(!on);
     if !on {
         look = look.opacity(DIMMED);
@@ -794,44 +803,26 @@ fn still_option(key: String, label: &str, chosen: bool, theme: &Theme) -> El {
         )
 }
 
-/// The fire switch: a checkbox with its border in `fg3`; when on, filled `fg2` with the
-/// check in `panel`.
-fn fire_toggle(s: &App, hooks: Hooks<App>, theme: &Theme, motion: Motion) -> El {
-    let on = s.settings.fire;
-    let mut boxed = el()
-        .key("set-fire-box")
-        .w(ICON)
-        .h(ICON)
-        .radius(R_KBD)
-        .center();
-    boxed = if on {
-        boxed
-            .fill(theme.fg2)
-            .child(icon(&glyphs::CHECK_SMALL, ICON).color(theme.panel))
-    } else {
-        boxed.border(1.0, theme.fg3)
-    };
-    let e = row()
-        .w_full()
-        .h(ROW)
-        .px(ROW_PAD)
-        .gap(ROW_GAP)
-        .center_y()
-        .role("checkbox")
-        .label(FIRE)
-        .checked(on)
-        .child(el().w(ICON).h(ICON).center().child(boxed))
-        .child(
-            text(FIRE)
-                .font(ui_font())
-                .color(theme.fg2)
-                .truncate()
-                .shrink()
-                .min_w(0.0)
-                .a11y_hidden(),
-        )
-        .on_press(|s: &mut App| s.toggle_fire());
-    press(e, "set-fire", s, hooks, theme, motion)
+/// The fire choices (Brief, Always, Off) like the theme ones, with the CPU note in `fg3` right under
+/// Always, aligned with the option text.
+fn fire_modes(s: &App, hooks: Hooks<App>, theme: &Theme, motion: Motion) -> El {
+    let mut modes = col().key("set-fire-modes").role("radiogroup").label(FIRE).w_full();
+    for (mode, label) in FIRE_MODES {
+        let chosen = s.settings.fire == mode;
+        modes = modes.child(option(s, hooks, format!("set-fire-{label}"), label, chosen, theme, motion, move |s: &mut App| s.set_fire_mode(mode)));
+        if mode == FireMode::Always {
+            modes = modes.child(
+                text(FIRE_ALWAYS_NOTE)
+                    .key("set-fire-always-note")
+                    .font(TextStyle::new(UI_SMALL, UI_WEIGHT))
+                    .color(theme.fg3)
+                    .pl(ROW_PAD + ICON + ROW_GAP)
+                    .pr(ROW_PAD)
+                    .pb(ROW_GAP),
+            );
+        }
+    }
+    modes
 }
 
 #[cfg(test)]
@@ -842,6 +833,7 @@ mod tests {
 
     use super::*;
     use crate::doc::document::Document;
+    use crate::settings::FireMode;
 
     #[test]
     fn sizes_read_in_italian() {
@@ -951,7 +943,7 @@ mod tests {
     #[test]
     fn the_last_settings_stay_above_the_fire() {
         let mut rt = open("# Title\n\nText.\n", true);
-        rt.update(|s: &mut App, _| s.settings.fire = true);
+        rt.update(|s: &mut App, _| s.settings.fire = crate::settings::FireMode::Always);
         cmd(&mut rt, ',');
         let r = rt.elements().into_iter().find(|e| e.key.as_deref() == Some("settings-scroll")).unwrap().rect;
         for _ in 0..40 {
@@ -967,6 +959,42 @@ mod tests {
         assert!(bottom_room(true, 5.5) > bottom_room(true, 1.0));
     }
 
+    /// Decision 2026-11-17-doc-fire-at-rest: the fire is a choice of three (Brief, Always, Off), Brief
+    /// chosen by default; the note on the CPU sits right under Always; a click picks and saves; the
+    /// room above the fire stays for Brief and Always, not for Off (constraints 1, 3, 7).
+    #[test]
+    fn the_fire_is_a_choice_of_three_with_a_note_under_always() {
+        let mut rt = open("# Title\n\nText.\n", true);
+        cmd(&mut rt, ',');
+        let find = |rt: &Runtime<App>, k: &str| rt.elements().into_iter().find(|e| e.key.as_deref() == Some(k)).unwrap_or_else(|| panic!("missing {k}"));
+        let theme = crate::ui::theme::Theme::for_mode(true);
+        assert_eq!(find(&rt, "set-fire-modes").role, "radiogroup");
+        for (mode, label) in FIRE_MODES {
+            let e = find(&rt, &format!("set-fire-{label}"));
+            assert_eq!(e.role, "radio");
+            assert_eq!(e.fill == theme.sel, mode == FireMode::Brief, "{label}: only Brief chosen");
+        }
+        let (always, note, off) = (find(&rt, "set-fire-Always").rect, find(&rt, "set-fire-always-note").rect, find(&rt, "set-fire-Off").rect);
+        assert!(note[1] >= always[1] + always[3] - 0.5 && note[1] + note[3] <= off[1] + 0.5, "the note between Always {always:?} and Off {off:?}: {note:?}");
+        assert!(texts(&rt).iter().any(|t| t == FIRE_ALWAYS_NOTE));
+        assert!(crate::ui::contrast::ratio(theme.fg3, theme.panel) >= 4.5, "the note reads on the panel");
+        for (mode, label) in [(FireMode::Always, "Always"), (FireMode::Off, "Off"), (FireMode::Brief, "Brief")] {
+            let key = format!("set-fire-{label}");
+            rt.update(move |_, tx| tx.scroll_into_view_in("settings-scroll", key.clone()));
+            settle(&mut rt);
+            let r = find(&rt, &format!("set-fire-{label}")).rect;
+            let (x, y) = (r[0] + r[2] / 2.0, r[1] + r[3] / 2.0);
+            rt.pointer_move(x, y);
+            rt.pointer_down(x, y);
+            rt.pointer_up(x, y);
+            settle(&mut rt);
+            assert_eq!(rt.state.settings.fire, mode, "{label}");
+            assert_eq!(find(&rt, &format!("set-fire-{label}")).fill, theme.sel, "{label}: chosen");
+            let room = bottom_room(mode.shows(), rt.state.settings.fire_height);
+            assert_eq!(room > SECTION_PAD_TOP, mode != FireMode::Off, "{label}: room above the fire");
+        }
+    }
+
     /// Cmd+, opens the panel (in place of the outline), Cmd+, and Esc close it.
     #[test]
     fn cmd_comma_opens_and_esc_or_cmd_comma_closes() {
@@ -979,7 +1007,7 @@ mod tests {
             "the panel takes the outline's place"
         );
         for label in [
-            ROOTS, FONT, SIZE, THEME, "System", "Light", "Dark", FIRE, ADD_ROOT, "Inter",
+            ROOTS, FONT, SIZE, THEME, "System", "Light", "Dark", FIRE, "Brief", "Always", "Off", FIRE_ALWAYS_NOTE, ADD_ROOT, "Inter",
             "SF Pro", "15.5 pt",
         ] {
             assert!(
@@ -1076,9 +1104,9 @@ mod tests {
             "on: flames and label"
         );
         assert!(rt.state.effects_lit());
-        rt.update(|s, _| s.toggle_fire());
+        rt.update(|s, _| s.set_fire_mode(FireMode::Off));
         settle(&mut rt);
-        assert!(!rt.state.settings.fire);
+        assert_eq!(rt.state.settings.fire, FireMode::Off);
         assert!(!has(&rt, "fire"), "off: no fire slot");
         assert!(
             has(&rt, "fire-label")
@@ -1090,20 +1118,20 @@ mod tests {
         // The compositor still walks the instances, for the calm edge of the tab (metal-tab), not for the fire.
         let theme = crate::ui::theme::Theme::for_mode(true);
         assert!(crate::ui::contrast::ratio(theme.fg2, theme.panel) >= 4.5);
-        // From the panel: a click on the checkbox turns it back on.
+        // From the panel: a click on Brief turns it back on.
         cmd(&mut rt, ',');
         let r = rt
             .elements()
             .into_iter()
-            .find(|e| e.key.as_deref() == Some("set-fire"))
-            .expect("switch")
+            .find(|e| e.key.as_deref() == Some("set-fire-Brief"))
+            .expect("Brief")
             .rect;
         let (x, y) = (r[0] + r[2] / 2.0, r[1] + r[3] / 2.0);
         rt.pointer_move(x, y);
         rt.pointer_down(x, y);
         rt.pointer_up(x, y);
         settle_some(&mut rt);
-        assert!(rt.state.settings.fire);
+        assert_eq!(rt.state.settings.fire, FireMode::Brief);
         assert!(has(&rt, "fire"));
     }
 
@@ -1168,7 +1196,7 @@ mod tests {
             .filter(|e| e.role == "radiogroup")
             .filter_map(|e| e.label.clone())
             .collect();
-        assert_eq!(groups, [FONT, THEME, FIRE_COLOR]);
+        assert_eq!(groups, [FONT, THEME, FIRE, FIRE_COLOR]);
     }
 
     /// A folder already watched (or under a watched one) is not added and the panel says so
@@ -1233,10 +1261,11 @@ mod tests {
         assert_eq!(rt.state.settings.fire_height, *crate::fx::fire::HEIGHTS.last().unwrap());
         click(&mut rt, "set-fire-speed", true);
         assert_eq!(rt.state.settings.fire_speed, 3.0);
-        // The colors are at the bottom of the panel: scroll it down there.
+        // The colors are at the bottom of the panel: scroll it down there (the wheel low in the
+        // panel, off the font list, which scrolls on its own).
         let r = find(&rt, "settings-scroll").rect;
         for _ in 0..20 {
-            rt.wheel(r[0] + 40.0, r[1] + 100.0, -400.0);
+            rt.wheel(r[0] + 40.0, r[1] + r[3] - 60.0, -400.0);
             rt.frame(1.0 / 120.0);
         }
         settle(&mut rt);
@@ -1246,7 +1275,7 @@ mod tests {
         assert_eq!(rt.state.settings.fire_color, crate::fx::fire::FireColor::Violet);
         assert!(find(&rt, "set-fire-look").opacity > 0.99, "on: solid");
 
-        rt.update(|s, _| s.toggle_fire());
+        rt.update(|s, _| s.set_fire_mode(FireMode::Off));
         settle(&mut rt);
         assert!(find(&rt, "set-fire-look").opacity < 0.5, "off: dimmed");
         assert!(!find(&rt, "set-fire-strength").focusable, "off: out of the Tab order");

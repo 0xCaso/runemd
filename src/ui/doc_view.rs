@@ -884,7 +884,7 @@ mod tests {
         assert!(slot(&rt), "fire slot at rest");
         assert!(!fire_drawn(&rt), "no label at rest");
         assert!(rt.state.effects_lit(), "the compositor runs the instances");
-        rt.update(|s, _| s.settings.fire = false);
+        rt.update(|s, _| s.settings.fire = crate::settings::FireMode::Off);
         settle(&mut rt);
         assert!(!slot(&rt) && !fire_drawn(&rt), "fire off: no slot and no label");
     }
@@ -894,21 +894,21 @@ mod tests {
     #[test]
     fn the_resting_fire_is_paced_by_wakes_only_while_it_moves() {
         let mut rt = open(&join(&sample()));
-        assert!(rt.state.fire_rests());
+        assert!(rt.state.fire_rests(rt.clock));
         rt.update(|s, _| s.window_active = false);
-        assert!(!rt.state.fire_rests(), "window not active: still");
+        assert!(!rt.state.fire_rests(rt.clock), "window not active: still");
         rt.update(|s, _| {
             s.window_active = true;
             s.motion_env = Some(true);
         });
         settle(&mut rt);
-        assert!(!rt.state.fire_rests(), "reduce motion: still");
+        assert!(!rt.state.fire_rests(rt.clock), "reduce motion: still");
         rt.update(|s, _| {
             s.motion_env = Some(false);
             s.tabs[0].fire_since = Some(0.0);
         });
         settle(&mut rt);
-        assert!(!rt.state.fire_rests(), "lit: the display link drives it");
+        assert!(!rt.state.fire_rests(rt.clock), "lit: the display link drives it");
     }
 
     /// A short document, all in view: a block added at the end enters the view at once.

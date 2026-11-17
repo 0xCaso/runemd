@@ -1,4 +1,5 @@
-//! Fire at the bottom of the panel (DESIGN.md, "Live signals"): always on and low (`REST_H`);
+//! Fire at the bottom of the panel (DESIGN.md, "Live signals"): at rest low (`REST_H`), always or,
+//! with `FireMode::Brief` (the default), for `BRIEF` seconds and then a `FADE` out (`Brief`);
 //! with new text below the view it rises to `FIRE_H` in `RISE` ease-out, and goes back down in `FALL`
 //! when that text enters the view.
 //!
@@ -27,6 +28,12 @@ pub const FALL: f32 = 0.30;
 /// At rest the flames do not hold the display link (at 120 Hz they cost ~11 % CPU): they
 /// redraw on every `REST_FRAME` wake-up (12 frames per second).
 pub const REST_FRAME: Duration = Duration::from_micros(83_333);
+/// Brief fire (decision `2026-11-17-doc-fire-at-rest`): how long the resting fire shows, seconds,
+/// before it fades.
+pub const BRIEF: f64 = 5.0;
+/// Then it fades out over `FADE` seconds, ease-in-out, with the display link (smooth, not stepped at
+/// `REST_FRAME`); after that there is no slot and no wake-up.
+pub const FADE: f32 = 1.0;
 /// Thickness of the shape below the bottom of the panel the flames start from (out of view: the
 /// slot is clipped by the panel). `Top` flames rise from the shape's top edge.
 const BASE: f32 = 24.0;
@@ -218,10 +225,11 @@ pub fn layer(panel: Rect, phase: Phase, clock: f32, dark: bool, reduced: bool, a
 }
 
 /// Makes `el` the fire slot: lit (new text below) since time `lit` of Rune's
-/// clock, at rest with `None`. The compositor paints it with [`layer`] on the rect of `el`, which must
-/// touch the bottom of the panel and have its width.
-pub fn slot(el: El, lit: Option<f64>, dark: bool, reduced: bool, active_window: bool, look: Look) -> El {
-    el.effect(Mark::Fire.id()).effect_data(slot_data(lit, dark, reduced, active_window, look))
+/// clock, at rest with `None`; at rest it fades out from `fade_at` (Brief), or never with `None`. The
+/// compositor paints it with [`layer`] on the rect of `el`, which must touch the bottom of the panel
+/// and have its width.
+pub fn slot(el: El, lit: Option<f64>, fade_at: Option<f64>, dark: bool, reduced: bool, active_window: bool, look: Look) -> El {
+    el.effect(Mark::Fire.id()).effect_data(slot_data(lit, fade_at, dark, reduced, active_window, look))
 }
 
 /// What the compositor reads from a [`slot`].
@@ -235,6 +243,8 @@ pub struct SlotState {
     pub reduced: bool,
     pub active_window: bool,
     pub look: Look,
+    /// Seconds since the resting fire started to fade (negative before); `None` if it does not fade.
+    pub fade: Option<f32>,
 }
 
 const REDUCED: u32 = 1;
@@ -248,11 +258,14 @@ const STRENGTH_AT: u32 = 4;
 const HEIGHT_AT: u32 = 8;
 const SPEED_AT: u32 = 12;
 const COLOR_AT: u32 = 16;
+/// The resting fire fades: the two time f32 hold `fade_at` (unused at rest otherwise).
+const FADES: u32 = 1 << 20;
 
 /// `effect_data` of a [`slot`]: `lit` in two f32 (high part and remainder, like `ring::slot_data`),
-/// the flags with the look's steps, and the accent (0xRRGGBB, exact in an f32).
-pub fn slot_data(lit: Option<f64>, dark: bool, reduced: bool, active_window: bool, look: Look) -> [f32; 4] {
-    let since = lit.unwrap_or(0.0);
+/// or at rest `fade_at`; the flags with the look's steps, and the accent (0xRRGGBB, exact in an f32).
+pub fn slot_data(lit: Option<f64>, fade_at: Option<f64>, dark: bool, reduced: bool, active_window: bool, look: Look) -> [f32; 4] {
+    let fade_at = fade_at.filter(|_| lit.is_none());
+    let since = lit.or(fade_at).unwrap_or(0.0);
     let hi = since as f32;
     let color = COLORS.iter().position(|(c, _)| *c == look.color).unwrap_or(0) as u32;
     let flags = (u32::from(reduced) * REDUCED)
@@ -262,7 +275,8 @@ pub fn slot_data(lit: Option<f64>, dark: bool, reduced: bool, active_window: boo
         | (step_index(&STRENGTHS, look.strength) << STRENGTH_AT)
         | (step_index(&HEIGHTS, look.height) << HEIGHT_AT)
         | (step_index(&SPEEDS, look.speed) << SPEED_AT)
-        | (color << COLOR_AT);
+        | (color << COLOR_AT)
+        | (u32::from(fade_at.is_some()) * FADES);
     [hi, flags as f32, (since - f64::from(hi)) as f32, (look.accent & 0xff_ffff) as f32]
 }
 
@@ -284,6 +298,69 @@ pub fn slot_state(data: [f32; 4], clock: f64) -> SlotState {
             color: COLORS.get(((flags >> COLOR_AT) & 0xf) as usize).map_or(FireColor::Fire, |(c, _)| *c),
             accent: data[3] as u32,
         },
+        fade: (flags & FADES != 0).then_some((clock - since) as f32),
+    }
+}
+
+/// The opacity of the resting fire `since` seconds after its fade started (`None`: it does not fade;
+/// negative: not yet).
+pub fn fade_opacity(since: Option<f32>) -> f32 {
+    let Some(t) = since else { return 1.0 };
+    let x = (t / FADE).clamp(0.0, 1.0);
+    1.0 - x * x * (3.0 - 2.0 * x)
+}
+
+/// The fade is under way: the display link moves it, not the `REST_FRAME` wake-ups.
+pub fn fading(since: Option<f32>) -> bool {
+    since.is_some_and(|t| (0.0..FADE).contains(&t))
+}
+
+/// `layer` with the fade of the resting Brief fire applied.
+pub fn faded(layer: FxLayer, since: Option<f32>) -> FxLayer {
+    let k = layer.opacity * fade_opacity(since);
+    layer.opacity(k)
+}
+
+/// The Brief fire's timer, in Rune's clock. A show starts when the window becomes active, a document
+/// comes to the front, or the lit fire calms; one asked for without a clock (`show`) starts at the
+/// next `tick` (the next poll).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Brief {
+    from: Option<f64>,
+    pending: bool,
+}
+
+impl Brief {
+    /// A show from the next `tick`.
+    pub fn show(&mut self) {
+        self.pending = true;
+    }
+
+    /// A show from `clock`.
+    pub fn show_at(&mut self, clock: f64) {
+        (self.from, self.pending) = (Some(clock), false);
+    }
+
+    /// At each poll: a pending show starts now.
+    pub fn tick(&mut self, clock: f64) {
+        if self.pending {
+            self.show_at(clock);
+        }
+    }
+
+    /// When the fade starts; `None` while a show is pending (it shows in full) or after none.
+    pub fn fade_at(&self) -> Option<f64> {
+        if self.pending { None } else { self.from.map(|t| t + BRIEF) }
+    }
+
+    /// When the fire is gone: the end of the fade.
+    pub fn end(&self) -> Option<f64> {
+        self.fade_at().map(|t| t + f64::from(FADE))
+    }
+
+    /// The fire shows (in full or fading) at `clock`.
+    pub fn showing(&self, clock: f64) -> bool {
+        self.pending || self.end().is_some_and(|end| clock < end)
     }
 }
 
@@ -358,11 +435,11 @@ mod tests {
     fn slot_data_round_trips() {
         let since = 30.0 * 86_400.0 + 0.123_456;
         for (dark, reduced, active) in [(true, false, true), (false, true, false), (false, false, true)] {
-            let s = slot_state(slot_data(Some(since), dark, reduced, active, Look::default()), since + 0.2);
+            let s = slot_state(slot_data(Some(since), None, dark, reduced, active, Look::default()), since + 0.2);
             assert_eq!((s.dark, s.reduced, s.active_window), (dark, reduced, active));
             assert!((s.t - 0.2).abs() < 1e-3, "{}", s.t);
         }
-        assert_eq!(slot_state(slot_data(Some(10.0), true, false, true, Look::default()), 9.0).t, 0.0, "never negative");
+        assert_eq!(slot_state(slot_data(Some(10.0), None, true, false, true, Look::default()), 9.0).t, 0.0, "never negative");
     }
 
     // --- fire always on (v1.1) ---
@@ -416,7 +493,7 @@ mod tests {
     #[test]
     fn slot_data_says_whether_it_is_lit() {
         for lit in [true, false] {
-            let s = slot_state(slot_data(lit.then_some(4.0), true, false, true, Look::default()), 5.0);
+            let s = slot_state(slot_data(lit.then_some(4.0), None, true, false, true, Look::default()), 5.0);
             assert_eq!(s.lit, lit);
         }
     }
@@ -482,13 +559,13 @@ mod tests {
     fn the_look_round_trips_through_the_slot() {
         for (i, (color, _)) in COLORS.iter().enumerate() {
             let look = Look { strength: STRENGTHS[i % STRENGTHS.len()], height: HEIGHTS[(i + 2) % HEIGHTS.len()], speed: SPEEDS[(i + 4) % SPEEDS.len()], color: *color, accent: 0xff2d55 };
-            let s = slot_state(slot_data(Some(3.0), false, true, false, look), 4.0);
+            let s = slot_state(slot_data(Some(3.0), None, false, true, false, look), 4.0);
             assert_eq!(s.look, look);
             assert_eq!((s.dark, s.reduced, s.active_window, s.lit), (false, true, false, true));
         }
         // A value that is not a step arrives as the default.
         let odd = Look { strength: 0.33, height: 9.0, speed: -1.0, ..Look::default() };
-        assert_eq!(slot_state(slot_data(None, true, false, true, odd), 0.0).look, Look::default());
+        assert_eq!(slot_state(slot_data(None, None, true, false, true, odd), 0.0).look, Look::default());
     }
 
     /// In every color the hot part is light: the dark label above stays readable (≥ 4.5:1
@@ -506,5 +583,57 @@ mod tests {
                 }
             }
         }
+    }
+
+    // --- Brief fire (decision 2026-11-17-doc-fire-at-rest) ---
+
+    /// A show lasts `BRIEF` in full, then fades over `FADE`; after that it is gone. A pending one
+    /// shows in full until the next tick starts it; a new show starts the time again.
+    #[test]
+    fn a_brief_show_lasts_five_seconds_then_fades() {
+        let mut b = Brief::default();
+        assert!(!b.showing(0.0), "none yet");
+        b.show();
+        assert!(b.showing(100.0) && b.fade_at().is_none(), "pending: in full");
+        b.tick(10.0);
+        assert_eq!(b.fade_at(), Some(10.0 + BRIEF));
+        assert!(b.showing(10.0) && b.showing(14.9) && b.showing(15.5));
+        assert!(!b.showing(10.0 + BRIEF + f64::from(FADE)), "gone after the fade");
+        b.tick(20.0);
+        assert!(!b.showing(20.0), "a tick alone does not show it again");
+        b.show_at(30.0);
+        assert!(b.showing(34.0) && !b.showing(36.1));
+        assert_eq!(b.end(), Some(30.0 + BRIEF + f64::from(FADE)));
+    }
+
+    /// The fade is smooth: from 1 to 0 over `FADE`, never a jump bigger than a few % per 120 Hz frame,
+    /// and only then the display link moves it.
+    #[test]
+    fn the_fade_goes_smoothly_from_full_to_nothing() {
+        assert_eq!(fade_opacity(None), 1.0);
+        assert_eq!(fade_opacity(Some(-2.0)), 1.0, "not yet");
+        assert_eq!(fade_opacity(Some(0.0)), 1.0);
+        assert_eq!(fade_opacity(Some(FADE)), 0.0);
+        let mid = fade_opacity(Some(FADE / 2.0));
+        assert!((mid - 0.5).abs() < 1e-3, "{mid}");
+        let frames: Vec<f32> = (0..=120).map(|n| fade_opacity(Some(n as f32 / 120.0 * FADE))).collect();
+        assert!(frames.windows(2).all(|w| w[1] <= w[0] && w[0] - w[1] < 0.02), "smooth and falling");
+        assert!(!fading(None) && !fading(Some(-0.1)) && fading(Some(0.0)) && fading(Some(FADE / 2.0)) && !fading(Some(FADE)));
+        let l = faded(layer(panel(), Phase::Rest, 1.0, true, false, true, Look::default()), Some(FADE));
+        assert!(!l.is_animating(), "faded out: nothing moves, nothing holds the display link");
+        let l = faded(layer(panel(), Phase::Rest, 1.0, true, false, true, Look::default()), Some(FADE / 2.0));
+        assert!((l.opacity - 0.5).abs() < 1e-3);
+    }
+
+    /// At rest the slot carries when the fade starts; lit, the time is the lit one and it does not fade.
+    #[test]
+    fn slot_data_carries_the_fade() {
+        let at = 30.0 * 86_400.0 + 5.25;
+        let s = slot_state(slot_data(None, Some(at), true, false, true, Look::default()), at + 0.5);
+        assert!(!s.lit);
+        assert!((s.fade.unwrap() - 0.5).abs() < 1e-3, "{:?}", s.fade);
+        assert_eq!(slot_state(slot_data(None, None, true, false, true, Look::default()), 9.0).fade, None, "Always: no fade");
+        let lit = slot_state(slot_data(Some(4.0), Some(at), true, false, true, Look::default()), 5.0);
+        assert!(lit.lit && lit.fade.is_none() && (lit.t - 1.0).abs() < 1e-3, "lit: in full");
     }
 }

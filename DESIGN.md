@@ -515,15 +515,15 @@ virtual list 8 and a half rows tall, so the ninth, cut, says it scrolls), "Size"
 tables and code scale with the body), "Text width" (a stepped slider from 680 to 1240 in steps of 80, the last one
 "Full": the column follows the panel, the rows' margins stay; a 2 track in `fg-3`, the chosen part and a 12 knob in
 `fg-2`, the value on the right in `fg` with tabular figures; arrows one step at a time; the block at the top of the
-view stays at the top), "Theme" ("System", "Light", "Dark"), the "Fire at the bottom of the panel" box (turns the
-fire on and off, at rest and with new text) and below it the fire's look: "Intensity" (40–175 %), "Height" (55–176 pt
+view stays at the top), "Theme" ("System", "Light", "Dark"), "Fire at the bottom of the panel" ("Brief", the default,
+"Always", "Off", options like the theme's; under "Always" the note "Uses about 8–10 % CPU while the window is active."
+in 12 `fg-3`, aligned with the option text; docs/decisions/2026-11-17-doc-fire-at-rest.md) and below it the fire's look: "Intensity" (40–175 %), "Height" (55–176 pt
 with the fire lit, 110 the default), "Speed" (0.25–3×), three stepped sliders like the width one with the 13 label in
 `fg-2` above, and "Color" ("Fire", "Blue", "Violet", "Green", "System accent", options like the theme's). The defaults
 are the usual fire. The hot part of each color stays light, so the new text label over the flames keeps 4.5:1. With
 the fire off these controls are at 40 % and disabled (out of the Tab order, without hover or click): a disabled
 control has no contrast requirement. The rows are the sidebar's (28, radius 6, hover `sel`, scale 0.98). The chosen
-option has a `sel` fill, `fg` text and a check mark in `fg`; the others `fg-2` text. The box has a 1 border in `fg-3`;
-checked it is solid in `fg-2` with the check mark in `panel`. With the fire off the label "N new paragraphs further
+option has a `sel` fill, `fg` text and a check mark in `fg`; the others `fg-2` text. With the fire off the label "N new paragraphs further
 down" stays, in `fg-2` on a `panel` band 44 tall with the `line` line above. Everything changes at once, without a
 restart.
 
@@ -540,7 +540,7 @@ during the drag: as it was. The widths stay after a restart.
 |---|---|---|---|---|
 | Liquid metal (ring on 4 sides, 2.5 px, a 3 s turn) | An agent is writing this file | The file's tab, the whole ⌘P panel (while any file in its list is written; no ⌘P row has metal), its row in "Recent", its row in the tree | Appears in 220 ms ease-out at the first change | Stops when the file no longer changes (assumption: 3 s without writes) |
 | Frozen gunmetal edge (4 sides, still; 1.75 px on the tab, 2.5 px on the ⌘P panel; in light a mid grey on the tab and a lighter grey on the panel, so both read as light; `fx::ring::calm_layer`) | The tab you are reading, the open ⌘P panel (metal-tab, docs/decisions/2026-11-16-metal-and-rune-effects.md, docs/decisions/2026-11-16-metal-tab-quick-open-panel.md) | The active tab, the whole ⌘P panel (the chosen row keeps only its `sel` fill) | With the tab or the panel, no entrance | When the file is written (for the panel: any listed file) it becomes the liquid ring above |
-| Rune fire (flames and embers) | At rest, low (26 px): it is the bottom of the panel. 110 px tall: there is new text below the part you are reading | Bottom of the panel, always in reading; tall, with the label "N new paragraphs further down" | From rest it rises to 110 in 420 ms ease-out | Goes back to rest in 300 ms ease-out when you scroll to the new text |
+| Rune fire (flames and embers) | At rest, low (26 px): it is the bottom of the panel. 110 px tall: there is new text below the part you are reading | Bottom of the panel, in reading: with "Brief" (default) at rest for 5 s when the window becomes active, when a document comes to the front and after the tall fire calms, then it fades out in 1 s (smoothstep, display link) and is gone, with no wake-ups; with "Always" at rest all the time; tall, with the label "N new paragraphs further down", in Brief and Always | From rest it rises to 110 in 420 ms ease-out | Goes back to rest in 300 ms ease-out when you scroll to the new text |
 | Caret (2 px, `fg`, pulses in 4 steps over 1.6 s: opacity 100/81/62/81 %) | An agent has just written here | At the point of the last change, also in the middle of the file: after the last word changed (or added at the end), as tall as the letter; outside the flow, the text does not move | At the first reload from outside | With the ring (the file no longer changes); if it is out of view the view does not jump |
 
 In the light theme the fire uses luminance as a mask (on white, screen would disappear). The caret at its faintest
@@ -549,7 +549,9 @@ step stays ≥ 4.5:1 on the panel and on `sel` (`ui::contrast`): the minimum is 
 `sel`: light 4.83/4.60, dark 6.80/5.78 (minimum). With "Reduce motion" the ring and the caret do not animate (they stay
 still and visible, the caret solid) and the fire is still, at rest or tall, without rising or falling; with the window
 inactive it is still in the same way. At rest the flames do not hold the display link: they redraw 12 times a second
-(CPU at rest ~3.5 % against ~11 % at 120 Hz, measurements in `.superpowers/sdd/plan/v11-batch-a-report.md`).
+(CPU at rest ~3.5 % against ~11 % at 120 Hz, measurements in `.superpowers/sdd/plan/v11-batch-a-report.md`). With
+"Brief", once the fire has faded the CPU is as with "Off" (docs/proof/doc-fire-brief/). A still Brief fire (Reduce
+motion, inactive window) does not fade: it goes at the end of its 6 s.
 
 ## Do's and Don'ts
 

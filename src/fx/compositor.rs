@@ -134,10 +134,10 @@ impl Compositor<App> for FxCompositor {
                 }
                 self.fire_lit = s.lit;
                 let phase = fire_phase(s, self.fire_out, clock);
-                let layer = fire::layer(rect_pt(i), phase, clock as f32, s.dark, s.reduced, s.active_window, s.look);
+                let layer = fire::faded(fire::layer(rect_pt(i), phase, clock as f32, s.dark, s.reduced, s.active_window, s.look), s.fade);
                 // At rest the flames move with the `fire::REST_FRAME` wake-ups (`App::fire_rests`),
-                // not with the display link.
-                if fire::paced(phase) {
+                // not with the display link; the Brief fade-out does hold it, so it is smooth.
+                if fire::paced(phase) && !fire::fading(s.fade) {
                     self.fire_out = None;
                     paced.push(layers.len());
                 }

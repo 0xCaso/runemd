@@ -384,7 +384,7 @@ mod tests {
         rt.track_marks = true;
         settle(&mut rt);
         assert_eq!(motion_of(&rt), forge::Motion::Calm);
-        assert!(rt.state.fire_rests(), "calm: the paced wake-ups move it");
+        assert!(rt.state.fire_rests(rt.clock), "calm: the paced wake-ups move it");
         let writing = vec![(std::path::PathBuf::from("/tmp/notes.md"), std::time::Duration::from_secs(10))];
         let clock = rt.clock;
         let step = |rt: &mut Runtime<crate::App>, f: &dyn Fn(&mut crate::App)| {
@@ -398,7 +398,7 @@ mod tests {
         assert_eq!(step(&mut rt, &|s| s.motion_env = None), forge::Motion::Moving);
         assert_eq!(step(&mut rt, &|s| _ = s.ring_step(&[], clock + 11.0, std::time::Instant::now())), forge::Motion::Falling, "it falls back when the agent stops");
         assert_eq!(step(&mut rt, &|s| s.motion_env = Some(true)), forge::Motion::Frozen, "reduce motion: calm and still at once");
-        assert!(!rt.state.fire_rests(), "reduce motion: no wake-ups");
+        assert!(!rt.state.fire_rests(rt.clock), "reduce motion: no wake-ups");
     }
 
     fn press(rt: &mut Runtime<crate::App>, key: &str) {

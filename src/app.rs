@@ -19,7 +19,8 @@ use crate::edit::SourceEdit;
 use crate::live::arriving::Changed;
 use crate::live::below::Below;
 use crate::live::{Follow, Live};
-use crate::settings::{Settings, ThemePref};
+use crate::fx::fire::Brief;
+use crate::settings::{FireMode, Settings, ThemePref};
 use crate::{edit, index, probe, ui};
 
 /// How a tab shows the file: reading, or the source being edited (Cmd+E). Each tab has
@@ -368,6 +369,14 @@ pub struct App {
     pub(crate) sidebar: ui::sidebar::Sidebar,
     /// The window is active (`on_window_focus`): without it, the fire stays still.
     pub(crate) window_active: bool,
+    /// The Brief fire's timer (`FireMode::Brief`), and what the view draws from it: showing, and
+    /// when it fades. `tick_fire` keeps the two in step at each poll.
+    brief: Brief,
+    brief_drawn: (bool, Option<f64>),
+    /// The front tab's fire was lit at the last tick: when it calms, a show starts.
+    lit_seen: bool,
+    /// The end of the Brief show a wake-up is armed for.
+    brief_wake: Option<f64>,
     /// The window is at least `OUTLINE_MIN_WINDOW` wide: the heading outline shows.
     pub(crate) wide: bool,
     /// The window width (`on_layout` of the root): the room for the dragged panes.
@@ -413,6 +422,10 @@ impl App {
             library,
             sidebar: ui::sidebar::Sidebar::default(),
             window_active: true,
+            brief: Brief::default(),
+            brief_drawn: (false, None),
+            lit_seen: false,
+            brief_wake: None,
             wide: false,
             window_w: 0.0,
             spare_edit: TextEdit::default(),
@@ -423,6 +436,8 @@ impl App {
             writing_stopped: None,
         };
         app.sync_saved();
+        // The window opens: with a document in front, the Brief fire shows.
+        app.show_fire();
         app
     }
 
@@ -518,11 +533,65 @@ impl App {
         true
     }
 
-    /// Turns the fire at the bottom of the pane on or off; the new-text label stays.
-    pub fn toggle_fire(&mut self) {
+    /// Brief, Always or Off for the fire at the bottom of the pane; the new-text label stays. Brief
+    /// shows at once, so the choice is seen.
+    pub fn set_fire_mode(&mut self, mode: FireMode) {
         self.settings_panel.clear_notice();
-        self.settings.fire = !self.settings.fire;
-        self.save_settings();
+        if self.settings.fire != mode {
+            self.settings.fire = mode;
+            self.save_settings();
+        }
+        if mode == FireMode::Brief {
+            self.show_fire();
+        }
+    }
+
+    /// The Brief fire shows for `fire::BRIEF` from the next poll (`tick_fire`), when the window
+    /// becomes active, a document comes to the front, and the lit fire calms.
+    pub fn show_fire(&mut self) {
+        self.brief.show();
+        self.brief_drawn = (true, None);
+    }
+
+    /// The window became active (`focused`) or not: active, the Brief fire shows.
+    pub fn window_focus(&mut self, focused: bool) {
+        self.window_active = focused;
+        if focused {
+            self.show_fire();
+        }
+    }
+
+    /// At each poll: a pending Brief show starts at `clock`, and one starts when the front tab's lit
+    /// fire calms. Returns whether the view changes (the slot comes, goes or gets when it fades)
+    /// and the clock to wake at for the end of the show (one per show: a still fire asks for no
+    /// other wake-up, and without it the slot would stay).
+    pub fn tick_fire(&mut self, clock: f64) -> (bool, Option<f64>) {
+        let lit = self.tab().is_some_and(|t| matches!(t.mode, Mode::Read) && t.fire_since.is_some());
+        if self.lit_seen && !lit {
+            self.brief.show_at(clock);
+        }
+        self.lit_seen = lit;
+        self.brief.tick(clock);
+        let drawn = (self.brief.showing(clock), self.brief.fade_at());
+        let changed = drawn != self.brief_drawn && self.settings.fire == FireMode::Brief;
+        self.brief_drawn = drawn;
+        let wake = self.brief.end().filter(|end| *end > clock && self.brief_wake != Some(*end) && self.settings.fire == FireMode::Brief);
+        if wake.is_some() {
+            self.brief_wake = wake;
+        }
+        (changed, wake)
+    }
+
+    /// The front tab's flames, for the view: `None` without (Off, or Brief faded out with nothing
+    /// lit), otherwise when they fade (`Some(None)`: they do not, lit or Always).
+    pub fn fire_flames(&self) -> Option<Option<f64>> {
+        let lit = self.tab().is_some_and(|t| t.fire_since.is_some());
+        match self.settings.fire {
+            FireMode::Off => None,
+            FireMode::Always => Some(None),
+            FireMode::Brief if lit => Some(None),
+            FireMode::Brief => self.brief_drawn.0.then_some(self.brief_drawn.1),
+        }
     }
 
     /// A step of the fire's intensity, height or speed (one of `knob.steps()`).
@@ -890,8 +959,9 @@ impl App {
         n > 1 && self.select((self.active as isize + step).rem_euclid(n) as usize)
     }
 
-    /// Another tab is in front: the sidebar shows its repo.
+    /// Another tab is in front: the sidebar shows its repo and the Brief fire shows.
     fn fronted(&mut self) {
+        self.show_fire();
         if let Some(tab) = self.tabs.get(self.active) {
             self.sidebar.set_open(&tab.doc.path, &self.library.index);
         }
@@ -1210,16 +1280,22 @@ impl App {
         true
     }
 
-    /// The fire of the front tab is at rest and moving, or the empty screen's wordmark fire is calm or
+    /// The fire of the front tab is at rest and moving at `clock` (Always, or Brief until its fade
+    /// ends), or the empty screen's wordmark fire is calm or
     /// falling (forge-empty): without a display link, `poll` requests a wakeup every
     /// `fx::fire::REST_FRAME` to redraw it. Still (inactive window, "reduce motion") or lit (the
     /// display link moves it): no. The fall holds the display link anyway; the extra wakes cost nothing.
-    pub fn fire_rests(&self) -> bool {
+    pub fn fire_rests(&self, clock: f64) -> bool {
         if !self.window_active || self.reduced_seen.get() {
             return false;
         }
+        let rests = match self.settings.fire {
+            FireMode::Off => false,
+            FireMode::Always => true,
+            FireMode::Brief => self.brief.showing(clock),
+        };
         match self.tab() {
-            Some(t) => self.settings.fire && matches!(t.mode, Mode::Read) && t.fire_since.is_none(),
+            Some(t) => rests && matches!(t.mode, Mode::Read) && t.fire_since.is_none(),
             None => self.writing_since().is_none(),
         }
     }
@@ -1621,10 +1697,160 @@ mod tests {
         assert!(!app.tabs[0].note_reload(&change, 3.0));
         assert_eq!(app.tabs[0].below.count(), 2, "counts in the background");
         assert!(app.tab().unwrap().fire_since.is_none(), "the front tab stays off");
-        assert!(app.fire_rests(), "the front tab stays at rest");
+        assert!(app.fire_rests(0.0), "the front tab stays at rest");
         app.select(0);
         assert!(app.visible_rows(app.tabs[0].doc.id, 0..1));
         assert_eq!(app.tab().unwrap().fire_since, Some(3.0));
+    }
+
+    // --- Brief fire (decision 2026-11-17-doc-fire-at-rest) ---
+
+    use crate::fx::fire::{BRIEF, FADE};
+    use crate::settings::FireMode;
+
+    /// The end of a show started at `at`: the fade done.
+    fn end(at: f64) -> f64 {
+        at + BRIEF + f64::from(FADE)
+    }
+
+    /// Just after `end`.
+    fn gone(at: f64) -> f64 {
+        end(at) + 0.01
+    }
+
+    /// A window with a document: the fire shows from the first poll (constraint 2).
+    fn brief_app() -> (tempfile::TempDir, App) {
+        let (dir, p) = files(&["a.md", "b.md"]);
+        let mut app = empty_app();
+        app.open_paths(p);
+        (dir, app)
+    }
+
+    /// Brief, the default: the resting fire wakes the app for 5 s and its fade, then the view drops
+    /// the slot and nothing wakes for it any more (constraint 2).
+    #[test]
+    fn the_brief_fire_rests_for_five_seconds_then_fades_and_stops_waking() {
+        let (_dir, mut app) = brief_app();
+        assert_eq!(app.settings.fire, FireMode::Brief);
+        assert_eq!(app.fire_flames(), Some(None), "before the first poll: in full");
+        let (changed, wake) = app.tick_fire(10.0);
+        assert!(changed, "the view gets when it fades");
+        assert_eq!(wake, Some(end(10.0)), "one wake-up at the end, for a still fire");
+        assert_eq!(app.fire_flames(), Some(Some(10.0 + BRIEF)));
+        assert!(app.fire_rests(10.0) && app.fire_rests(14.9), "in full");
+        assert!(app.fire_rests(15.5), "fading");
+        assert!(!app.fire_rests(gone(10.0)), "gone: no wake-ups");
+        assert_eq!(app.tick_fire(12.0), (false, None), "nothing new in between");
+        let (changed, _) = app.tick_fire(gone(10.0));
+        assert!(changed, "the view drops the slot");
+        assert_eq!(app.fire_flames(), None);
+        assert_eq!(app.tick_fire(gone(10.0) + 60.0), (false, None), "and stays so");
+        assert!(!app.fire_rests(gone(10.0) + 60.0));
+    }
+
+    /// The window becomes active again: another show of 5 s.
+    #[test]
+    fn the_brief_fire_shows_again_when_the_window_becomes_active() {
+        let (_dir, mut app) = brief_app();
+        app.tick_fire(0.0);
+        app.tick_fire(gone(0.0));
+        assert!(!app.fire_rests(100.0));
+        app.window_focus(false);
+        app.tick_fire(100.0);
+        assert!(!app.fire_rests(100.0), "inactive: still");
+        app.window_focus(true);
+        assert_eq!(app.fire_flames(), Some(None));
+        assert!(app.tick_fire(200.0).0);
+        assert!(app.fire_rests(201.0) && !app.fire_rests(gone(200.0)));
+    }
+
+    /// Another tab comes to the front, or a document opens: another show.
+    #[test]
+    fn the_brief_fire_shows_again_on_a_tab_change_and_an_open() {
+        let (dir, mut app) = brief_app();
+        app.tick_fire(0.0);
+        app.tick_fire(gone(0.0));
+        assert!(app.select(0));
+        assert!(app.tick_fire(50.0).0);
+        assert!(app.fire_rests(54.0) && !app.fire_rests(gone(50.0)));
+        app.tick_fire(gone(50.0));
+        let c = dir.path().join("c.md");
+        fs::write(&c, "# c\n").unwrap();
+        app.open_paths(vec![c]);
+        assert!(app.tick_fire(80.0).0);
+        assert!(app.fire_rests(81.0));
+    }
+
+    /// The lit fire (an agent writes below the view) rises in Brief even after the fade; when it
+    /// calms, it rests 5 s and fades again (constraint 5).
+    #[test]
+    fn the_lit_fire_rises_in_brief_and_fades_again_after_it_calms() {
+        let (_dir, mut app) = brief_app();
+        app.tick_fire(0.0);
+        app.tick_fire(gone(0.0));
+        assert_eq!(app.fire_flames(), None);
+        app.tabs[app.active].fire_since = Some(20.0);
+        app.tick_fire(20.0);
+        assert_eq!(app.fire_flames(), Some(None), "lit: in full, no fade");
+        assert!(!app.fire_rests(20.0), "lit: the display link moves it");
+        app.tabs[app.active].fire_since = None;
+        assert!(app.tick_fire(30.0).0, "calm: a show from now");
+        assert_eq!(app.fire_flames(), Some(Some(30.0 + BRIEF)));
+        assert!(app.fire_rests(34.0) && !app.fire_rests(gone(30.0)));
+    }
+
+    /// Always is today's fire: at rest it wakes the app as long as the window is active (constraint 3).
+    #[test]
+    fn the_always_fire_never_fades() {
+        let (_dir, mut app) = brief_app();
+        app.set_fire_mode(FireMode::Always);
+        app.tick_fire(0.0);
+        for t in [1.0, 10.0, 3600.0] {
+            app.tick_fire(t);
+            assert!(app.fire_rests(t), "{t}");
+            assert_eq!(app.fire_flames(), Some(None));
+        }
+        app.window_focus(false);
+        assert!(!app.fire_rests(4000.0), "inactive: still, as today");
+    }
+
+    /// Off: never a flame, never a wake-up for it, not even just after a show (constraint 4).
+    #[test]
+    fn the_off_fire_never_shows() {
+        let (_dir, mut app) = brief_app();
+        app.set_fire_mode(FireMode::Off);
+        app.window_focus(true);
+        app.tick_fire(0.0);
+        assert_eq!(app.fire_flames(), None);
+        assert!(!app.fire_rests(0.5));
+        app.tabs[app.active].fire_since = Some(1.0);
+        assert_eq!(app.fire_flames(), None, "lit: only the label");
+        assert!(!app.tick_fire(1.0).0);
+    }
+
+    /// Reduce Motion and an inactive window keep the Brief fire still: no paced wake-ups, only the
+    /// one at the end that drops it (constraint 6).
+    #[test]
+    fn a_still_brief_fire_asks_only_for_its_end() {
+        let (_dir, mut app) = brief_app();
+        app.reduced_seen.set(true);
+        let (_, wake) = app.tick_fire(0.0);
+        assert!(!app.fire_rests(1.0), "reduce motion: still");
+        assert_eq!(wake, Some(end(0.0)));
+        assert!(app.tick_fire(gone(0.0)).0, "gone at the end");
+        assert_eq!(app.fire_flames(), None);
+    }
+
+    /// Picking Brief in the settings shows it, so the choice is seen.
+    #[test]
+    fn choosing_brief_shows_it() {
+        let (_dir, mut app) = brief_app();
+        app.set_fire_mode(FireMode::Off);
+        app.tick_fire(0.0);
+        app.set_fire_mode(FireMode::Brief);
+        assert!(app.tick_fire(100.0).0);
+        assert!(app.fire_rests(101.0));
+        assert_eq!(app.settings.fire, FireMode::Brief);
     }
 
     /// The visible rows reported by a tab's view hold for that tab.
