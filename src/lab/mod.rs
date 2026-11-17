@@ -4,11 +4,15 @@
 //! today's constants (`ring::ENTER`, `ring::TURN`, `ring::RING_W`, `fire::RISE`, `fire::FALL`,
 //! `fire::REST_H`, `fire::FIRE_H`). `fx::ring` and `fx::fire` read [`tuning`].
 //!
-//! In debug builds Animation Lab writes `lab.json` snapshots; [`apply_snapshot`] reads one into a
-//! [`LabState`] and [`set_tuning`] makes its tuning the global (both wired to `--lab` later). In
-//! release builds there is no global: [`tuning`] is the default.
+//! In debug builds `--lab` starts [`watch`]: it reads every `lab.json` snapshot into a [`LabState`]
+//! ([`apply_snapshot`]) and publishes its tuning ([`tuning`]) and test time ([`lab_time`]). With a
+//! test time the app draws the test state: the ring and the fire lit at [`REST_MS`], on the clock
+//! `t` ([`ring_at`], [`fire_at`]). In release builds there is no global: [`tuning`] is the default
+//! and [`lab_time`] is `None`.
 
 pub mod bezier;
+#[cfg(any(debug_assertions, test))]
+pub mod watch;
 
 #[cfg(any(debug_assertions, test))]
 use std::sync::RwLock;
@@ -67,16 +71,39 @@ impl Default for LabTuning {
     }
 }
 
-// Task 8: `cargo test` runs tests in parallel and the fx tests read this global. A test that calls
-// `set_tuning` must hold a shared test mutex and restore `LabTuning::DEFAULT` before releasing it.
 #[cfg(any(debug_assertions, test))]
 static TUNING: RwLock<LabTuning> = RwLock::new(LabTuning::DEFAULT);
+/// The test time, ms: `t` of the last snapshot.
+#[cfg(any(debug_assertions, test))]
+static TIME: RwLock<Option<f64>> = RwLock::new(None);
+/// A snapshot was published since `poll` last looked ([`take_changed`]).
+#[cfg(any(debug_assertions, test))]
+static CHANGED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+// `cargo test` runs tests in parallel and many of them read the globals (rings, fire). In tests
+// only the thread of a [`test_lab`] sees them; every other thread reads the default.
+#[cfg(test)]
+thread_local! {
+    static SEES_LAB: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+#[cfg(any(debug_assertions, test))]
+fn sees_lab() -> bool {
+    #[cfg(test)]
+    {
+        SEES_LAB.get()
+    }
+    #[cfg(not(test))]
+    {
+        true
+    }
+}
 
 /// The tuning the effects use now: the default unless the lab set one ([`set_tuning`]).
 pub fn tuning() -> LabTuning {
     #[cfg(any(debug_assertions, test))]
     {
-        *TUNING.read().unwrap_or_else(|e| e.into_inner())
+        if sees_lab() { *TUNING.read().unwrap_or_else(|e| e.into_inner()) } else { LabTuning::DEFAULT }
     }
     #[cfg(not(any(debug_assertions, test)))]
     {
@@ -84,17 +111,71 @@ pub fn tuning() -> LabTuning {
     }
 }
 
-/// Makes `t` the tuning the effects read (the `--lab` watcher calls it).
+/// Makes `t` the tuning the effects read.
 #[cfg(any(debug_assertions, test))]
-#[allow(dead_code)] // wired to `--lab`
 pub(crate) fn set_tuning(t: LabTuning) {
     *TUNING.write().unwrap_or_else(|e| e.into_inner()) = t;
+}
+
+/// The test time the lab set (`t` of `lab.json`, ms), `None` for the real clock and states.
+pub fn lab_time() -> Option<f64> {
+    #[cfg(any(debug_assertions, test))]
+    {
+        if sees_lab() { *TIME.read().unwrap_or_else(|e| e.into_inner()) } else { None }
+    }
+    #[cfg(not(any(debug_assertions, test)))]
+    {
+        None
+    }
+}
+
+/// Makes `state` the tuning and the test time the app reads, and marks the change for `poll`.
+#[cfg(any(debug_assertions, test))]
+pub(crate) fn publish(state: &LabState) {
+    set_tuning(state.tuning);
+    *TIME.write().unwrap_or_else(|e| e.into_inner()) = state.t;
+    CHANGED.store(true, std::sync::atomic::Ordering::Release);
+}
+
+/// True once after each [`publish`]: `poll` runs the view again.
+pub fn take_changed() -> bool {
+    #[cfg(any(debug_assertions, test))]
+    {
+        sees_lab() && CHANGED.swap(false, std::sync::atomic::Ordering::AcqRel)
+    }
+    #[cfg(not(any(debug_assertions, test)))]
+    {
+        false
+    }
+}
+
+/// A test that publishes to the globals holds this: one at a time, its thread sees them, and at the
+/// end they go back to the default.
+#[cfg(test)]
+pub(crate) struct TestLab(#[allow(dead_code)] std::sync::MutexGuard<'static, ()>);
+
+#[cfg(test)]
+pub(crate) fn test_lab() -> TestLab {
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    publish(&LabState::default());
+    CHANGED.store(false, std::sync::atomic::Ordering::Release);
+    SEES_LAB.set(true);
+    TestLab(guard)
+}
+
+#[cfg(test)]
+impl Drop for TestLab {
+    fn drop(&mut self) {
+        publish(&LabState::default());
+        CHANGED.store(false, std::sync::atomic::Ordering::Release);
+        SEES_LAB.set(false);
+    }
 }
 
 /// What the lab last sent: the tuning, the test time `t` (ms, `None` for the real clock) and the
 /// `seq` of the snapshot it came from.
 #[cfg(any(debug_assertions, test))]
-#[allow(dead_code)] // wired to `--lab`
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct LabState {
     pub tuning: LabTuning,
@@ -111,7 +192,6 @@ const DURATION_MS: std::ops::RangeInclusive<f64> = 50.0..=6000.0;
 /// Each snapshot is the whole state: a missing, unknown or out-of-range key leaves the default.
 /// True if the tuning or `t` changed.
 #[cfg(any(debug_assertions, test))]
-#[allow(dead_code)] // wired to `--lab`
 pub fn apply_snapshot(state: &mut LabState, json: &str) -> bool {
     use serde_json::Value;
 
@@ -168,6 +248,35 @@ pub fn apply_snapshot(state: &mut LabState, json: &str) -> bool {
     let changed = tuning != state.tuning || t != state.t;
     *state = LabState { tuning, t, seq };
     changed
+}
+
+/// The lab's rest before the effects start, ms (`lib/scenes/runemd-live.ts`): fixed in the
+/// protocol, not a parameter. In the test state the ring and the fire lit at `REST_MS`.
+pub const REST_MS: f64 = 300.0;
+
+/// The ring `tau_ms` after it lit: opacity `enter_ease(τ / enter)` and the turn's phase
+/// `turn_ease((τ / turn) mod 1)`, 0..1. Before 0 it is off: `(0, 0)`. `fx::ring` draws with the same
+/// two functions.
+pub fn ring_at(tau_ms: f64, t: &RingTuning) -> (f32, f32) {
+    if tau_ms < 0.0 {
+        return (0.0, 0.0);
+    }
+    let s = (tau_ms / 1000.0) as f32;
+    (ring::enter(s, *t), ring::phase(s, *t))
+}
+
+/// The fire's height, pt, `tau_ms` after it lit: `lerp(rest_h, lit_h, rise_ease(τ / rise))` up to
+/// `rise`, then `lit_h`; `rest_h` before 0. `fx::fire` passes the heights already scaled by
+/// `Look.height`.
+pub fn fire_at(tau_ms: f64, t: &FireTuning) -> f32 {
+    if tau_ms < 0.0 {
+        return t.rest_h;
+    }
+    let s = (tau_ms / 1000.0) as f32;
+    if s >= t.rise {
+        return t.lit_h;
+    }
+    t.rest_h + (t.lit_h - t.rest_h) * bezier::ease(t.rise_ease, s / t.rise)
 }
 
 #[cfg(test)]
@@ -292,5 +401,50 @@ mod tests {
         assert_eq!(s.t, Some(1200.0));
         assert!(apply_snapshot(&mut s, &snap(2, "", "null")));
         assert_eq!(s.t, None);
+    }
+
+    /// §5 "time": for τ < 0 the ring is off.
+    #[test]
+    fn ring_at_before_rest_is_off() {
+        assert_eq!(ring_at(-1.0, &LabTuning::DEFAULT.ring), (0.0, 0.0));
+    }
+
+    /// Opacity = enter_ease(τ / enter): at half the entrance, the curve at 0.5. The default curve
+    /// is the exact ease-out cubic (`bezier::ease`); a tuned one is the CSS bezier.
+    #[test]
+    fn ring_at_half_the_entrance_is_the_curve_at_half() {
+        let d = LabTuning::DEFAULT.ring;
+        let half = f64::from(d.enter) * 1000.0 / 2.0;
+        assert!((ring_at(half, &d).0 - bezier::ease(d.enter_ease, 0.5)).abs() < 1e-5);
+        assert!((ring_at(110.0, &d).0 - bezier::ease(d.enter_ease, 0.5)).abs() < 1e-5);
+        let tuned = RingTuning { enter_ease: [0.4, 0.0, 0.2, 1.0], ..d };
+        assert!((ring_at(110.0, &tuned).0 - bezier::cubic_bezier(tuned.enter_ease, 0.5)).abs() < 1e-5);
+    }
+
+    /// Phase = turn_ease((τ / turn) mod 1): one turn later, the same phase.
+    #[test]
+    fn ring_at_one_turn_later_is_the_same_phase() {
+        let d = LabTuning::DEFAULT.ring;
+        let turn_ms = f64::from(d.turn) * 1000.0;
+        let (a, b) = (ring_at(1500.0, &d).1, ring_at(1500.0 + turn_ms, &d).1);
+        assert!((a - b).abs() < 1e-4, "{a} {b}");
+        assert!((a - 0.5).abs() < 1e-4, "half a turn at 1.5 s of 3 s: {a}");
+        let eased = RingTuning { turn_ease: [0.4, 0.0, 0.6, 1.0], ..d };
+        assert!((ring_at(750.0, &eased).1 - bezier::cubic_bezier(eased.turn_ease, 0.25)).abs() < 1e-4);
+    }
+
+    /// Height = lerp(rest_h, lit_h, rise_ease(τ / rise)) up to `rise`, then lit_h; at rest before 0.
+    #[test]
+    fn fire_at_rises_from_rest_to_lit() {
+        let d = LabTuning::DEFAULT.fire;
+        let rise_ms = f64::from(d.rise) * 1000.0;
+        assert_eq!(fire_at(-1.0, &d), d.rest_h);
+        assert_eq!(fire_at(rise_ms, &d), d.lit_h);
+        assert_eq!(fire_at(rise_ms * 3.0, &d), d.lit_h);
+        let mid = d.rest_h + (d.lit_h - d.rest_h) * bezier::ease(d.rise_ease, 0.5);
+        assert!((fire_at(rise_ms / 2.0, &d) - mid).abs() < 1e-4);
+        let tuned = FireTuning { rise_ease: [0.4, 0.0, 0.2, 1.0], ..d };
+        let mid = d.rest_h + (d.lit_h - d.rest_h) * bezier::cubic_bezier(tuned.rise_ease, 0.5);
+        assert!((fire_at(rise_ms / 2.0, &tuned) - mid).abs() < 1e-4);
     }
 }

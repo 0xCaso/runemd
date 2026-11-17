@@ -187,7 +187,7 @@ pub fn height_scaled(phase: Phase, still: bool, k: f32) -> f32 {
         Phase::Rest => rest,
         Phase::Rising(_) if still => fire,
         Phase::Falling(_) if still => rest,
-        Phase::Rising(t) => rest + span * ease(t, tune.rise, tune.rise_ease),
+        Phase::Rising(t) => lab::fire_at(f64::from(t) * 1000.0, &FireTuning { rest_h: rest, lit_h: fire, ..tune }),
         Phase::Falling(t) => fire - span * ease(t, tune.fall, bezier::EASE_OUT_CUBIC),
     }
 }

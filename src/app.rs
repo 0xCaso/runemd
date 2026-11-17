@@ -386,6 +386,9 @@ pub struct App {
     /// When the last ring went out with no other lit (Rune clock): the empty screen's fire falls from
     /// there. `None` while one is lit, and before any agent wrote.
     writing_stopped: Option<f64>,
+    /// `--lab` (debug builds): the bridge's watcher and heartbeat (`lab::watch`), started in `setup`.
+    #[cfg(debug_assertions)]
+    pub(crate) lab: Option<crate::lab::watch::LabHandle>,
 }
 
 impl App {
@@ -421,6 +424,8 @@ impl App {
             images: None,
             forge_images: Default::default(),
             writing_stopped: None,
+            #[cfg(debug_assertions)]
+            lab: None,
         };
         app.sync_saved();
         app
@@ -1219,7 +1224,7 @@ impl App {
             return false;
         }
         match self.tab() {
-            Some(t) => self.settings.fire && matches!(t.mode, Mode::Read) && t.fire_since.is_none(),
+            Some(t) => self.settings.fire && matches!(t.mode, Mode::Read) && t.fire_since.is_none() && crate::lab::lab_time().is_none(),
             None => self.writing_since().is_none(),
         }
     }
@@ -1335,9 +1340,24 @@ impl App {
         self.rings.iter().max_by(|a, b| a.1.total_cmp(b.1)).map(|(p, _)| p.as_path())
     }
 
-    /// The clock at which the ring of `path` lit, if it is "writing" (tab and sidebar).
+    /// The clock at which the ring of `path` lit, if it is "writing" (tab and sidebar). In the lab's
+    /// test state (`lab::lab_time`) only the front tab's file writes, lit at `lab::REST_MS` of the
+    /// lab's clock.
     pub fn ring_of(&self, path: &Path) -> Option<f64> {
+        if crate::lab::lab_time().is_some() {
+            return self.tab().filter(|t| t.path() == path).map(|_| crate::lab::REST_MS / 1000.0);
+        }
         self.rings.get(path).copied()
+    }
+
+    /// The fire of `tab`: since when there is new text below the view, and how many blocks; `None` at
+    /// rest. In the lab's test state it is lit at `lab::REST_MS` of the lab's clock, with at least
+    /// one block for the label.
+    pub fn fire_of(&self, tab: &Tab) -> Option<(f64, usize)> {
+        if crate::lab::lab_time().is_some() {
+            return Some((crate::lab::REST_MS / 1000.0, tab.below.count().max(1)));
+        }
+        tab.fire_since.map(|since| (since, tab.below.count()))
     }
 
     /// Turns the rings on or off according to `Live` at `now`; true if it changed. Also returns the

@@ -116,10 +116,11 @@ pub fn layer_rounded(rect: Rect, radius: f32, t: f32, reduced: bool, dark: bool)
     let t = if reduced { 0.0 } else { t.max(0.0) };
     let tune = lab::tuning().ring;
     let base = metal(dark);
-    let metal = LiquidMetalParams { angle: base.angle + TAU * ease(tune.turn_ease, (t / tune.turn).fract()), ..base };
+    let (opacity, phase) = lab::ring_at(f64::from(t) * 1000.0, &tune);
+    let metal = LiquidMetalParams { angle: base.angle + TAU * phase, ..base };
     let r = rect.inflate(tune.width);
     let shape = Shape::rounded(r.x, r.y, r.w, r.h, radius + tune.width);
-    Fx::fill(metal.border(tune.width)).on(shape).at(t).reduced(reduced).opacity(if reduced { 1.0 } else { enter(t, tune) })
+    Fx::fill(metal.border(tune.width)).on(shape).at(t).reduced(reduced).opacity(if reduced { 1.0 } else { opacity })
 }
 
 /// The ring's metal: Rune's chrome in dark. In light the brightest reflections of the
@@ -194,8 +195,13 @@ pub fn slot_time(data: [f32; 4], clock: f64) -> (f32, bool) {
 
 /// Opacity from 0 to 1 in `tune.enter` on `tune.enter_ease` (by default `ENTER`, ease-out cubic);
 /// a tuned curve that overshoots stays within 0..=1.
-fn enter(t: f32, tune: RingTuning) -> f32 {
+pub(crate) fn enter(t: f32, tune: RingTuning) -> f32 {
     ease(tune.enter_ease, (t / tune.enter).clamp(0.0, 1.0)).clamp(0.0, 1.0)
+}
+
+/// The turn's phase (0..1) `t` seconds after the ring lit: one turn every `tune.turn` on `tune.turn_ease`.
+pub(crate) fn phase(t: f32, tune: RingTuning) -> f32 {
+    ease(tune.turn_ease, (t / tune.turn).fract())
 }
 
 #[cfg(test)]

@@ -555,6 +555,38 @@ mod tests {
             rt.frame(1.0 / 60.0);
         }
 
+        /// `--lab` with a time: the front file writes (its tab, its Recent row and the ⌘P panel listing
+        /// it), lit at `REST_MS`, and the fire is lit; with `t: null` the true states come back.
+        #[test]
+        fn the_lab_test_state_lights_the_front_file() {
+            let _lab = crate::lab::test_lab();
+            let (_d, mut rt) = open();
+            let front = rt.state.tab().unwrap().path().to_path_buf();
+            rt.update(|s: &mut App, _| {
+                s.sidebar.refresh(&s.library.index, &[], std::time::SystemTime::now());
+            });
+            settle(&mut rt);
+            let recent = recent_index(&rt, "alfa.md").expect("alfa in Recent");
+            crate::lab::publish(&crate::lab::LabState { t: Some(600.0), ..Default::default() });
+            rt.update(|_: &mut App, _| {});
+            let (_, writing) = edges(&mut rt);
+            assert!(writing.contains(&Mark::TabRing(0).id()), "{writing:?}");
+            let rows: Vec<u32> = writing.iter().copied().filter(|m| (Mark::RecentRing(0).id()..=Mark::RecentRing(9_999).id()).contains(m)).collect();
+            assert_eq!(rows, vec![Mark::RecentRing(recent).id()], "only the front file's Recent row");
+            assert_eq!(rt.state.ring_of(&front), Some(crate::lab::REST_MS / 1000.0));
+            assert_eq!(rt.state.ring_of(&front.with_file_name("beta.md")), None);
+            assert_eq!(rt.state.fire_of(rt.state.tab().unwrap()), Some((0.3, 1)));
+            assert!(!rt.state.fire_rests(), "the test state is still: no rest wake-ups");
+            quick_on_a(&mut rt);
+            assert!(edges(&mut rt).1.contains(&Mark::QuickPanel.id()), "the panel lists the front file");
+
+            crate::lab::publish(&crate::lab::LabState { t: None, seq: 2, ..Default::default() });
+            rt.update(|s: &mut App, _| s.sidebar.quick.close());
+            settle(&mut rt);
+            assert_eq!(edges(&mut rt), (vec![Mark::TabRing(0).id()], vec![]), "back to the calm edge");
+            assert_eq!(rt.state.fire_of(rt.state.tab().unwrap()), None);
+        }
+
         /// metal-tab, calm (docs/decisions/2026-11-16-metal-tab-quick-open-panel.md): a frozen edge
         /// on the active tab and, with ⌘P open, on the whole panel; no ⌘P row has an edge and
         /// nothing moves.
