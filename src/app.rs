@@ -392,6 +392,8 @@ pub struct App {
     pub(crate) images: Option<rune::ImageCache>,
     /// The wordmark's images drawn now, and the next size while it decodes (`ui::forge::Images`).
     pub(crate) forge_images: std::cell::RefCell<ui::forge::Images>,
+    /// When (Rune clock) `poll` last ran (`rest_wake`).
+    polled_at: Option<f64>,
     /// When the last ring went out with no other lit (Rune clock): the empty screen's fire falls from
     /// there. `None` while one is lit, and before any agent wrote.
     writing_stopped: Option<f64>,
@@ -436,6 +438,7 @@ impl App {
             recovery: edit::recovery::default_dir(),
             images: None,
             forge_images: Default::default(),
+            polled_at: None,
             writing_stopped: None,
             #[cfg(debug_assertions)]
             lab: None,
@@ -1283,6 +1286,16 @@ impl App {
     /// fire (forge-empty). Rings, the ⌘P panel, the fire and the caret come on top of those.
     pub fn effects_lit(&self) -> bool {
         true
+    }
+
+    /// Called by every `poll`: whether this one is a resting window's wake-up, after at least
+    /// most of a `fx::fire::REST_FRAME` without polls, and not a poll inside a stream of frames
+    /// (a scroll, an animation), which polls every frame. Only the wake-up needs a frame for the
+    /// resting fire: in a stream the compositor already moves it on every frame's clock.
+    pub fn rest_wake(&mut self, clock: f64) -> bool {
+        let gap = self.polled_at.map(|at| clock - at);
+        self.polled_at = Some(clock);
+        gap.is_none_or(|g| g >= crate::fx::fire::REST_FRAME.as_secs_f64() * 0.75 || g < 0.0)
     }
 
     /// The fire of the front tab is at rest and moving at `clock` (Always, or Brief until its fade
