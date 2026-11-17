@@ -7,6 +7,8 @@ pub const LINEAR: [f32; 4] = [0.0, 0.0, 1.0, 1.0];
 
 /// The eased value of `x` (0..1) on the curve `p`. The two defaults keep today's exact formulas
 /// (`EASE_OUT_CUBIC` the cubic, `LINEAR` the identity), so without the lab nothing moves by a bit.
+/// The cubic and the bezier `[0.33, 1, 0.68, 1]` are close but not equal (up to ~0.03): a curve
+/// nudged off the default in the lab jumps by that small step, from the exact cubic to the bezier.
 pub fn ease(p: [f32; 4], x: f32) -> f32 {
     if p == EASE_OUT_CUBIC {
         1.0 - (1.0 - x).powi(3)

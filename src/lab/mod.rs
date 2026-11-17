@@ -67,6 +67,8 @@ impl Default for LabTuning {
     }
 }
 
+// Task 8: `cargo test` runs tests in parallel and the fx tests read this global. A test that calls
+// `set_tuning` must hold a shared test mutex and restore `LabTuning::DEFAULT` before releasing it.
 #[cfg(any(debug_assertions, test))]
 static TUNING: RwLock<LabTuning> = RwLock::new(LabTuning::DEFAULT);
 
@@ -209,6 +211,23 @@ mod tests {
         assert_eq!(t.ring.turn_ease, [0.4, 0.0, 0.6, 1.0]);
         assert_eq!(t.fire.rise_ease, [0.2, 1.2, 0.5, 1.0]);
         assert_eq!(s.seq, 5);
+    }
+
+    /// The ten keys at their defaults, as the lab writes them, give the default bit for bit.
+    #[test]
+    fn the_defaults_as_json_are_the_default() {
+        let mut s = LabState::default();
+        let json = snap(1, r#""ringEnter":220,"ringEnterEase":[0.33,1,0.68,1],"ringTurn":3000,"ringTurnEase":[0,0,1,1],"ringWidth":2.5,"fireRise":420,"fireRiseEase":[0.33,1,0.68,1],"fireFall":300,"fireRestH":26,"fireLitH":110"#, "null");
+        assert!(!apply_snapshot(&mut s, &json), "nothing changed");
+        assert_eq!(s.seq, 1);
+        assert_eq!(s.tuning, LabTuning::DEFAULT);
+        let bits = |t: LabTuning| {
+            let (r, f) = (t.ring, t.fire);
+            let mut v = vec![r.enter, r.turn, r.width, f.rise, f.fall, f.rest_h, f.lit_h];
+            v.extend(r.enter_ease.into_iter().chain(r.turn_ease).chain(f.rise_ease));
+            v.into_iter().map(f32::to_bits).collect::<Vec<_>>()
+        };
+        assert_eq!(bits(s.tuning), bits(LabTuning::DEFAULT));
     }
 
     /// Review Focus 1: a seq already seen (or older) is ignored.

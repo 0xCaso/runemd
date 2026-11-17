@@ -192,9 +192,10 @@ pub fn slot_time(data: [f32; 4], clock: f64) -> (f32, bool) {
     ((clock - since).max(0.0) as f32, data[1] > 0.5)
 }
 
-/// Opacity from 0 to 1 in `tune.enter` on `tune.enter_ease` (by default `ENTER`, ease-out cubic).
+/// Opacity from 0 to 1 in `tune.enter` on `tune.enter_ease` (by default `ENTER`, ease-out cubic);
+/// a tuned curve that overshoots stays within 0..=1.
 fn enter(t: f32, tune: RingTuning) -> f32 {
-    ease(tune.enter_ease, (t / tune.enter).clamp(0.0, 1.0))
+    ease(tune.enter_ease, (t / tune.enter).clamp(0.0, 1.0)).clamp(0.0, 1.0)
 }
 
 #[cfg(test)]
@@ -245,6 +246,17 @@ mod tests {
         assert!(mid > 0.5 && mid < 1.0, "ease-out: past half at half time ({mid})");
         assert_eq!(layer(row(), ENTER, false).opacity, 1.0);
         assert_eq!(layer(row(), 5.0, false).opacity, 1.0);
+    }
+
+    /// A tuned entrance curve that overshoots keeps the opacity within 0..=1.
+    #[test]
+    fn an_overshooting_entrance_stays_a_valid_opacity() {
+        let tune = RingTuning { enter_ease: [0.3, 1.8, 0.5, 1.5], ..lab::LabTuning::DEFAULT.ring };
+        assert!(crate::lab::bezier::cubic_bezier(tune.enter_ease, 0.6) > 1.0, "the curve overshoots");
+        for i in 0..=20 {
+            let o = enter(tune.enter * i as f32 / 20.0, tune);
+            assert!((0.0..=1.0).contains(&o), "{o}");
+        }
     }
 
     #[test]

@@ -14,7 +14,7 @@ use rune_fx::{FireParams, Fx, FxLayer, Rect, Rgb, Shape, rgb};
 use serde::{Deserialize, Serialize};
 
 use super::Mark;
-use crate::lab::{self, bezier};
+use crate::lab::{self, FireTuning, bezier};
 
 /// Flame height with new text below the view, pt (DESIGN.md: 110).
 pub const FIRE_H: f32 = 110.0;
@@ -50,14 +50,21 @@ const SPAN_MAX: f32 = 1.6;
 
 /// The resting flame height at factor `k`, pt.
 pub fn rest_height(k: f32) -> f32 {
-    lab::tuning().fire.rest_h * k
+    rest_with(lab::tuning().fire, k)
+}
+
+fn rest_with(tune: FireTuning, k: f32) -> f32 {
+    tune.rest_h * k
 }
 
 /// The lit flame height at factor `k`, pt: `FIRE_H × k` up to `SPAN_MAX`, then the resting height plus
 /// the rise it had there.
 pub fn lit_height(k: f32) -> f32 {
-    let tune = lab::tuning().fire;
-    tune.rest_h * k + (tune.lit_h - tune.rest_h) * k.min(SPAN_MAX)
+    lit_with(lab::tuning().fire, k)
+}
+
+fn lit_with(tune: FireTuning, k: f32) -> f32 {
+    rest_with(tune, k) + (tune.lit_h - tune.rest_h) * k.min(SPAN_MAX)
 }
 
 /// How far the resting tongues reach above their height (measured headless at the top step).
@@ -172,17 +179,16 @@ pub fn height(phase: Phase, still: bool) -> f32 {
 
 /// [`height`] at the factor `k` ("Height"): from [`rest_height`] to [`lit_height`].
 pub fn height_scaled(phase: Phase, still: bool, k: f32) -> f32 {
-    let (fire, rest) = (lit_height(k), rest_height(k));
+    // One read of the tuning: a frame never mixes two.
+    let tune = lab::tuning().fire;
+    let (fire, rest) = (lit_with(tune, k), rest_with(tune, k));
     let span = fire - rest;
     match phase {
         Phase::Rest => rest,
         Phase::Rising(_) if still => fire,
         Phase::Falling(_) if still => rest,
-        Phase::Rising(t) => {
-            let tune = lab::tuning().fire;
-            rest + span * ease(t, tune.rise, tune.rise_ease)
-        }
-        Phase::Falling(t) => fire - span * ease(t, lab::tuning().fire.fall, bezier::EASE_OUT_CUBIC),
+        Phase::Rising(t) => rest + span * ease(t, tune.rise, tune.rise_ease),
+        Phase::Falling(t) => fire - span * ease(t, tune.fall, bezier::EASE_OUT_CUBIC),
     }
 }
 
