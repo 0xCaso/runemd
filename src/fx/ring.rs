@@ -15,6 +15,7 @@ use rune::El;
 use rune_fx::{Fx, FxLayer, LiquidMetalParams, Rect, Shape};
 
 use super::Mark;
+use crate::lab::{self, RingTuning, bezier::ease};
 
 /// Ring width, pt (DESIGN.md: 2.5; docs/decisions/2026-11-15-thick-ring.md).
 pub const RING_W: f32 = 2.5;
@@ -113,11 +114,12 @@ pub fn layer(rect: Rect, t: f32, reduced: bool) -> FxLayer {
 /// in the `dark` theme or in light ([`metal`]).
 pub fn layer_rounded(rect: Rect, radius: f32, t: f32, reduced: bool, dark: bool) -> FxLayer {
     let t = if reduced { 0.0 } else { t.max(0.0) };
+    let tune = lab::tuning().ring;
     let base = metal(dark);
-    let metal = LiquidMetalParams { angle: base.angle + TAU * (t / TURN).fract(), ..base };
-    let r = rect.inflate(RING_W);
-    let shape = Shape::rounded(r.x, r.y, r.w, r.h, radius + RING_W);
-    Fx::fill(metal.border(RING_W)).on(shape).at(t).reduced(reduced).opacity(if reduced { 1.0 } else { enter(t) })
+    let metal = LiquidMetalParams { angle: base.angle + TAU * ease(tune.turn_ease, (t / tune.turn).fract()), ..base };
+    let r = rect.inflate(tune.width);
+    let shape = Shape::rounded(r.x, r.y, r.w, r.h, radius + tune.width);
+    Fx::fill(metal.border(tune.width)).on(shape).at(t).reduced(reduced).opacity(if reduced { 1.0 } else { enter(t, tune) })
 }
 
 /// The ring's metal: Rune's chrome in dark. In light the brightest reflections of the
@@ -150,7 +152,7 @@ pub fn slot_as(el: El, mark: Mark, edge: Edge, reduced: bool, dark: bool, look: 
         Edge::Calm => calm_data(dark, look),
         Edge::Writing(since) => slot_data(since, reduced, dark),
     };
-    el.effect(mark.id()).effect_bleed(RING_W).effect_data(data)
+    el.effect(mark.id()).effect_bleed(RING_W.max(lab::tuning().ring.width)).effect_data(data)
 }
 
 /// `effect_data[1]` of a calm slot (0 and 1 are the writing ring, moving or reduced).
@@ -190,10 +192,9 @@ pub fn slot_time(data: [f32; 4], clock: f64) -> (f32, bool) {
     ((clock - since).max(0.0) as f32, data[1] > 0.5)
 }
 
-/// Ease-out cubica da 0 a 1 in `ENTER`.
-fn enter(t: f32) -> f32 {
-    let x = (t / ENTER).clamp(0.0, 1.0);
-    1.0 - (1.0 - x).powi(3)
+/// Opacity from 0 to 1 in `tune.enter` on `tune.enter_ease` (by default `ENTER`, ease-out cubic).
+fn enter(t: f32, tune: RingTuning) -> f32 {
+    ease(tune.enter_ease, (t / tune.enter).clamp(0.0, 1.0))
 }
 
 #[cfg(test)]

@@ -28,6 +28,7 @@ mod edit;
 mod fonts;
 mod fx;
 mod index;
+mod lab;
 mod live;
 mod open;
 mod panes;

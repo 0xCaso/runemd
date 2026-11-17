@@ -14,6 +14,7 @@ use rune_fx::{FireParams, Fx, FxLayer, Rect, Rgb, Shape, rgb};
 use serde::{Deserialize, Serialize};
 
 use super::Mark;
+use crate::lab::{self, bezier};
 
 /// Flame height with new text below the view, pt (DESIGN.md: 110).
 pub const FIRE_H: f32 = 110.0;
@@ -49,13 +50,14 @@ const SPAN_MAX: f32 = 1.6;
 
 /// The resting flame height at factor `k`, pt.
 pub fn rest_height(k: f32) -> f32 {
-    REST_H * k
+    lab::tuning().fire.rest_h * k
 }
 
 /// The lit flame height at factor `k`, pt: `FIRE_H × k` up to `SPAN_MAX`, then the resting height plus
 /// the rise it had there.
 pub fn lit_height(k: f32) -> f32 {
-    rest_height(k) + (FIRE_H - REST_H) * k.min(SPAN_MAX)
+    let tune = lab::tuning().fire;
+    tune.rest_h * k + (tune.lit_h - tune.rest_h) * k.min(SPAN_MAX)
 }
 
 /// How far the resting tongues reach above their height (measured headless at the top step).
@@ -176,8 +178,11 @@ pub fn height_scaled(phase: Phase, still: bool, k: f32) -> f32 {
         Phase::Rest => rest,
         Phase::Rising(_) if still => fire,
         Phase::Falling(_) if still => rest,
-        Phase::Rising(t) => rest + span * ease(t, RISE),
-        Phase::Falling(t) => fire - span * ease(t, FALL),
+        Phase::Rising(t) => {
+            let tune = lab::tuning().fire;
+            rest + span * ease(t, tune.rise, tune.rise_ease)
+        }
+        Phase::Falling(t) => fire - span * ease(t, lab::tuning().fire.fall, bezier::EASE_OUT_CUBIC),
     }
 }
 
@@ -186,7 +191,7 @@ pub fn height_scaled(phase: Phase, still: bool, k: f32) -> f32 {
 pub fn paced(phase: Phase) -> bool {
     match phase {
         Phase::Rest => true,
-        Phase::Falling(t) => t >= FALL,
+        Phase::Falling(t) => t >= lab::tuning().fire.fall,
         Phase::Rising(_) => false,
     }
 }
@@ -287,10 +292,9 @@ pub fn slot_state(data: [f32; 4], clock: f64) -> SlotState {
     }
 }
 
-/// Ease-out cubica da 0 a 1 in `span` secondi.
-fn ease(t: f32, span: f32) -> f32 {
-    let x = (t.max(0.0) / span).clamp(0.0, 1.0);
-    1.0 - (1.0 - x).powi(3)
+/// From 0 to 1 in `span` seconds on `curve` (by default ease-out cubic).
+fn ease(t: f32, span: f32, curve: [f32; 4]) -> f32 {
+    bezier::ease(curve, (t.max(0.0) / span).clamp(0.0, 1.0))
 }
 
 #[cfg(test)]
