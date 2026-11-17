@@ -816,6 +816,8 @@ fn fire_modes(s: &App, hooks: Hooks<App>, theme: &Theme, motion: Motion) -> El {
                     .key("set-fire-always-note")
                     .font(TextStyle::new(UI_SMALL, UI_WEIGHT))
                     .color(theme.fg3)
+                    .wrap()
+                    .w_full()
                     .pl(ROW_PAD + ICON + ROW_GAP)
                     .pr(ROW_PAD)
                     .pb(ROW_GAP),
@@ -977,6 +979,9 @@ mod tests {
         let (always, note, off) = (find(&rt, "set-fire-Always").rect, find(&rt, "set-fire-always-note").rect, find(&rt, "set-fire-Off").rect);
         assert!(note[1] >= always[1] + always[3] - 0.5 && note[1] + note[3] <= off[1] + 0.5, "the note between Always {always:?} and Off {off:?}: {note:?}");
         assert!(texts(&rt).iter().any(|t| t == FIRE_ALWAYS_NOTE));
+        let column = find(&rt, "settings-scroll").rect;
+        assert!(note[0] + note[2] <= column[0] + column[2] + 0.5, "the note wraps inside the panel: {note:?} in {column:?}");
+        assert!(note[3] - ROW_GAP > UI_SMALL * 2.0, "two lines in the narrow column: {note:?}");
         assert!(crate::ui::contrast::ratio(theme.fg3, theme.panel) >= 4.5, "the note reads on the panel");
         for (mode, label) in [(FireMode::Always, "Always"), (FireMode::Off, "Off"), (FireMode::Brief, "Brief")] {
             let key = format!("set-fire-{label}");
