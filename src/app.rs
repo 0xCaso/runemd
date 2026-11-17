@@ -395,6 +395,9 @@ pub struct App {
     /// When the last ring went out with no other lit (Rune clock): the empty screen's fire falls from
     /// there. `None` while one is lit, and before any agent wrote.
     writing_stopped: Option<f64>,
+    /// The front tab came back from the last session with a reading place: the first poll (which has
+    /// a `Tx`) puts its view there (`restore_view`).
+    pub(crate) restore_pending: bool,
     /// `--lab` (debug builds): the bridge's watcher and heartbeat (`lab::watch`), started in `setup`.
     #[cfg(debug_assertions)]
     pub(crate) lab: Option<crate::lab::watch::LabHandle>,
@@ -437,6 +440,7 @@ impl App {
             images: None,
             forge_images: Default::default(),
             writing_stopped: None,
+            restore_pending: false,
             #[cfg(debug_assertions)]
             lab: None,
         };
@@ -563,6 +567,9 @@ impl App {
         self.window_active = focused;
         if focused {
             self.show_fire();
+        } else {
+            // The reading places too, in case the app does not quit cleanly.
+            self.save_session();
         }
     }
 
@@ -909,8 +916,11 @@ impl App {
         if self.tabs.is_empty() {
             self.sidebar.clear_open();
             self.find.close();
+            self.save_session();
         } else if front {
             self.fronted();
+        } else {
+            self.save_session();
         }
     }
 
@@ -920,6 +930,7 @@ impl App {
     /// on disk stays as it is. The tab has no more changes to save: a second call (Cmd+Q
     /// does `on_quit` and then `on_close`) does not write a second copy.
     pub fn save_all(&mut self) {
+        self.save_session();
         let stamp = edit::recovery::stamp_now();
         for tab in &mut self.tabs {
             if !matches!(&tab.mode, Mode::Source(s) if s.dirty) {
@@ -938,6 +949,57 @@ impl App {
                 None => eprintln!("runemd: {path}: {why}; changes not saved"),
             }
         }
+    }
+
+    /// The open tabs as the next launch reopens them (`session`).
+    pub fn session(&self) -> crate::session::Session {
+        let tabs = self.tabs.iter().map(|t| crate::session::SavedTab {
+            path: t.doc.path.clone(),
+            preview: t.preview,
+            top: if t.visible_first == 0 { 0 } else { t.index_of(t.visible_first, t.visible_start).unwrap_or(0) },
+        }).collect();
+        crate::session::Session { tabs, front: self.active }
+    }
+
+    /// Saves [`App::session`] in the prefs (in memory with `RUNEMD_ROOTS` and in tests).
+    pub(crate) fn save_session(&mut self) {
+        if let Err(e) = self.session().save(&mut self.prefs) {
+            eprintln!("runemd: open tabs not saved: {e}");
+        }
+    }
+
+    /// At startup, before the paths from Finder or the terminal: the tabs of the last session whose
+    /// file still exists, in their order, with the preview tab and the front one; each view starts at
+    /// the block that was at its top (the front one at the first poll, `restore_pending`).
+    pub fn restore_session(&mut self, session: crate::session::Session) {
+        let session = session.existing();
+        for saved in &session.tabs {
+            if self.tabs.iter().any(|t| t.doc.path == saved.path) {
+                continue;
+            }
+            let doc = match Document::load(&saved.path) {
+                Ok(doc) => doc,
+                Err(e) => {
+                    eprintln!("runemd: {}: {e}", saved.path.display());
+                    continue;
+                }
+            };
+            let follow = self.live.follow(&saved.path);
+            let mut tab = Tab::new(doc, follow);
+            tab.preview = saved.preview;
+            if let Some(b) = tab.doc.blocks.get(saved.top).filter(|_| saved.top > 0) {
+                tab.visible_first = b.id;
+                tab.visible_start = saved.top;
+            }
+            self.tabs.push(tab);
+        }
+        if self.tabs.is_empty() {
+            return;
+        }
+        let front = session.tabs.get(session.front).and_then(|f| self.tabs.iter().position(|t| t.doc.path == f.path));
+        self.active = front.unwrap_or(self.tabs.len() - 1);
+        self.restore_pending = self.tabs[self.active].visible_first != 0;
+        self.fronted();
     }
 
     /// At startup: the recovery copies written at the last quit open in a tab.
@@ -970,6 +1032,8 @@ impl App {
         if let Some(tab) = self.tabs.get(self.active) {
             self.sidebar.set_open(&tab.doc.path, &self.library.index);
         }
+        // The open tabs are saved when they change, not only at quit (a crash or a kill keeps them).
+        self.save_session();
     }
 
     /// After a change of the front tab, in the same handler: the view starts again from the first
@@ -2503,5 +2567,57 @@ mod tests {
         app.open_preview(p[2].clone());
         assert_eq!(previews(&app), [false, true]);
         assert_eq!(app.tabs.len(), 2);
+    }
+
+    /// The open tabs come back at the next launch: order, front tab, preview, reading place; a file
+    /// that is gone is skipped.
+    #[test]
+    fn the_open_tabs_come_back_at_the_next_launch() {
+        let (_dir, p) = files(&["a.md", "b.md", "c.md", "d.md"]);
+        fs::write(&p[1], "# B\n\nOne.\n\nTwo.\n\nThree.\n\nFour.\n").unwrap();
+        let mut app = empty_app();
+        app.open_paths(vec![p[0].clone(), p[1].clone(), p[2].clone()]);
+        app.open_preview(p[3].clone());
+        app.select(1);
+        app.tabs[1].visible_rows(3..5, false);
+        let saved = app.session();
+        assert_eq!(saved.front, 1);
+        assert_eq!(saved.tabs.iter().map(|t| (t.preview, t.top)).collect::<Vec<_>>(), [(false, 0), (false, 3), (false, 0), (true, 0)]);
+        fs::remove_file(&p[2]).unwrap();
+
+        let mut next = empty_app();
+        next.restore_session(saved);
+        assert_eq!(next.tabs.iter().map(|t| t.doc.path.clone()).collect::<Vec<_>>(), [p[0].clone(), p[1].clone(), p[3].clone()]);
+        assert_eq!(previews(&next), [false, false, true]);
+        assert_eq!(next.active, 1, "b.md in front");
+        let b = &next.tabs[1];
+        assert_eq!(b.doc.blocks.iter().position(|x| x.id == b.visible_first), Some(3), "reading place kept");
+        assert!(next.restore_pending, "the first poll scrolls there");
+        assert_eq!(next.session().tabs[1].top, 3, "saved again as it came back");
+    }
+
+    /// The session goes through prefs.json when the app quits.
+    #[test]
+    fn quitting_saves_the_open_tabs() {
+        let (dir, p) = files(&["a.md", "b.md"]);
+        let prefs = dir.path().join("prefs.json");
+        let mut app = App::new(index::Library::load(Vec::new(), None), Settings::default(), rune::prefs::Prefs::at(&prefs));
+        app.recovery = None;
+        app.open_paths(vec![p[0].clone(), p[1].clone()]);
+        app.save_all();
+        let back = crate::session::Session::load(&rune::prefs::Prefs::at(&prefs));
+        assert_eq!(back.tabs.iter().map(|t| t.path.clone()).collect::<Vec<_>>(), p);
+        assert_eq!(back.front, 1);
+        let mut next = empty_app();
+        next.restore_session(back);
+        assert_eq!(next.tabs.len(), 2);
+        assert!(!next.restore_pending, "at the top: nothing to scroll");
+    }
+
+    #[test]
+    fn no_session_opens_no_tabs() {
+        let mut app = empty_app();
+        app.restore_session(crate::session::Session::default());
+        assert!(app.tabs.is_empty());
     }
 }

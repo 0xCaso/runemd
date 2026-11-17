@@ -34,6 +34,7 @@ mod open;
 mod panes;
 mod probe;
 mod repo;
+mod session;
 mod settings;
 mod ui;
 mod watch;
@@ -67,10 +68,13 @@ fn init() -> App {
     let t = Instant::now();
     let library = index::Library::load(index::roots_from(&settings.roots), index::cache_path());
     probe::index_cached(t.elapsed(), library.index.len());
+    let session = session::Session::load(&prefs);
     let mut app = App::new(library, settings, prefs);
     app.scroll = probe::ScrollRun::from_env();
     // Recent from the cache: the sidebar is full from the first frame.
     app.sidebar.refresh(&app.library.index, &[], SystemTime::now());
+    // The tabs of the last launch, then the files from Finder or the terminal (in front).
+    app.restore_session(session);
     app.open_paths(paths);
     // The recovery copies from the last exit (a conflict or a write error).
     app.open_recovered();
@@ -355,6 +359,10 @@ fn on_key(s: &mut App, key: &rune::KeyEvent, tx: &mut Tx) -> bool {
 }
 
 fn poll(s: &mut App, clock: f64, tx: &mut Tx) -> bool {
+    // The front tab of the last session goes back to its reading place.
+    if std::mem::take(&mut s.restore_pending) {
+        s.restore_view(tx);
+    }
     let queued = open::queue::drain();
     let opened = !queued.is_empty();
     if opened {
