@@ -68,6 +68,13 @@ pub struct Tab {
     /// Where the scrolling view and the page are (`doc_view::Edge`), and whether the scroll is at the end.
     viewport: [f32; 4],
     page: [f32; 4],
+    /// The row under the top edge of the view at the last layout (`doc_view::Edge::Row`): its
+    /// block id, how far its top is from that edge (0 or less) and its height. `on_visible_rows`
+    /// cannot say it: it reports rows partly in view, and its first can be a row above the edge.
+    reading: Option<(u64, f32, f32)>,
+    /// After a text width change, the row that must stay under the top edge, the part of it above
+    /// the edge (0..1 of its height) and the corrections left (`Tab::hold_reading`).
+    hold: Option<(u64, f32, u8)>,
     pub(crate) at_bottom: bool,
     /// The clicked outline heading (block id) and the first visible block after the jump:
     /// it stays highlighted while it shows and there is no manual scroll, even if it does not reach the top.
@@ -83,7 +90,7 @@ pub struct Tab {
 
 impl Tab {
     pub(crate) fn new(doc: Document, follow: Follow) -> Tab {
-        Tab { doc, mode: Mode::Read, below: Below::default(), changed: Changed::default(), follow, visible_last: 0, visible_first: 0, fire_since: None, fire_armed: None, mark_wake: None, caret_since: None, caret_at: None, visible_start: 0, visible_end: 0, outline: ui::outline::Cache::default(), viewport: [0.0; 4], page: [0.0; 4], at_bottom: false, picked: None, not_utf8: false, preview: false }
+        Tab { doc, mode: Mode::Read, below: Below::default(), changed: Changed::default(), follow, visible_last: 0, visible_first: 0, fire_since: None, fire_armed: None, mark_wake: None, caret_since: None, caret_at: None, visible_start: 0, visible_end: 0, outline: ui::outline::Cache::default(), viewport: [0.0; 4], page: [0.0; 4], reading: None, hold: None, at_bottom: false, picked: None, not_utf8: false, preview: false }
     }
 
     /// The file as FSEvents reports it (canonical): the key of the rings.
@@ -201,10 +208,18 @@ impl Tab {
     /// The document's view or page has a new rectangle. The scroll is "at the end" if the
     /// page has gone below the top edge (the file does not fit in the view) and ends at the bottom
     /// edge of the view. True if, with the outline visible, the highlighted heading changes.
-    pub fn edge(&mut self, edge: ui::doc_view::Edge, outline: bool) -> bool {
+    pub fn edge(&mut self, edge: ui::doc_view::Edge, outline: bool, tx: &mut Tx) -> bool {
         match edge {
             ui::doc_view::Edge::Viewport(r) => self.viewport = r,
             ui::doc_view::Edge::Page(r) => self.page = r,
+            ui::doc_view::Edge::Row(id, [_, y, _, h]) => {
+                let top = self.viewport[1];
+                if y <= top + 0.5 && y + h > top + 0.5 {
+                    self.reading = Some((id, y - top, h));
+                }
+                self.hold_reading(id, y - top, h, tx);
+                return false;
+            }
         }
         let ([_, vy, _, vh], [_, py, _, ph]) = (self.viewport, self.page);
         let at_bottom = vh > 0.0 && py < vy - 0.5 && py + ph <= vy + vh + 0.5;
@@ -219,6 +234,35 @@ impl Tab {
     /// A click on outline heading `block`: it stays highlighted while it shows (`picked`).
     pub fn pick_heading(&mut self, block: u64) {
         self.picked = Some((block, None));
+    }
+
+    /// The block under the top edge of the view, the offset of its top from that edge and its
+    /// height, if the page has gone above that edge (otherwise the start shows and nothing needs
+    /// to hold).
+    fn reading_place(&self) -> Option<(usize, f32, f32)> {
+        let (id, at, h) = self.reading?;
+        // Rows start `TOP` below the page: above that, the edge is in the space before the first row.
+        if self.page[1] + ui::doc_view::TOP >= self.viewport[1] - 0.5 {
+            return None;
+        }
+        Some((self.index_of(id, self.visible_start)?, at, h))
+    }
+
+    /// Keeps the reader's line under the top edge while the text width changes: the row that was
+    /// there stays there with the same part of it above the edge. Its new height is known only
+    /// from its layout, so the first frames correct where `App::set_column_live` put it; the hold
+    /// ends once the row is in place, or after `HOLD_TRIES` corrections (the end of the file can
+    /// stop it short).
+    fn hold_reading(&mut self, id: u64, at: f32, h: f32, tx: &mut Tx) {
+        let Some((held, part, tries)) = self.hold.filter(|&(held, _, _)| held == id) else { return };
+        let want = -part * h;
+        if (at - want).abs() <= 0.5 || tries == 0 {
+            self.hold = None;
+            return;
+        }
+        let Some(i) = self.index_of(held, self.visible_start) else { return self.hold = None };
+        self.hold = Some((held, part, tries - 1));
+        tx.scroll_key_to(ui::doc_view::row_key(i, &self.doc), want);
     }
 
     /// The position of block `id`, looked up first where the last report put it.
@@ -272,6 +316,9 @@ fn drag_pane(pane: &mut crate::panes::Pane, limits: crate::panes::Limits, d: &mu
     }
     false
 }
+
+/// How many frames `Tab::hold_reading` may correct the reader's row after a text width change.
+const HOLD_TRIES: u8 = 8;
 
 /// Brings block `i` of tab `tab` to the top of the document view, without gliding. The
 /// row may not be mounted: `scroll_center_in_instant` mounts it, then `scroll_key_to` puts it
@@ -519,7 +566,8 @@ impl App {
     }
 
     /// The width of the text column (`settings::valid_column`). The row heights
-    /// change: the block that was at the top of the view goes back to the top (`scroll_block_to_top`).
+    /// change: the row under the top edge of the view stays where it was, its top at the same
+    /// offset from the edge (`Tab::reading_place`).
     pub fn set_column(&mut self, column: f32, tx: &mut Tx) {
         if self.set_column_live(column, tx) {
             self.save_settings();
@@ -534,10 +582,15 @@ impl App {
             return false;
         }
         self.settings.column = column;
-        if let Some(tab) = self.tab().filter(|t| matches!(t.mode, Mode::Read))
-            && let Some(i) = tab.doc.blocks.iter().position(|b| b.id == tab.visible_first).filter(|&i| i > 0)
+        // Without this Rune holds its own anchor, the first row it reports as visible: often the
+        // row above the edge, so the reader's line moves by the rewrap of the rows in between.
+        if let Some(tab) = self.tab_mut().filter(|t| matches!(t.mode, Mode::Read))
+            && let Some((i, at, h)) = tab.reading_place()
         {
-            scroll_block_to_top(tab, i, tx);
+            let key = ui::doc_view::row_key(i, &tab.doc);
+            tx.scroll_center_in_instant("doc", key.clone());
+            tx.scroll_key_to(key, at);
+            tab.hold = Some((tab.doc.blocks[i].id, (-at / h.max(1.0)).clamp(0.0, 1.0), HOLD_TRIES));
         }
         true
     }
@@ -1279,11 +1332,11 @@ impl App {
     }
 
     /// The view or page of document `id` moved (`doc_view::Edge`).
-    pub fn doc_edge(&mut self, id: u64, edge: ui::doc_view::Edge) -> bool {
+    pub fn doc_edge(&mut self, id: u64, edge: ui::doc_view::Edge, tx: &mut Tx) -> bool {
         let wide = self.wide;
         self.tab_of(id).is_some_and(|t| {
             let outline = wide && matches!(t.mode, Mode::Read);
-            t.edge(edge, outline)
+            t.edge(edge, outline, tx)
         })
     }
 

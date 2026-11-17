@@ -22,7 +22,7 @@ use super::theme::{CHANGED_MARK_W, CHANGED_MARK_X, R_ROW, ROW_PAD_X, ROW_PAD_Y, 
 /// Height of the space below the last row (the resting fire sits under it).
 pub(crate) const BOTTOM: f32 = 48.0;
 /// Space above the first row (the source starts here too).
-pub(super) const TOP: f32 = 24.0;
+pub(crate) const TOP: f32 = 24.0;
 
 /// The live signals inside the column, which do not move the text.
 pub struct Signals<S> {
@@ -36,7 +36,7 @@ pub struct Signals<S> {
     pub hits: fn(&S, &Block, &str) -> super::find::Marks,
     /// Where the view and the page of document `id` are (each from its `on_layout`): used to
     /// know whether the scroll is at the bottom. True if the view must run again.
-    pub edge: fn(&mut S, u64, Edge) -> bool,
+    pub edge: fn(&mut S, u64, Edge, &mut rune::Tx) -> bool,
     /// The colors of the YAML frontmatter block: text (`fg2`) and fill.
     pub meta: Meta,
     /// The document fonts, to measure where long words break (`doc::breaks`).
@@ -148,6 +148,8 @@ pub enum Edge {
     Viewport([f32; 4]),
     /// The page inside the view: it moves on every scroll frame.
     Page([f32; 4]),
+    /// A mounted row (block id): it moves on every scroll frame too.
+    Row(u64, [f32; 4]),
 }
 
 /// Key of row `i`: document id + block id. Block ids restart from 1 in
@@ -200,7 +202,8 @@ pub fn view<S: 'static>(s: &S, doc_of: fn(&S) -> &Document, style: &MarkdownStyl
             doc.blocks.len(),
             60.0,
             move |s: &S, i| Cow::Owned(row_key(i, doc_of(s))),
-            move |s: &S, i| match doc_of(s).blocks.get(i) {
+            move |s: &S, i| {
+                let row = match doc_of(s).blocks.get(i) {
                 Some(b) if i == 0 && crate::doc::frontmatter::is_block(&b.source) => frontmatter_row(&b.source, signals.meta),
                 // Footnote definitions are drawn at the bottom (`footnotes`).
                 Some(b) if crate::doc::footnotes::definitions(&b.source).is_some() => el().w_full(),
@@ -221,6 +224,15 @@ pub fn view<S: 'static>(s: &S, doc_of: fn(&S) -> &Document, style: &MarkdownStyl
                     }
                 }
                 None => el(),
+                };
+                // Where each row is: the one under the top edge holds when the text width changes.
+                let Some(id) = doc_of(s).blocks.get(i).map(|b| b.id) else { return row };
+                let edge = signals.edge;
+                row.on_layout_tx(move |s: &mut S, r, tx: &mut rune::Tx| {
+                    if !edge(s, generation, Edge::Row(id, r), tx) {
+                        tx.live_only();
+                    }
+                })
             },
         )
         .virtual_rows_version(rows_version(doc))
@@ -230,12 +242,12 @@ pub fn view<S: 'static>(s: &S, doc_of: fn(&S) -> &Document, style: &MarkdownStyl
     // The `on_layout`s only say where view and page are: the view runs again only if what it
     // shows changes (`live_only` otherwise), not on every scroll frame.
     let page = col().w_full().child(el().h(TOP)).child(rows).children(notes).child(bottom).on_layout_tx(move |s: &mut S, r, tx: &mut rune::Tx| {
-        if !edge(s, generation, Edge::Page(r)) {
+        if !edge(s, generation, Edge::Page(r), tx) {
             tx.live_only();
         }
     });
     let scroll = col().key("doc").w_full().h_full().scroll(ScrollSpec { stick_bottom: false }).child(page).on_layout_tx(move |s: &mut S, r, tx: &mut rune::Tx| {
-        if !edge(s, generation, Edge::Viewport(r)) {
+        if !edge(s, generation, Edge::Viewport(r), tx) {
             tx.live_only();
         }
     });

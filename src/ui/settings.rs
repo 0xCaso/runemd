@@ -1096,6 +1096,58 @@ mod tests {
         assert_eq!(rt.state.settings.column, 1240.0);
     }
 
+    /// The row under the top edge of the view and the part of it above that edge (0..1 of its height).
+    fn reading_place(rt: &Runtime<App>) -> (usize, f32) {
+        let els = rt.elements();
+        let top = els.iter().find(|e| e.key.as_deref() == Some("doc")).unwrap().rect[1];
+        let doc = &rt.state.tab().unwrap().doc;
+        (0..doc.blocks.len())
+            .find_map(|i| {
+                let k = crate::ui::doc_view::row_key(i, doc);
+                let r = els.iter().find(|e| e.key.as_deref() == Some(k.as_str()))?.rect;
+                (r[1] <= top + 0.5 && r[1] + r[3] > top + 0.5).then_some((i, (top - r[1]) / r[3]))
+            })
+            .expect("a row under the top edge")
+    }
+
+    /// The text width changes while the reader is halfway down a long file: the line at the top
+    /// edge of the view stays there. Rows rewrap (one line at "Full", two at 680): the reader's
+    /// row stays under the edge with the same part of it above the edge. Rune alone holds the
+    /// first row it reports as visible, often the one above the edge, and the reader's row moved
+    /// out of view.
+    #[test]
+    fn the_line_at_the_top_stays_when_the_width_changes() {
+        let body: String = (0..80).map(|n| format!("## Section {n}\n\nA paragraph that is long enough to wrap onto several lines when the column is narrow, number {n}.\n\n")).collect();
+        let mut rt = open(&body, true);
+        rt.set_viewport((1900.0, 900.0), 2.0);
+        settle(&mut rt);
+        let (x, y) = (900.0, 300.0);
+        for _ in 0..8 {
+            rt.wheel(x, y, -400.0);
+            rt.frame(1.0 / 120.0);
+        }
+        settle(&mut rt);
+        let place = reading_place(&rt);
+        assert!(place.0 > 20 && place.1 > 0.1, "halfway, in the middle of a row: {place:?}");
+        for column in [crate::settings::COLUMN_FULL, 680.0, 1000.0, crate::settings::COLUMN_FULL, 680.0] {
+            rt.update(|s, tx| s.set_column(column, tx));
+            settle(&mut rt);
+            let now = reading_place(&rt);
+            assert_eq!(now.0, place.0, "same row at the top, width {column}: {now:?} was {place:?}");
+            assert!((now.1 - place.1).abs() < 0.03, "same part above the edge, width {column}: {now:?} was {place:?}");
+        }
+        // A drag on the slider: one change per pt.
+        for column in 681..=740 {
+            rt.update(|s, tx| {
+                s.set_column_live(column as f32, tx);
+            });
+            rt.frame(1.0 / 120.0);
+        }
+        settle(&mut rt);
+        let now = reading_place(&rt);
+        assert!(now.0 == place.0 && (now.1 - place.1).abs() < 0.03, "after a drag: {now:?} was {place:?}");
+    }
+
     /// With the fire off (settings) the flames are not drawn: no `fire` slot and the
     /// compositor stays at rest. The "N new paragraphs below" label stays, in `fg2`
     /// on the panel. On, both are there.
