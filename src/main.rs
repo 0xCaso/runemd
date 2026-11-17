@@ -28,6 +28,7 @@ mod edit;
 mod fonts;
 mod fx;
 mod index;
+mod lab;
 mod live;
 mod open;
 mod panes;
@@ -81,6 +82,11 @@ fn setup(s: &mut App, waker: Waker) {
     s.images = Some(rune::ImageCache::new(waker.clone()));
     s.find.set_waker(waker.clone());
     s.live.start(waker.clone(), s.library.roots().to_vec());
+    // `--lab` (debug builds only): the bridge with Animation Lab (`lab::watch`).
+    #[cfg(debug_assertions)]
+    if lab::watch::enabled(rune::extra_args()) {
+        s.lab = lab::watch::bridge_dir().map(|dir| lab::watch::start(dir, waker.clone()));
+    }
     s.library.start(waker);
 }
 
@@ -171,7 +177,7 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
     // almost white in both themes: the text takes a dark grey from the tokens (`panel` in dark,
     // `fg` in light).
     if let Some(tab) = s.tab().filter(|t| matches!(t.mode, app::Mode::Read)) {
-        let lit = tab.fire_since.map(|since| (since, tab.below.count()));
+        let lit = s.fire_of(tab);
         let look = s.settings.fire_look(fx::fire::accent_hex(cx.accent()));
         panel = panel.children(fire_band(lit, s.fire_flames(), look, dark, &theme, reduced, s.window_active));
     }
@@ -428,7 +434,9 @@ fn poll(s: &mut App, clock: f64, tx: &mut Tx) -> bool {
     let blurred = s.sidebar.blur_close() | s.settings_panel.expire(Instant::now());
     // The wordmark's next size is decoded: the view swaps it in.
     let wordmark = s.forge_images.borrow().next_ready();
-    let changed = opened || tabs || ring || side || blurred || found || wordmark || brief;
+    // A new `lab.json` (`--lab`): the view draws the new tuning, or the test state at the new time.
+    let lab = lab::take_changed();
+    let changed = opened || tabs || ring || side || blurred || found || wordmark || brief || lab;
     // Only the fire at rest to redraw: a frame without running the view again.
     if resting && !changed {
         tx.live_only();
