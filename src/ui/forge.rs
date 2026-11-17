@@ -95,6 +95,9 @@ impl Images {
         self.shown.clone().expect("set above")
     }
 
+    /// Whether it holds any handle (so the cache keeps their pixels).
+    pub fn holds(&self) -> bool { self.shown.is_some() || self.next.is_some() }
+
     /// The next size is decoded: the view should run again to show it.
     pub fn next_ready(&self) -> bool {
         self.next.as_ref().is_some_and(|n| n.iter().all(rune::Image::is_ready))

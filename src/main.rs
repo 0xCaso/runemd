@@ -108,6 +108,11 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
     let focus = ui::theme::focus_ring(cx.focus_color(), dark);
     cx.focus_ring(3.0, 0.0, focus);
     let hooks = ui::sidebar::Hooks { get: |s: &App| &s.sidebar, get_mut: |s: &mut App| &mut s.sidebar, open: App::open_from_sidebar, pin: App::pin_from_sidebar, ring: App::ring_of, query: App::requery_sidebar, create: App::create_from_sidebar, save: App::save_from_sidebar, unsave: App::unsave_from_sidebar, recent_collapsed: App::recent_collapsed, toggle_recent: App::toggle_recent };
+    // With a file open the wordmark is not drawn: its handles go, so the cache frees the decoded
+    // pixels (about 6 MB at 2×); going back to the empty screen decodes them again.
+    if s.tab().is_some() && s.forge_images.borrow().holds() {
+        *s.forge_images.borrow_mut() = Default::default();
+    }
     let body = match s.tab() {
         Some(tab @ app::Tab { mode: app::Mode::Source(src), .. }) => {
             let caret = ui::source::caret_lines(cx, tab, src);
@@ -506,6 +511,21 @@ mod tests {
             rt.frame(1.0 / 120.0);
         }
         assert_eq!(rt.stats.commits, commits, "the view did not run again");
+    }
+
+    /// The empty screen's wordmark images are let go once a file is open: the cache frees
+    /// their decoded pixels only when no handle is left.
+    #[test]
+    fn opening_a_file_lets_the_wordmark_images_go() {
+        let mut app = crate::App::bare(crate::index::Library::load(Vec::new(), None));
+        app.images = Some(rune::ImageCache::new(std::sync::Arc::new(|| {})));
+        let mut rt = rune::Runtime::new(app, crate::view, (1280.0, 800.0), rune::Env::new(true, 2.0));
+        rt.frame(0.0);
+        assert!(rt.state.forge_images.borrow().holds(), "the empty screen draws the wordmark");
+        rt.state.open_paths(vec![PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("fixtures/normal.md")]);
+        rt.invalidate();
+        rt.frame(1.0 / 120.0);
+        assert!(!rt.state.forge_images.borrow().holds(), "no handle left with a file open");
     }
 
     /// A poll after a `REST_FRAME` of quiet is a resting wake-up; polls a frame apart are a
