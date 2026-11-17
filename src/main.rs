@@ -355,7 +355,8 @@ fn on_key(s: &mut App, key: &rune::KeyEvent, tx: &mut Tx) -> bool {
 }
 
 fn poll(s: &mut App, clock: f64, tx: &mut Tx) -> bool {
-    let queued = open::queue::drain();
+    let mut queued = open::queue::drain();
+    queued.extend(probe::late_open(clock, tx));
     let opened = !queued.is_empty();
     if opened {
         let before = s.tab().map(|t| t.doc.id);
@@ -453,6 +454,7 @@ fn poll(s: &mut App, clock: f64, tx: &mut Tx) -> bool {
         return changed || std::env::var_os("MDSPIKE_SCROLL_VIEW").is_some();
     } else if run.finished() {
         probe::finish_scroll();
+        s.scroll = None;
     } else {
         tx.wake_after(Duration::from_millis(16));
     }

@@ -112,6 +112,22 @@ pub fn index_scanned(entries: usize) {
     log(&format!("index_scan_epoch_ms={:.1} entries={entries}", epoch_ms(Instant::now())));
 }
 
+/// `MDSPIKE_OPEN_AT=secs:path`: opens `path` once the Rune clock reaches `secs` (memory runs:
+/// launch, then a file open, in one process).
+pub fn late_open(clock: f64, tx: &mut rune::Tx) -> Option<std::path::PathBuf> {
+    thread_local! { static DONE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
+    if DONE.get() { return None; }
+    let v = std::env::var("MDSPIKE_OPEN_AT").ok()?;
+    let (at, path) = v.split_once(':')?;
+    let at: f64 = at.parse().ok()?;
+    if clock < at {
+        tx.wake_after(std::time::Duration::from_secs_f64(at - clock));
+        return None;
+    }
+    DONE.set(true);
+    Some(path.into())
+}
+
 /// A constant-speed scroll, step by step from `poll`.
 pub struct ScrollRun {
     secs: f64,
@@ -178,5 +194,8 @@ pub fn finish_scroll() {
             log_to("MDSPIKE_FRAMES", &lines.join("\n"));
         }
     });
-    std::process::exit(0);
+    // `MDSPIKE_NOEXIT`: the app stays open after the scroll (memory after scrolling).
+    if std::env::var_os("MDSPIKE_NOEXIT").is_none() {
+        std::process::exit(0);
+    }
 }
