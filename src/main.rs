@@ -448,8 +448,9 @@ fn poll(s: &mut App, clock: f64, tx: &mut Tx) -> bool {
     if let Some(y) = run.step(clock) {
         tx.scroll_to_instant("doc", 0.0, y);
         tx.wake_after(Duration::from_millis(1));
-        // Without an animating glass bar, nothing asks for a frame: the measurement scroll asks for it here.
-        return true;
+        // Like a wheel scroll: the view runs again only when its rows change or something else
+        // does. `MDSPIKE_SCROLL_VIEW=1` runs it on every frame (the probe before 2026-11-17).
+        return changed || std::env::var_os("MDSPIKE_SCROLL_VIEW").is_some();
     } else if run.finished() {
         probe::finish_scroll();
     } else {
