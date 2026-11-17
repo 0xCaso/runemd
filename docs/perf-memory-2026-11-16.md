@@ -157,6 +157,139 @@ and WindowServer do.
 | 9 | **Empty screen: rasterize the wordmark at the drawn width and free the decoded pixels after upload** | −4 MB CPU on the empty screen (measured with `XP_NOIMG`) | low | S |
 | — | not worth it | `add_format(Rgba16Float)` (0 MB), fire off for memory (0 MB), ColorSync tables (system, MDLight has them too), threads/ports (< 1 MB) | | |
 
+## Results after fixes
+
+Two of the ranked fixes are on main (16/11). Numbers from the commit messages and the worktree logs; both measured
+at 1× (900×1000 px), A/B against the commit before.
+
+| commit | fix (# above) | measured | source |
+|---|---|---|---|
+| `e624c52` perf(watch) | 5: the index scan and the watcher's rescans check the entry name first and build a `PathBuf` only for a Markdown file they return | one walk of `~/Desktop/GitHub` (7325 files, 21k folders): **57.9 → 11.5 MB allocated, 527k → 372k allocations**, same result (new test against the old walk). Heap waste after the startup scan **unchanged: 34–36 MB either way** (5 A/B pairs); the commit attributes most of it to macOS loading its accessibility bundles, not to the scan | `git show e624c52` |
+| `b70de9a` perf(forge) | 9: the empty screen rasterizes the wordmark at the drawn strip's step (200/280/360/440 pt × scale) and uses a 440 px strip PNG when it covers the pixels | live heap **30.6–30.7 → 29.6–29.9 MB** (4 A/B pairs, empty screen and narrow window); GPU-owned unchanged at 9.3 MB (Rune's 1024² image atlas page has the same size whatever the image) | `git show b70de9a`; scratchpad log `work/logs/mem.log` (`f5` = before, `f9` = after) |
+
+Not done yet: mimalloc (#2), two drawables (#3), glass (#4, decision below), fire at rest (#6, decision below), Rune-side
+items (#7, #8).
+
+### GPU time per frame (Metal System Trace, 16/11 17:28–17:55)
+
+Fix #1 of the ranked list, measured on the `b70de9a` binary with the `XP_*` knobs: `xctrace record --template 'Metal
+System Trace'`, 5 s scroll of big.md at 3000 pt/s, `RUNEMD_ROOTS` an empty folder, external display at 1×, 100 Hz,
+load 8–39. GPU busy = union of the app's (or WindowServer's) GPU intervals in the scroll window, from the
+`metal-gpu-intervals` table. "Missed" = the app's `scroll frames` probe in the same run. Source: scratchpad log
+`work/logs/xt.log` (two `rune-big` runs lost their GPU export; their missed refreshes are listed).
+
+| case | app GPU per frame (p50 / p95) | WindowServer GPU per 10 ms refresh | missed refreshes | runs |
+|---|---|---|---|---|
+| RuneMD, glass (today), 2400×1400 px | **2.97–3.24 ms** (2.77–3.17 / 3.92–4.38) | **3.75–3.85 ms** | 1.2–9.1 % | 4 (GPU in 2) |
+| RuneMD, transparent window but all filled solid ("a1" of that day: system glass hidden under opaque fills), 2400×1400 | 3.50–4.00 ms (3.38–3.79 / 5.15–7.23) | 2.72–3.20 ms | 1.8–5.0 % | 3 |
+| RuneMD, opaque window (A2), 2400×1400 | 4.98–5.44 ms (5.11–5.89 / 6.32–7.29) | **1.07–1.83 ms** | 1.0–6.6 % | 3 |
+| RuneMD, glass, 1060×864 px | 1.87–1.92 ms (1.91–1.92 / 2.03–2.30) | 1.35–1.78 ms | 0.6–1.4 % | 3 |
+| MDLight (its default window) | 0.15–0.18 ms | 0.31–3.47 ms | (tick metric) | 3 |
+
+Reading: at 2400×1400 the frame costs the GPU about 3 ms in RuneMD and 3.8 ms in WindowServer with the glass;
+an opaque window cuts WindowServer's share to 1.1–1.8 ms but RuneMD's own GPU time rises to about 5 ms (not
+explained yet; the opaque path still draws the same fx compositor). Sum per refresh: glass 6.7–7.1 ms, opaque
+6.1–6.8 ms. Both fit the 10 ms budget at low load; MDLight's GPU work is ~20× smaller (CoreAnimation scrolls a
+cached layer). These runs were at low load (8–39): the 17–26 % misses of the first matrix (load 14–320) were
+mostly load, not GPU.
+
+## Material for decisions (17/11)
+
+Built from `b70de9a` in a throwaway worktree with experiment knobs (appendix). Unless noted, runs on a private
+virtual display (`~/.claude/bin/vscreen`, 1920×1200 pt at **2×**, so a real Retina-scale backing store, never shown on
+Matteo's screens). Windows on that display are never key: they draw in the inactive style (grey traffic lights,
+inactive vibrancy), and RuneMD's "window active" state is forced with `XP_FORCE_ACTIVE` where it matters. Load
+(`vm.loadavg`, 1 min) in each row.
+
+### A. Glass vs opaque
+
+Variants (`XP_GLASS`):
+- **today**: transparent window, system glass under the whole root, 60 % `glass` tint above it. The document panel is
+  already opaque (`theme.panel`, alpha 1.0), so the glass shows behind the sidebar and in the `FRAME` margin around
+  the panel.
+- **A1**: glass only behind the sidebar (the material and tint move to a sidebar wrapper); the margin around the panel
+  is filled with the solid tint (`glass_fallback`). The window stays transparent.
+- **A2**: opaque window (`transparent: false`), no system glass anywhere; the root is the solid tint.
+
+Shots (normal.md, 900×1000 pt, same position over a colourful striped backdrop, captured at 2×, cropped and scaled to
+1200 px tall):
+
+| | dark | light |
+|---|---|---|
+| today | `docs/proof/perf-2026-11-16/glass-today-dark.png` | `glass-today-light.png` |
+| A1 | `glass-a1-dark.png` | `glass-a1-light.png` |
+| A2 | `glass-a2-dark.png` | `glass-a2-light.png` |
+
+What they show: today and A1 look almost the same (the only difference is the thin margin around the panel, which
+turns solid in A1); A2 loses the blurred backdrop behind the sidebar. The window is drawn inactive in all six, so
+the glass is the inactive variant; an active window shows a slightly brighter, more saturated blur.
+
+Scroll, big.md, 4 s at 3000 pt/s, window 2400×1400 px, 5 rounds alternating today / A1 / A2 (missed refreshes =
+`missed / (frames + missed)` from the `scroll frames` probe). Per variant: range, then median.
+
+| setup | today | A1 | A2 | load |
+|---|---|---|---|---|
+| virtual 2× display, **60 Hz** (1200×700 pt) | 0–13.6 %, median 0.8 % | 0–6.3 %, median 0.4 % | 0.4 % in all 5 | 23–37 |
+| virtual 2× display, **120 Hz** (`--hz 120`, probe reports 120) | 2.1–15.8 %, median 7.5 % | 2.3–9.4 %, median 4.8 % | 6.9–13.3 %, median 7.9 % | 13–32 |
+| external display at 1×, 100 Hz, window launched in front on Matteo's screen (focus not checked; runs before the virtual display existed) | 16.2–26.8 %, median 23.5 % | 24.2–32.8 %, median 26.5 % | **5.0–9.8 %, median 8.2 %** | 92–169 |
+
+dt p95: 17.7–21.0 ms at 60 Hz, 9.4–16.4 ms at 120 Hz, 15.6–20.8 ms at 1×/100 Hz. Sources: scratchpad logs (not committed)
+`glassab/logs/visible-scroll.log`, `visible-scroll-120hz.log`, `scroll.log`; script `scratchpad/bin/run_visible.sh`.
+
+GPU time from 16/11 (section above): opaque cuts WindowServer's GPU from ~3.8 to 1.1–1.8 ms per refresh but raises
+RuneMD's own GPU time from ~3.1 to ~5.2 ms per frame, so the sum barely moves.
+
+Reading:
+- At Retina scale on the virtual display no variant wins clearly: at 120 Hz A1 has the lowest median (4.8 % vs
+  7.5 % today, 7.9 % opaque), but the ranges overlap and five rounds per variant are few.
+- The only large gap is the 1×/100 Hz run under heavy load (92–169) with a window launched in front: opaque misses about a
+  third as many refreshes as glass. Those windows were most likely key, so their glass was the active material; the virtual
+  display can only show the inactive one, which may be cheaper. **Not measured: active glass at 2×.**
+- A1 costs the same as today in every setup and looks the same, so it buys nothing by itself.
+
+Options for Matteo:
+1. **Keep today's glass**: no visual change; scroll cost at 2× within noise of the alternatives.
+2. **A1, glass only behind the sidebar**: looks like today; no measured gain. Only worth it as a step towards a
+   per-region choice.
+3. **A2, opaque window**: loses the glass (DESIGN.md calls for it); clearly fewer missed refreshes under load at 1×,
+   no clear gain at 2× on the virtual display.
+
+What would settle it: the same alternated scroll on the real Retina panel with the window key (needs Matteo's screen
+free, or a way to make a virtual-display window key).
+
+### B. Calm fire on the empty screen
+
+Empty screen (no file), fire on, 900×1000 pt window at 2×. %CPU = `ps -o time` delta over 30 s, from 25 s to 55 s
+after launch (the freeze variant has been still for 5 s when the window opens), plus `ps -o %cpu` sampled every
+second. fps = frames drawn in those 30 s (`MDSPIKE_FRAMES`). Three rounds each, load 7–52.
+
+| variant | knob | active window: CPU (fps) | inactive window: CPU (fps) |
+|---|---|---|---|
+| today (`REST_FRAME` 83 ms, "12 fps") | — | **4.6–5.4 %** (22.7–24.1 drawn/s) | 0.07–0.23 % (0) |
+| ~6 fps | `XP_REST_MS=166` | **2.2–3.5 %** (10.7–18.2 drawn/s) | 0.03–0.13 % (0) |
+| moves for 20 s after the last activity, then still | `XP_IDLE_FREEZE=20` | **0.07–0.20 %** once still (0); during the 20 s it runs today's code, so today's cost (not measured separately) | 0.07–0.13 % (0) |
+
+Notes:
+- Each rest wake-up draws about two frames (24 drawn/s at a 12/s wake-up; 11–18 at 6/s): the fire frame plus a
+  second one not traced here. Halving the wake-up rate cut CPU by about 40 %, not 50 %.
+- "Activity" for the freeze knob is a key press or a focus change (`on_key`, `on_window_focus`); a shipped version
+  would also count pointer moves and scrolls.
+- The inactive window was simulated with `XP_INACTIVE=1` (same code path: `fire_rests` is false). It matches
+  16/11's real inactive run (0.2 %).
+- Discarded: a first set of virtual-display runs without `XP_FORCE_ACTIVE` (the never-key window flipped
+  between still and moving, 0.1–6.6 %), and runs on Matteo's screen whose window lost focus mid-run.
+
+Videos (5 s each, dark, captured at 2×, H.264): `docs/proof/perf-2026-11-16/fire-rest-today-12fps.mp4`,
+`fire-rest-6fps.mp4`, and `fire-rest-12fps-vs-6fps.mp4` (wordmark only, today on top, 6 fps below, scaled 2× to
+see the steps).
+
+Options for Matteo:
+1. **Keep 12 fps**: ~5 % CPU on one core whenever the empty screen is front and idle.
+2. **6 fps**: ~2–3.5 %; check in the video whether the flames look choppy.
+3. **Move 20 s, then still** (until a key, click or focus change): ~0.1 % at rest, the fire looks the same while
+   Matteo is using the app; it also lets Rune rest and give back spare layer targets (16/11, `rest.rs`). Can combine
+   with 2.
+
 ## Appendix: experiment knobs (worktree only, not committed)
 
 `XP_NOFX` (`App::effects_lit` false), `XP_NOREST` (`App::fire_rests` false), `XP_NOADDFMT` (skip
@@ -165,6 +298,12 @@ window, so no system glass), `XP_NOCLIP` (no `clip_rounded` on the panel), `XP_N
 placeholders of the same size), `XP_SCROLL_LIVE` (`tx.live_only()` in the scroll probe), `XP_RELIEF`
 (`malloc_zone_pressure_relief(NULL, 0)` after the scan and the scroll), `MDSPIKE_NOEXIT` (keep the app after
 `MDSPIKE_SCROLL`), and a build with `mimalloc` as `#[global_allocator]`.
+
+Added 17/11 (worktree on `b70de9a`): `XP_GLASS=a1|a2` (glass only behind the sidebar / opaque window), `XP_POS=x,y`
+(window origin), `XP_REST_MS` (rest wake-up period in place of `REST_FRAME`), `XP_IDLE_FREEZE=secs` (the calm fire
+stops that long after the last key or focus change), `XP_INACTIVE` (start with `window_active` false),
+`XP_FORCE_ACTIVE` (focus events never clear `window_active`). Runner: `scratchpad/bin/run_visible.sh`
+(`shots|scroll|cpu|video`, `HZ=120` for the 120 Hz display), on a `vscreen` display it creates and removes.
 
 Limits: no 2× screen (all 2× numbers are estimates from measured 1× sizes); load 11–320 and 9 GB swap (footprint
 counts compressed pages, so totals swing; categories and live heap are stable); MDLight's scroll metric is not the
