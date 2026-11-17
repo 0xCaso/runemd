@@ -24,10 +24,9 @@ pub struct FxCompositor {
     moving: bool,
     /// The last frame drew at least one layer.
     drew: bool,
-    /// The fire of the last frame was lit (new text below the view).
-    fire_lit: bool,
-    /// The clock at which the fire went out: from there it goes back to rest (`fire::Phase::Falling`).
-    fire_out: Option<f64>,
+    /// The fire's fall state: whether the last frame's fire was lit (new text below the view), and the
+    /// clock at which it went out, from where it goes back to rest (`fire::Phase::Falling`).
+    fire: FireFall,
 }
 
 /// A slot's rect in pt.
@@ -37,14 +36,45 @@ fn rect_pt(i: &Instance) -> Rect {
     Rect::new(x, y, w, h)
 }
 
-/// The ring layer (calm edge or writing ring) for a `ring::slot` slot, at Rune's time `clock`.
-fn ring_layer(i: &Instance, clock: f64) -> FxLayer {
+/// The lab's clock (s) for the slot `mark`, in the lab's test state (`--lab` with a time): the rings
+/// and the fire are drawn at the lab's time, lit at `lab::REST_MS` (`App::ring_of`, `App::fire_of`).
+/// The empty screen's agent line is not part of the test state: it stays on Rune's clock.
+fn lab_clock(mark: u32) -> Option<f64> {
+    let on_lab = mark == Mark::Fire.id() || (Mark::is_ring(mark) && mark != Mark::ForgeLine.id());
+    crate::lab::lab_time().filter(|_| on_lab).map(|t| t / 1000.0)
+}
+
+/// The ring layer (calm edge or writing ring) for a `ring::slot` slot with id `mark`, at Rune's time
+/// `clock`. In the lab's test state it is the frame at the lab's time, "reduce motion" or not: the
+/// scrub always shows it.
+fn ring_layer(i: &Instance, mark: u32, clock: f64) -> FxLayer {
     let radius = i.radii.iter().fold(0.0f32, |a, v| a.max(v.abs())) / i.params[3].max(f32::EPSILON);
     if ring::slot_calm(i.uv) {
         return ring::calm_layer(rect_pt(i), radius, ring::slot_dark(i.uv), ring::slot_calm_look(i.uv));
     }
-    let (t, reduced) = ring::slot_time(i.uv, clock);
-    ring::layer_rounded(rect_pt(i), radius, t, reduced, ring::slot_dark(i.uv))
+    let lab = lab_clock(mark);
+    let (t, reduced) = ring::slot_time(i.uv, lab.unwrap_or(clock));
+    ring::layer_rounded(rect_pt(i), radius, t, reduced && lab.is_none(), ring::slot_dark(i.uv))
+}
+
+/// Each ring layer in the last frame of `rt`, as the compositor paints it: (slot id, layer). Only for
+/// tests.
+#[cfg(test)]
+pub fn ring_layers(rt: &rune::Runtime<App>) -> Vec<(u32, FxLayer)> {
+    rt.instances
+        .iter()
+        .enumerate()
+        .filter(|(_, i)| i.params[1] == KIND_EFFECT)
+        .filter_map(|(n, i)| rt.marks.get(n).copied().filter(|m| Mark::is_ring(*m)).map(|m| (m, ring_layer(i, m, rt.clock))))
+        .collect()
+}
+
+/// The fire layer in the last frame of `rt`, as `compositor` paints it (its fall state carries over
+/// between calls). Only for tests.
+#[cfg(test)]
+pub fn fire_layer(rt: &rune::Runtime<App>, compositor: &mut FxCompositor) -> Option<FxLayer> {
+    let n = (0..rt.instances.len()).find(|n| rt.instances[*n].params[1] == KIND_EFFECT && rt.marks.get(*n).copied() == Some(Mark::Fire.id()))?;
+    Some(compositor.fire.fire_layer(&rt.instances[n], rt.clock).0)
 }
 
 /// The metal edges in the last frame of `rt`, in drawing order: (slot id, calm). Only for tests
@@ -68,7 +98,7 @@ pub fn edge_fills(rt: &rune::Runtime<App>) -> Vec<(u32, rune_fx::FillParams)> {
         .enumerate()
         .filter(|(_, i)| i.params[1] == KIND_EFFECT)
         .filter_map(|(n, i)| rt.marks.get(n).copied().filter(|m| Mark::is_ring(*m)).map(|m| (m, i)))
-        .map(|(m, i)| match ring_layer(i, rt.clock).fx {
+        .map(|(m, i)| match ring_layer(i, m, rt.clock).fx {
             rune_fx::Fx::Fill(p) => (m, p),
             other => panic!("not a fill: {other:?}"),
         })
@@ -91,6 +121,43 @@ fn caret_layer(i: &Instance, clock: f64) -> (FxLayer, bool) {
     (caret::layer(rect_pt(i), s.t, s.dark, s.reduced), s.moving())
 }
 
+/// The fire's fall state between frames: lit in the last frame, and when it went out.
+#[derive(Clone, Copy, Debug, Default)]
+struct FireFall {
+    lit: bool,
+    out: Option<f64>,
+}
+
+impl FireFall {
+    /// The fire layer for a `fire::slot` slot at Rune's time `clock`, and whether it is paced (redrawn
+    /// by the `fire::REST_FRAME` wake-ups, not the display link). In the lab's test state it is the
+    /// frame at the lab's time: lit from `lab::REST_MS`, at rest before, with no fall in between (the
+    /// scrub may go back), still, and drawn as if the window were active and motion not reduced.
+    fn fire_layer(&mut self, i: &Instance, clock: f64) -> (FxLayer, bool) {
+        if let Some(clock) = lab_clock(Mark::Fire.id()) {
+            let s = fire::slot_state(i.uv, clock);
+            *self = FireFall::default();
+            let phase = if s.lit { fire::Phase::Rising(s.t) } else { fire::Phase::Rest };
+            return (fire::layer(rect_pt(i), phase, clock as f32, s.dark, false, true, s.look), false);
+        }
+        // The slot rect touches the bottom of the panel and has its width.
+        let s = fire::slot_state(i.uv, clock);
+        if self.lit && !s.lit {
+            self.out = Some(clock);
+        } else if s.lit {
+            self.out = None;
+        }
+        self.lit = s.lit;
+        let phase = fire_phase(s, self.out, clock);
+        let layer = fire::layer(rect_pt(i), phase, clock as f32, s.dark, s.reduced, s.active_window, s.look);
+        let paced = fire::paced(phase);
+        if paced {
+            self.out = None;
+        }
+        (layer, paced)
+    }
+}
+
 impl Compositor<App> for FxCompositor {
     fn animating(&self) -> bool {
         self.moving
@@ -111,6 +178,7 @@ impl Compositor<App> for FxCompositor {
             return;
         }
         let clock = f.rt.clock;
+        let mut on_lab: Vec<usize> = Vec::new();
         let mut at: Vec<u32> = Vec::new();
         let mut layers: Vec<FxLayer> = Vec::new();
         let mut slots: Vec<FxSlot> = Vec::new();
@@ -122,23 +190,17 @@ impl Compositor<App> for FxCompositor {
                 continue;
             }
             let mark = f.rt.marks.get(n).copied().unwrap_or(0);
+            // The layers on the lab's clock stand still: each new `lab.json` wakes the app instead.
+            if lab_clock(mark).is_some() {
+                on_lab.push(layers.len());
+            }
             let layer = if Mark::is_ring(mark) {
-                ring_layer(i, clock)
+                ring_layer(i, mark, clock)
             } else if mark == Mark::Fire.id() {
-                // The slot rect touches the bottom of the panel and has its width.
-                let s = fire::slot_state(i.uv, clock);
-                if self.fire_lit && !s.lit {
-                    self.fire_out = Some(clock);
-                } else if s.lit {
-                    self.fire_out = None;
-                }
-                self.fire_lit = s.lit;
-                let phase = fire_phase(s, self.fire_out, clock);
-                let layer = fire::layer(rect_pt(i), phase, clock as f32, s.dark, s.reduced, s.active_window, s.look);
+                let (layer, rests) = self.fire.fire_layer(i, clock);
                 // At rest the flames move with the `fire::REST_FRAME` wake-ups (`App::fire_rests`),
                 // not with the display link.
-                if fire::paced(phase) {
-                    self.fire_out = None;
+                if rests {
                     paced.push(layers.len());
                 }
                 saw_fire = true;
@@ -166,11 +228,11 @@ impl Compositor<App> for FxCompositor {
         }
         // Without fire (source, fire off) the next one starts again from rest, without descent.
         if !saw_fire {
-            (self.fire_lit, self.fire_out) = (false, None);
+            self.fire = FireFall::default();
         }
         // Still as soon as no layer moves: a ring with "reduce motion" does not hold the
         // display link, and one that went out is no longer among the instances. The pulsing caret does.
-        self.moving = pulsing || layers.iter().enumerate().any(|(k, l)| !paced.contains(&k) && l.is_animating());
+        self.moving = pulsing || layers.iter().enumerate().any(|(k, l)| !paced.contains(&k) && !on_lab.contains(&k) && l.is_animating());
         self.drew = !layers.is_empty();
         fx.set_srgb_blend(f.srgb_blend());
         fx.add_format(device, wgpu::TextureFormat::Rgba16Float);
