@@ -434,6 +434,11 @@ fn poll(s: &mut App, clock: f64, tx: &mut Tx) -> bool {
     if let Some(d) = wake {
         tx.wake_after(d);
     }
+    // The empty screen's fall ends: the wordmark is frozen again and its melt slot goes.
+    let (settled, fall_end) = s.settle_fall(clock);
+    if let Some(end) = fall_end {
+        tx.wake_at(end);
+    }
     // The file just opened: its tree row in view.
     if let Some(id) = s.sidebar.take_reveal() {
         tx.scroll_into_view_in("tree", id);
@@ -444,7 +449,7 @@ fn poll(s: &mut App, clock: f64, tx: &mut Tx) -> bool {
     let wordmark = s.forge_images.borrow().next_ready();
     // A new `lab.json` (`--lab`): the view draws the new tuning, or the test state at the new time.
     let lab = lab::take_changed();
-    let changed = opened || tabs || ring || side || blurred || found || wordmark || brief || lab;
+    let changed = opened || tabs || ring || side || blurred || found || wordmark || brief || lab || settled;
     // Only the fire at rest to redraw: a frame without running the view again.
     if resting && !changed {
         tx.live_only();

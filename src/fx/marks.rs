@@ -11,6 +11,8 @@ pub enum Mark {
     Caret,
     /// The fire inside the wordmark on the empty screen (forge-empty): one slot.
     Forge,
+    /// The liquid chrome over the wordmark's strip while an agent writes (forge-empty melt): one slot.
+    Melt,
     /// The empty screen's "An agent is writing <file>" line: one ring.
     ForgeLine,
 }
@@ -18,7 +20,8 @@ pub enum Mark {
 const FIRE: u32 = 1;
 const CARET: u32 = 2;
 const FORGE: u32 = 3;
-// Tab rings start at 100: below are the fixed ids (fire 1, caret 2, forge 3).
+const MELT: u32 = 4;
+// Tab rings start at 100: below are the fixed ids (fire 1, caret 2, forge 3, melt 4).
 const TAB: (u32, u32) = (100, 4_999);
 const QUICK: u32 = 5_000;
 const FORGE_LINE: u32 = 5_001;
@@ -36,6 +39,7 @@ impl Mark {
             Mark::Fire => FIRE,
             Mark::Caret => CARET,
             Mark::Forge => FORGE,
+            Mark::Melt => MELT,
             Mark::ForgeLine => FORGE_LINE,
         }
     }
@@ -61,9 +65,10 @@ mod tests {
         assert_eq!(Mark::Fire.id(), Mark::Fire.id());
         assert_eq!(Mark::Caret.id(), 2);
         assert_eq!(Mark::Forge.id(), 3);
+        assert_eq!(Mark::Melt.id(), 4);
         // No ring collides with the fixed ids, at the edges of the ranges.
         for n in [0, 1, 9_899, 50_000] {
-            assert!(![1, 2, 3].contains(&Mark::TabRing(n).id()));
+            assert!(![1, 2, 3, 4].contains(&Mark::TabRing(n).id()));
             assert!(Mark::TabRing(n).id() <= 4_999);
         }
     }
@@ -76,6 +81,7 @@ mod tests {
         assert!(!Mark::is_ring(Mark::Fire.id()));
         assert!(!Mark::is_ring(Mark::Caret.id()));
         assert!(!Mark::is_ring(Mark::Forge.id()));
+        assert!(!Mark::is_ring(Mark::Melt.id()));
         assert!(!Mark::is_ring(0), "slot without mark");
     }
 }

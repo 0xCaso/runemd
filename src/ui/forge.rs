@@ -158,7 +158,10 @@ pub fn view(f: Forge, theme: &Theme) -> El {
     let fire = forge::slot(el().key("forge-fire").pin(Some(lx), Some(ly), None, None).w(lw).h(lh), m, since.unwrap_or(0.0));
     // A soft shadow under the strip: on the light panel the chrome's light edges would melt into it.
     let shadow = if theme.dark { rune::Color::BLACK.alpha(0.45) } else { rune::Color::BLACK.alpha(0.16) };
-    let mark = el().key("forge-mark").w(w).h(h).radius(plate_radius(w)).shadow(2.0, 10.0, shadow).label("RuneMD").child(letters).child(fire).child(plate);
+    // While an agent writes the strip melts: liquid chrome over it (`fx::forge::melt_layer`). Calm the
+    // slot is not there, so the frozen wordmark costs no backdrop copy.
+    let melt = forge::melts(m).then(|| forge::melt_slot(layer("forge-melt"), m, since.unwrap_or(0.0), plate_radius(w)));
+    let mark = el().key("forge-mark").w(w).h(h).radius(plate_radius(w)).shadow(2.0, 10.0, shadow).label("RuneMD").child(letters).child(fire).child(plate).children(melt);
     let line = text(TAGLINE).key("forge-line").font(TextStyle::new(theme::BODY_TEXT, theme::UI_WEIGHT)).color(theme.fg2).align(rune::Align::Center).wrap().w_full();
     let line = col().key("forge-line-box").w(TAGLINE_W.min(w)).items_center().child(line);
     let buttons = row().key("forge-buttons").gap(8.0).mt(BUTTONS_GAP - GAP).child(open_file(theme)).child(add_folder(theme));

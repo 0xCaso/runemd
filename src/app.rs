@@ -1528,6 +1528,19 @@ impl App {
         self.writing_stopped
     }
 
+    /// Once the empty screen's fire has fallen back and the wordmark has frozen (`fx::fire::RISE` after
+    /// the agent stopped), the stop is forgotten: calm again, with no melt slot in the tree. Returns
+    /// whether that happened now, and the clock at which to wake for it while the fall runs.
+    pub fn settle_fall(&mut self, clock: f64) -> (bool, Option<f64>) {
+        let Some(stopped) = self.writing_stopped else { return (false, None) };
+        let end = stopped + f64::from(crate::fx::fire::RISE);
+        if clock >= end {
+            self.writing_stopped = None;
+            return (true, None);
+        }
+        (false, Some(end))
+    }
+
     /// The file an agent started writing last, among those writing now (the empty screen's agent line).
     pub fn writing_file(&self) -> Option<&Path> {
         self.rings.iter().max_by(|a, b| a.1.total_cmp(b.1)).map(|(p, _)| p.as_path())
@@ -2038,6 +2051,25 @@ mod tests {
         let dt = Duration::from_millis(16);
         assert_eq!(app.ring_step(&w(window - dt), 0.016, t0 + dt).1, None);
         assert!(app.ring_step(&w(window), 0.032, t0 + 2 * dt).1.is_some());
+    }
+
+    /// The wordmark melts while an agent writes; when it stops the melt eases out in `fire::RISE`, then
+    /// the stop is forgotten so the melt slot leaves the tree (no backdrop copy while calm).
+    #[test]
+    fn the_fall_ends_and_the_stop_is_forgotten() {
+        let t0 = Instant::now();
+        let window = live::activity::WRITING_WINDOW;
+        let mut app = empty_app();
+        assert_eq!(app.settle_fall(1.0), (false, None), "nothing wrote: nothing to settle");
+        app.ring_step(&[(PathBuf::from("/r/a.md"), window)], 1.0, t0);
+        app.ring_step(&[], 10.0, t0 + window);
+        assert_eq!(app.writing_stopped(), Some(10.0));
+        let rise = f64::from(crate::fx::fire::RISE);
+        assert_eq!(app.settle_fall(10.1), (false, Some(10.0 + rise)), "falling: a wake at its end");
+        assert_eq!(app.writing_stopped(), Some(10.0));
+        assert_eq!(app.settle_fall(10.0 + rise), (true, None), "the fall ended: calm again");
+        assert_eq!(app.writing_stopped(), None);
+        assert_eq!(app.settle_fall(20.0), (false, None));
     }
 
     /// Two files writing: each keeps the clock at which it lit, the wakeup is for the
