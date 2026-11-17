@@ -267,7 +267,8 @@ pub struct Sidebar {
     /// The row pressed now (its key): scales to 0.98 until the pointer goes up.
     pressed: Option<String>,
     /// macOS denies reading a watched folder (Desktop): the sidebar says so.
-    pub no_access: bool,
+    /// The watched folder macOS does not let the app read (its "Files and Folders" consent), if any.
+    pub no_access: Option<PathBuf>,
     /// Cmd+P: the field and the results; the result rows carry the qualifier for repeated names.
     pub quick: QuickOpen,
     pub quick_rows: Vec<RecentRow>,
@@ -670,8 +671,8 @@ pub fn view<S: 'static>(s: &S, hooks: Hooks<S>, width: f32, theme: &Theme, reduc
     let glass = theme.on_glass();
     let theme = &glass;
     let mut side = col().key("sidebar").w(width).h_full().pt(SIDEBAR_TOP).px(SIDEBAR_PAD).pb(SIDEBAR_BOTTOM).child(if sb.new_file.open { super::new_file::field(sb, hooks, theme) } else { quick_open::launcher(hooks, theme) });
-    if sb.no_access {
-        side = side.child(no_access(sb, hooks, theme, motion));
+    if let Some(root) = &sb.no_access {
+        side = side.child(no_access(root, sb, hooks, theme, motion));
     }
     let collapsed = (hooks.recent_collapsed)(s);
     if !sb.recent.is_empty() && collapsed {
@@ -707,7 +708,12 @@ const PRIVACY_URL: &str = "x-apple.systempreferences:com.apple.preference.securi
 
 /// The notice below the field: the text in `fg`, and below it a pressable row in [`row_meta`] that opens
 /// System Settings. Only DESIGN.md tokens: no accent, no pill.
-fn no_access<S: 'static>(sb: &Sidebar, hooks: Hooks<S>, theme: &Theme, motion: Motion) -> El {
+/// The notice's text: the folder that cannot be read, as Settings shows it (`~/…`).
+fn no_access_text(root: &Path) -> String {
+    format!("No access to {}", super::settings::root_label(root))
+}
+
+fn no_access<S: 'static>(root: &Path, sb: &Sidebar, hooks: Hooks<S>, theme: &Theme, motion: Motion) -> El {
     let link = row()
         .w_full()
         .h(ROW)
@@ -723,7 +729,7 @@ fn no_access<S: 'static>(sb: &Sidebar, hooks: Hooks<S>, theme: &Theme, motion: M
     col()
         .key("no-access")
         .w_full()
-        .child(text("No access to Desktop").font(ui_font()).color(theme.fg).px(ROW_PAD).pt(SECTION_PAD_BOTTOM).pb(SECTION_PAD_BOTTOM))
+        .child(text(no_access_text(root)).font(ui_font()).color(theme.fg).truncate().px(ROW_PAD).pt(SECTION_PAD_BOTTOM).pb(SECTION_PAD_BOTTOM))
         .child(link)
 }
 
@@ -1017,6 +1023,15 @@ mod tests {
     use super::*;
     use crate::index::Entry;
     use std::fs;
+
+    /// The notice names the folder that cannot be read, not always Desktop.
+    #[test]
+    fn the_no_access_notice_names_the_folder() {
+        let home = PathBuf::from(std::env::var_os("HOME").unwrap());
+        assert_eq!(no_access_text(&home.join("Desktop/GitHub")), "No access to ~/Desktop/GitHub");
+        assert_eq!(no_access_text(&home.join("Documents/notes")), "No access to ~/Documents/notes");
+        assert_eq!(no_access_text(Path::new("/Volumes/Work")), "No access to /Volumes/Work");
+    }
 
     /// How many Recent rows fit whole in `cap` (the rows and the `RECENT_GAP` between them).
     fn recent_rows_in(cap: f32) -> usize {

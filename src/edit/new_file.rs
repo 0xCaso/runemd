@@ -22,14 +22,16 @@ pub fn normalize(name: &str) -> Option<String> {
 }
 
 /// Creates `dir/name` empty and gives its path. With `create_new` (O_EXCL) a file already there is never
-/// truncated, not even in a race: `AlreadyExists` gives that path, content unchanged.
+/// truncated, not even in a race: `AlreadyExists` gives that path, content unchanged; a folder with that
+/// name stays an `AlreadyExists` error.
 pub fn create(dir: &Path, name: &str) -> io::Result<PathBuf> {
     let name = normalize(name)
         .ok_or_else(|| io::Error::new(ErrorKind::InvalidInput, "invalid name"))?;
     let path = dir.join(name);
     match OpenOptions::new().write(true).create_new(true).open(&path) {
         Ok(_) => Ok(path),
-        Err(e) if e.kind() == ErrorKind::AlreadyExists => Ok(path),
+        // A folder with that name is not a file to open.
+        Err(e) if e.kind() == ErrorKind::AlreadyExists && !path.is_dir() => Ok(path),
         Err(e) => Err(e),
     }
 }
@@ -65,6 +67,16 @@ mod tests {
             fs::read_to_string(d.path().join("a.md")).unwrap(),
             "# mine\n"
         );
+    }
+
+    /// A folder with the name asked for is not a file to open: the field stays open (`App::create_file`).
+    #[test]
+    fn a_folder_with_that_name_is_an_error() {
+        let d = tempfile::tempdir().unwrap();
+        fs::create_dir(d.path().join("notes.md")).unwrap();
+        let e = create(d.path(), "notes").unwrap_err();
+        assert_eq!(e.kind(), ErrorKind::AlreadyExists);
+        assert!(d.path().join("notes.md").is_dir(), "the folder is not touched");
     }
 
     #[test]

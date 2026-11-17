@@ -391,7 +391,10 @@ fn poll(s: &mut App, clock: f64, tx: &mut Tx) -> bool {
         probe::index_scanned(s.library.index.len());
     }
     if indexed {
-        s.sidebar.no_access = matches!(s.library.access, index::Access::Denied(_));
+        s.sidebar.no_access = match &s.library.access {
+            index::Access::Denied(root) => Some(root.clone()),
+            _ => None,
+        };
     }
     let wall = SystemTime::now();
     let t_side = Instant::now();
