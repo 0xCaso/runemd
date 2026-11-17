@@ -290,6 +290,30 @@ Options for Matteo:
    Matteo is using the app; it also lets Rune rest and give back spare layer targets (16/11, `rest.rs`). Can combine
    with 2.
 
+### Resting fire with a document open
+
+Answers Matteo's question in `docs/decisions/2026-11-17-calm-fire-speed.md`: with a document open the CPU does not go
+to zero while "Fire at the bottom of the panel" is on. The document's resting fire costs about twice the empty
+screen's wordmark fire.
+
+Same setup as B (`glassab/g.app`, worktree on `b70de9a` with the XP knobs; 900×1000 pt window at 2× on a `vscreen`
+display, `XP_FORCE_ACTIVE=1`, %CPU from 25 s to 55 s after launch), with `README.md` open in reading mode. Fire off =
+`"fire": false` in a copy of `prefs.json` under `RUNE_DIRS_ROOT` (the real settings were not touched). Runner:
+`scratchpad/bin/fire_doc_cpu.sh`, rounds alternated, load 9.7–16.7.
+
+| screen | fire setting | CPU, `ps -o time` over 30 s | `ps -o %cpu` mean (max) | drawn frames/s |
+|---|---|---|---|---|
+| `README.md` open | on (default) | **8.2–9.9 %** (3 rounds) | 7.6–9.2 % (12.9–18.2 %) | 27.6–30.1 |
+| `README.md` open | off | **0.07–0.17 %** (3 rounds) | 0.0–0.1 % (0.4–3.1 %) | 0–0.1 |
+| empty screen | on | **4.7 %** (1 round, B: 4.6–5.4 %) | 4.1 % (7.7 %) | 24.6 |
+
+Notes:
+- With the fire off the open document is fully idle: no wake-ups, no frames.
+- With the fire on it draws about 30 frames/s against about 24 on the empty screen, and each frame is bigger (the
+  band spans the panel's width, the wordmark is small), hence about twice the CPU.
+- Screenshots of both runs checked (fire band visible at the bottom with the setting on, absent with it off); not
+  committed.
+
 ## Appendix: experiment knobs (worktree only, not committed)
 
 `XP_NOFX` (`App::effects_lit` false), `XP_NOREST` (`App::fire_rests` false), `XP_NOADDFMT` (skip
