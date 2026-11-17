@@ -1342,20 +1342,20 @@ impl App {
 
     /// The clock at which the ring of `path` lit, if it is "writing" (tab and sidebar). In the lab's
     /// test state (`lab::lab_time`) only the front tab's file writes, lit at `lab::REST_MS` of the
-    /// lab's clock.
+    /// lab's clock; before it nothing writes, so the front tab keeps its calm edge.
     pub fn ring_of(&self, path: &Path) -> Option<f64> {
-        if crate::lab::lab_time().is_some() {
-            return self.tab().filter(|t| t.path() == path).map(|_| crate::lab::REST_MS / 1000.0);
+        if let Some(t) = crate::lab::lab_time() {
+            return self.tab().filter(|tab| t >= crate::lab::REST_MS && tab.path() == path).map(|_| crate::lab::REST_MS / 1000.0);
         }
         self.rings.get(path).copied()
     }
 
     /// The fire of `tab`: since when there is new text below the view, and how many blocks; `None` at
     /// rest. In the lab's test state it is lit at `lab::REST_MS` of the lab's clock, with at least
-    /// one block for the label.
+    /// one block for the label; before it, at rest and without a label.
     pub fn fire_of(&self, tab: &Tab) -> Option<(f64, usize)> {
-        if crate::lab::lab_time().is_some() {
-            return Some((crate::lab::REST_MS / 1000.0, tab.below.count().max(1)));
+        if let Some(t) = crate::lab::lab_time() {
+            return (t >= crate::lab::REST_MS).then(|| (crate::lab::REST_MS / 1000.0, tab.below.count().max(1)));
         }
         tab.fire_since.map(|since| (since, tab.below.count()))
     }

@@ -587,6 +587,55 @@ mod tests {
             assert_eq!(rt.state.fire_of(rt.state.tab().unwrap()), None);
         }
 
+        /// `--lab` before `REST_MS` (τ < 0): nothing writes yet, so the front tab keeps its calm edge,
+        /// and the fire is at rest with no label.
+        #[test]
+        fn before_rest_the_lab_test_state_is_the_calm_look() {
+            let _lab = crate::lab::test_lab();
+            let (_d, mut rt) = open();
+            crate::lab::publish(&crate::lab::LabState { t: Some(200.0), ..Default::default() });
+            rt.update(|_: &mut App, _| {});
+            assert_eq!(edges(&mut rt), (vec![Mark::TabRing(0).id()], vec![]), "the calm edge, no ring");
+            assert_eq!(rt.state.fire_of(rt.state.tab().unwrap()), None, "no label");
+            assert!(find(&rt, "fire-label").is_none() && find(&rt, "fire-text").is_none());
+        }
+
+        /// `--lab` with a time draws the frame at that time with "reduce motion" on too (the scrub
+        /// always shows it), and a scrub back below `REST_MS` puts the fire at rest at once, with no fall.
+        #[test]
+        fn the_lab_frame_ignores_reduce_motion_and_scrubs_back() {
+            use crate::lab::{LabState, LabTuning, fire_at, publish, ring_at};
+            let _lab = crate::lab::test_lab();
+            let (_d, mut rt) = open();
+            rt.update(|s: &mut App, _| s.motion_env = Some(true));
+            settle(&mut rt);
+            let mut fx = crate::fx::FxCompositor::default();
+            let at = |rt: &mut Runtime<App>, t: f64, seq: u64| {
+                publish(&LabState { t: Some(t), seq, ..Default::default() });
+                rt.update(|_: &mut App, _| {});
+                rt.track_marks = true;
+                rt.frame(1.0 / 60.0);
+            };
+            let d = LabTuning::DEFAULT;
+
+            at(&mut rt, 410.0, 1);
+            let tab = crate::fx::ring_layers(&rt).into_iter().find(|(m, _)| *m == Mark::TabRing(0).id()).expect("tab ring").1;
+            assert!(!tab.reduced_motion);
+            assert!((tab.opacity - ring_at(110.0, &d.ring).0).abs() < 1e-4, "mid-entrance: {}", tab.opacity);
+            let height = |l: rune_fx::FxLayer| match l.fx {
+                rune_fx::Fx::Fire(p) => p.height,
+                other => panic!("not fire: {other:?}"),
+            };
+            at(&mut rt, 510.0, 2);
+            let fire = crate::fx::fire_layer(&rt, &mut fx).expect("fire");
+            assert!(!fire.reduced_motion);
+            assert!((height(fire) - fire_at(210.0, &d.fire)).abs() < 1e-3, "mid-rise: {}", height(fire));
+            at(&mut rt, 900.0, 3);
+            assert_eq!(height(crate::fx::fire_layer(&rt, &mut fx).unwrap()), d.fire.lit_h);
+            at(&mut rt, 200.0, 4);
+            assert_eq!(height(crate::fx::fire_layer(&rt, &mut fx).unwrap()), d.fire.rest_h, "back at rest, no fall");
+        }
+
         /// metal-tab, calm (docs/decisions/2026-11-16-metal-tab-quick-open-panel.md): a frozen edge
         /// on the active tab and, with ⌘P open, on the whole panel; no ⌘P row has an edge and
         /// nothing moves.

@@ -7,7 +7,7 @@
 //! the lab reads to know RuneMD is there.
 
 use std::path::{Path, PathBuf};
-use std::sync::mpsc;
+use std::sync::{Arc, Mutex, PoisonError, mpsc};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use notify::{RecommendedWatcher, RecursiveMode, Watcher as _};
@@ -38,18 +38,17 @@ pub struct LabHandle {
 }
 
 /// Watches `dir` (created if missing) for `lab.json` and writes `ready.json` there every second.
-/// A snapshot already there is read at once: the lab may have written it before RuneMD started.
+/// A snapshot already there is read once the watcher is registered (the lab may have written it
+/// before RuneMD started; a write in between is then seen by one or the other, and `seq` makes a
+/// double read harmless).
 pub fn start(dir: PathBuf, waker: Waker) -> LabHandle {
     if let Err(e) = std::fs::create_dir_all(&dir) {
         eprintln!("runemd: lab folder {}: {e}", dir.display());
     }
     let lab_json = dir.join("lab.json");
-    let mut state = LabState::default();
-    if read(&lab_json, &mut state) {
-        waker();
-    }
+    let state = Arc::new(Mutex::new(LabState::default()));
     let handler = {
-        let (lab_json, waker) = (lab_json.clone(), waker.clone());
+        let (lab_json, waker, state) = (lab_json.clone(), waker.clone(), state.clone());
         move |event: notify::Result<notify::Event>| {
             let event = match event {
                 Ok(event) => event,
@@ -58,7 +57,7 @@ pub fn start(dir: PathBuf, waker: Waker) -> LabHandle {
             if event.kind.is_access() || !event.paths.iter().any(|p| p.file_name() == Some("lab.json".as_ref())) {
                 return;
             }
-            read(&lab_json, &mut state);
+            read(&lab_json, &mut state.lock().unwrap_or_else(PoisonError::into_inner));
             waker();
         }
     };
@@ -75,6 +74,9 @@ pub fn start(dir: PathBuf, waker: Waker) -> LabHandle {
             None
         }
     };
+    if read(&lab_json, &mut state.lock().unwrap_or_else(PoisonError::into_inner)) {
+        waker();
+    }
     let (tx, rx) = mpsc::channel::<()>();
     std::thread::Builder::new()
         .name("runemd-lab-beat".into())
@@ -126,6 +128,15 @@ mod tests {
         std::fs::rename(&tmp, dir.join("lab.json")).unwrap();
     }
 
+    /// Waits for the first heartbeat: by then `start` registered the watcher.
+    fn wait_for_ready(dir: &std::path::Path) {
+        let t = Instant::now();
+        while !dir.join("ready.json").exists() {
+            assert!(t.elapsed() < Duration::from_secs(5), "no ready.json");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+
     #[test]
     fn lab_json_is_applied_within_200_ms_and_ready_json_beats() {
         let _lab = lab::test_lab();
@@ -136,11 +147,15 @@ mod tests {
         let _handle = start(dir.path().to_path_buf(), Arc::new(move || {
             w.fetch_add(1, Ordering::SeqCst);
         }));
-        std::thread::sleep(Duration::from_millis(100));
-        write_like_the_lab(dir.path(), r#"{"lab":1,"scene":"runemd","values":{"ringTurn":2000},"t":600,"state":null,"seq":1763400000123}"#);
+        wait_for_ready(dir.path());
+        // FSEvents may start delivering a moment after registration: the lab's write is repeated
+        // (a new `seq` each time) until it lands, and the first one must land within 200 ms.
         let written = Instant::now();
+        let mut seq = 1_763_400_000_123u64;
         while tuning().ring.turn != 2.0 && written.elapsed() < Duration::from_millis(200) {
-            std::thread::sleep(Duration::from_millis(5));
+            write_like_the_lab(dir.path(), &format!(r#"{{"lab":1,"scene":"runemd","values":{{"ringTurn":2000}},"t":600,"state":null,"seq":{seq}}}"#));
+            seq += 1;
+            std::thread::sleep(Duration::from_millis(20));
         }
         assert_eq!(tuning().ring.turn, 2.0, "applied within 200 ms");
         assert_eq!(lab::lab_time(), Some(600.0));
@@ -156,5 +171,20 @@ mod tests {
         let at = ready["at"].as_u64().expect("at in ms");
         let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64;
         assert!(now.saturating_sub(at) < 1500, "fresh: {}", now - at);
+    }
+
+    /// A snapshot the lab wrote before RuneMD started is applied by `start` itself, and wakes the app.
+    #[test]
+    fn a_snapshot_already_there_is_applied_at_start() {
+        let _lab = lab::test_lab();
+        let dir = tempfile::tempdir().unwrap();
+        write_like_the_lab(dir.path(), r#"{"lab":1,"scene":"runemd","values":{"ringWidth":4},"t":900,"state":null,"seq":7}"#);
+        let woken = Arc::new(AtomicUsize::new(0));
+        let w = woken.clone();
+        let _handle = start(dir.path().to_path_buf(), Arc::new(move || {
+            w.fetch_add(1, Ordering::SeqCst);
+        }));
+        assert_eq!((tuning().ring.width, lab::lab_time()), (4.0, Some(900.0)));
+        assert!(woken.load(Ordering::SeqCst) > 0);
     }
 }
