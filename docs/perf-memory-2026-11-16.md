@@ -332,3 +332,122 @@ stops that long after the last key or focus change), `XP_INACTIVE` (start with `
 Limits: no 2× screen (all 2× numbers are estimates from measured 1× sizes); load 11–320 and 9 GB swap (footprint
 counts compressed pages, so totals swing; categories and live heap are stable); MDLight's scroll metric is not the
 same as RuneMD's; GPU time not measured.
+
+## Release pass 2026-11-17
+
+Branch `perf/release-pass` from `b967ca7`. All runs on a private virtual display (`~/.claude/bin/vscreen create
+--width 1920 --height 1200 --hidpi --hz 120`): 2× backing store, 120 Hz, window at its default 900×1000 pt (1800×2000
+px), never key (inactive glass). `RUNEMD_ROOTS` an empty folder, `RUNE_DIRS_ROOT` a scratch folder (Matteo's settings
+untouched), `RUNEMD_THEME=dark`. Builds: `cargo build --profile perf`, bundled like `make app` but ad-hoc signed.
+Load (`vm.loadavg`, 1 min) in each row.
+
+### Scroll: the resting fire ran the whole view on every frame
+
+Cause. While the bottom fire rests (5 s after a file opens with the default Brief mode, or always with Always), `poll`
+returned `true` on every call, so Rune committed the whole view on every frame of a scroll: ~0.9 ms view + ~1.4 ms
+commit on big.md, 2.0 ms of the 2.6 ms frame. The `tx.live_only()` meant to avoid it has no effect inside `poll`: Rune
+reads it only in input and layout handlers (`crates/rune/src/runtime/frame.rs:513`, `live_only_tests.rs:152`).
+
+Fix (`691b805`). `poll` commits for the resting fire only on the `REST_FRAME` wake-up of a resting window
+(`App::rest_wake`: at least ¾ of `REST_FRAME` since the previous poll); inside a stream of frames the compositor
+already moves the flames on each frame's clock. The empty screen's fire is unchanged. Test:
+`the_resting_fire_does_not_run_the_view_on_every_frame` (147 commits before the fix, 87 after).
+
+The scripted scroll changed too (`76bf06a`): it returned `true` from `poll` on every frame, so it always ran the view,
+unlike a wheel. It now returns `poll`'s own result, like a wheel scroll (`MDSPIKE_SCROLL_VIEW=1` restores the old
+probe). "Before" below is `b967ca7` with the new probe, so both sides scroll the same way.
+
+Command (one run; `MDSPIKE_LOG` gets the `scroll frames` line, `MDSPIKE_FRAMES` one line per frame):
+
+```sh
+~/.claude/bin/vscreen launch --name agent-screen --env "MDSPIKE_LOG=$LOG,MDSPIKE_FRAMES=$FR,MDSPIKE_SCROLL=4,MDSPIKE_SPEED=3000,RUNEMD_ROOTS=$EMPTY,RUNE_DIRS_ROOT=$DIRS,RUNEMD_THEME=dark" -- RuneMD.app fixtures/big.md
+```
+
+big.md, 4 s at 3000 pt/s, 460–478 frames per run. CPU = `update_ms + encode_ms` per drawn frame; missed = refreshes
+with no new frame (intervals over 1.5 periods); dt = interval between drawn frames.
+
+| load | build | CPU p50 / p95 / p99 / max (ms) | dt p95 / p99 (ms) | missed refreshes |
+|---|---|---|---|---|
+| 15–16 | before | 1.90–1.92 / 2.45–2.51 / 2.85–2.87 / 3.1–3.5 | 9.7–10.3 / 10.1–16.3 | 15, 3 |
+| 13–16 | after | 0.65–0.68 / 0.86–2.56 / 3.2–4.5 / 7.4–7.6 | 10.0–11.9 / 11.7–16.3 | 15, 19, 3 |
+| ~37 | before | 2.00–2.01 / 2.60–2.61 / 2.85–3.03 / — | 9.6–10.4 / 10.5–16.2 | 3, 17 |
+| ~37 | after | 0.67–0.68 / 0.96–2.11 / 3.36–3.71 / — | 10.3–11.0 / 12.5–14.0 | 5, 10 |
+| ~95 | before | 1.96–1.97 / — / — / — | — | 26, 19 |
+| ~95 | after | 0.68–0.69 / — / — / — | — | 11, 12 |
+
+Reading:
+- CPU per frame: **p50 2.0 → 0.67 ms** in every run. With Rune's `frame-profile` (`cargo build --features
+  frame-profile`, `RUNE_FRAME_LOG`), after the fix view and commit are 0 in the median frame (build p50 0.54 ms).
+- Missed refreshes: fewer under heavy load (26/19 → 11/12 at ~95); at low load within noise (3–17 before, 3–19 after).
+  The misses left are late frame starts (the main thread starts the frame late; drawable wait p50 0.05 ms), not CPU.
+- The tail moved: about 1 frame in 35 now runs the view, when rows enter the virtual list's overscan, and shapes
+  5–158 rows at once (2.6–5 ms at load 13, up to 7.6 ms at load 15). Before, the view ran on every frame and rows
+  entered a few at a time. This is the same path a wheel scroll already took outside the fire's 5 s; the overscan is a
+  Rune constant (`crates/rune/src/el/virtual_list.rs:181`, `OVERSCAN = 2.0`).
+- Dropped: a `Live` value toggled on every rest frame (a resting window draws only for a poll that changed something,
+  so the fire stopped) and `tx.wake_after(0)` (43–110 frames/s at rest instead of 12).
+
+GPU: not measured this pass (no xctrace). Nothing in the fix adds GPU work; frames drawn are the same.
+
+### Memory
+
+Command (one process: empty screen at launch, big.md opened at 12 s, 10 s scroll from 25 s; samples at 10, 22 and 45 s;
+`MDSPIKE_OPEN_AT` and `MDSPIKE_NOEXIT` added in `0585344`):
+
+```sh
+~/.claude/bin/vscreen launch --name agent-screen --env "MDSPIKE_LOG=$LOG,MDSPIKE_OPEN_AT=12:$PWD/fixtures/big.md,MDSPIKE_SCROLL=10,MDSPIKE_DELAY=25,MDSPIKE_NOEXIT=1,RUNEMD_ROOTS=$EMPTY,RUNE_DIRS_ROOT=$DIRS,RUNEMD_THEME=dark" -- RuneMD.app
+footprint -p $PID          # phys_footprint and categories
+ps -o rss= -p $PID         # RSS
+vmmap --summary $PID       # zones and fragmentation
+heap -s $PID               # live heap ("All zones: … bytes"); MallocStackLogging=lite for allocation sites
+```
+
+Before = `0585344` (fire fix and probe, no memory change), after = `e4d9467`. Three runs each, load 6–20.
+
+| state | phys_footprint before | after | RSS before | after | live heap before → after |
+|---|---|---|---|---|---|
+| launch, empty screen | 122, 139, 122 MB | 138, 124, 137 MB | 132–140 MB | 161–163 MB | 24.2 → 24.1 MB |
+| big.md (1 MB) open | 124, 137, 138 MB | 136, 124, 137 MB | 134–153 MB | 168–170 MB | **32.4 → 29.9 MB** |
+| after a 10 s scroll | 159, 157, 159 MB | 155, 157, 156 MB | 142–163 MB | 136–181 MB | 41.8 → 39.3 MB |
+
+RSS counts clean shared pages (fonts, system libraries) and moves with what the system keeps resident; it varies more
+than the footprint and says little about the app.
+
+Fix (`e4d9467`): the empty screen's wordmark handles stayed in `App::forge_images` after a file opened, so the image
+cache kept their decoded pixels and mips (1.8 MB of mips plus the decoded strip). The view now drops them while a tab
+is in front; the empty screen decodes them again when it comes back. Live heap −2.5 MB; the total footprint swings
+±15 MB between launches on its own, so the gain does not show there. Test: `opening_a_file_lets_the_wordmark_images_go`.
+
+Where the ~157 MB after a scroll go (footprint categories, typical run):
+
+| category | MB | what | lever |
+|---|---|---|---|
+| Malloc Small | 72–76 | DefaultMallocZone: 34–37 MB allocated, **38–44 MB fragmentation** (`vmmap`), already 40 MB at launch with 21 MB allocated | not from Rust code: with mimalloc (below) the system zone keeps 51 MB |
+| IOSurface | 28–43 | 2–3 drawables × 14.4 MB (1800×2000 BGRA) | Rune: `FRAME_LATENCY` (`crates/rune/src/window.rs:694`), set on every `configure` (`gpu/metal/surface.rs:112`) |
+| GPU-owned (graphics) | 10–11 | glyph atlas and image atlas pages, buffers | Rune constants |
+| Malloc Large | 4–7 | glyph atlas CPU mirror (4.2 MB), image atlas first page (4.2 MB, kept by design: `image/pixels.rs:325`) | Rune |
+| live growth while scrolling | +9 | Rune vectors +2.9, parley layouts +1.4, accesskit +0.6, app vectors +1.2 (`heap -s` diff) | mostly Rune |
+
+Tried and dropped:
+- **mimalloc** as `#[global_allocator]` (3 interleaved pairs): 155–157 MB without, 159–161 MB with after the scroll.
+  Malloc Small drops 74 → 51 MB, but mimalloc's own segments add 33 MB (shown by `footprint` as "IOAccelerator"). The
+  fragmentation sits in the system frameworks' allocations, not in Rust's. (16/11 at 1× it cut the worst case; at 2×
+  with no index scan it gives nothing.)
+- **Two drawables** from the app: Rune sets `maximumDrawableCount` on every surface configure (resize included), and
+  with `allowsNextDrawableTimeout(false)` a third frame in flight would block the main thread in `nextDrawable`. Needs
+  a Rune option and a scroll A/B; −14.4 MB at this window size (estimate from the region size).
+- Waiting at rest: 30 s more without frames after the scroll gives back 6 MB (163 → 157 MB, one run).
+
+MDLight: no build found on this Mac (`_vendor/md-light-bench/build/MDLight.app` not found), so no 2× numbers; 16/11 at 1×: 86–113 MB with big.md.
+
+### Idle CPU
+
+`ps -o time` delta from 8 to 18 s after launch, same display. Before = `b967ca7`, after = `e4d9467`.
+
+| screen | before | after |
+|---|---|---|
+| big.md open (the Brief fire ends at 5 s) | 0.10 % | 0.10 % |
+| empty screen (wordmark fire, by design) | 4.50 % | 4.40 % |
+
+The window on the virtual display is never key. With a document open the 1–5 s rest frames are unchanged: 47 frames in 4 s, all running the view, CPU
+p50 1.55 → 1.50 ms.
