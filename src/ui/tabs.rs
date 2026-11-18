@@ -21,7 +21,7 @@
 use rune::{Align, Color, El, Side, TextStyle, Tx, col, el, row, text};
 
 use super::sidebar::{self, Hooks, Motion};
-use super::theme::{HAIRLINE, KBD_PAD_X, KBD_PAD_Y, KBD_TEXT, KBD_WEIGHT, R_KBD, R_PANEL, R_ROW, ROW, ROW_GAP, ROW_PAD, SIDEBAR, TAB_BAR_H, TAB_BAR_PAD_X, TAB_GAP, TAB_MAX_W, Theme, UI_SMALL, UI_WEIGHT};
+use super::theme::{HAIRLINE, KBD_PAD_X, KBD_PAD_Y, KBD_TEXT, KBD_WEIGHT, R_KBD, R_PANEL, R_ROW, ROW, ROW_GAP, ROW_PAD, SIDEBAR, TAB_BAR_H, TAB_BAR_LEAD, TAB_BAR_PAD_X, TAB_GAP, TAB_MAX_W, Theme, UI_SMALL, UI_WEIGHT};
 use crate::app::App;
 use crate::fx::ring::RING_W;
 use crate::fx::{self, Mark};
@@ -144,7 +144,7 @@ pub fn view(s: &App, hooks: Hooks<App>, theme: &Theme, reduced: bool, hover: boo
         .child(text(SOURCE_KEY).font(TextStyle::new(KBD_TEXT, KBD_WEIGHT)).color(theme.fg3));
     // The bar moves the window like a title bar (`main`: `Chrome::drag_regions`); its tabs and buttons
     // keep their presses, so a double click on a tab pins it and does not zoom the window.
-    let mut bar = row().key("tab-bar").window_drag().w_full().h(TAB_BAR_H).px(TAB_BAR_PAD_X - RING_W).gap(TAB_GAP).center_y().child(strip);
+    let mut bar = row().key("tab-bar").window_drag().w_full().h(TAB_BAR_H).pl(TAB_BAR_LEAD - RING_W).pr(TAB_BAR_PAD_X - RING_W).gap(TAB_GAP).center_y().child(strip);
     // Find (Cmd+F): the field sits in the bar, right of the tabs, so the document does not move.
     if s.find.open {
         bar = bar.child(super::find::field(s, theme).mr(ROW_GAP));
@@ -154,11 +154,15 @@ pub fn view(s: &App, hooks: Hooks<App>, theme: &Theme, reduced: bool, hover: boo
     rune::col().w_full().child(bar).child(el().key("tab-bar-line").w_full().h(HAIRLINE).fill(theme.line))
 }
 
-/// The × area (16 pt), its margin from the tab's right edge and from the name.
+/// The × area (16 pt), its margin from the tab's right edge and from the name: 8 each, the sidebar's
+/// `row-gap` (record 2026-11-18-small-choices-review; before 6 and 4, "tutto appiccicato").
 pub const CLOSE: f32 = 16.0;
-const CLOSE_PAD: f32 = 6.0;
-const CLOSE_GAP: f32 = 4.0;
+const CLOSE_PAD: f32 = ROW_GAP;
+const CLOSE_GAP: f32 = ROW_GAP;
 const R_CLOSE: f32 = 4.0;
+
+/// The front tab's metal edge, `RING_W` outside the tab, stays clear of the next tab and inside the bar.
+const _RING_FITS: () = assert!(TAB_GAP > RING_W && (TAB_BAR_H - ROW) / 2.0 > RING_W);
 
 /// Closes tab `id` (middle click, ×): with unsaved changes it brings it to the front with the
 /// question, like Cmd+W (`App::close`).
@@ -498,6 +502,30 @@ mod tests {
         assert!(!left.contains(&a), "the hovered one");
         assert_eq!(rt.state.tab().map(|t| t.doc.id), Some(c), "the front tab stays in front");
         assert_eq!(close_of(&rt, rt.state.active).opacity, 1.0, "with its ×");
+    }
+
+    /// Record 2026-11-18-small-choices-review, constraint 1: the tabs get the sidebar's spacing scale,
+    /// so they and their × no longer touch: 8 between tabs (`row-gap`), 8 between name and ×, 8 from the
+    /// × to the tab's edge, 14 before the first tab (`section-pad` top). Bar and tab heights stay.
+    #[test]
+    fn the_tabs_have_room_between_them_and_their_close() {
+        let rt = tabs(&["alpha.md", "beta.md", "gamma.md"]);
+        let tab = |i: usize| find(&rt, &format!("t-{:x}", rt.state.tabs[i].doc.id)).expect("tab").rect;
+        let label = |i: usize| find(&rt, &format!("t-{:x}-label", rt.state.tabs[i].doc.id)).expect("label").rect;
+        let bar = find(&rt, "tab-bar").expect("bar").rect;
+        assert_eq!(bar[3], TAB_BAR_H, "the bar stays 44 tall");
+        assert!((tab(0)[0] - bar[0] - 14.0).abs() < 0.01, "14 before the first tab: {:?} {:?}", bar, tab(0));
+        for i in 0..3 {
+            let (t, l, x) = (tab(i), label(i), close_of(&rt, i).rect);
+            assert_eq!(t[3], ROW, "tab {i} stays a row tall");
+            assert!((x[0] - (l[0] + l[2]) - 8.0).abs() < 0.01, "tab {i}: 8 between name and ×: {l:?} {x:?}");
+            assert!(((t[0] + t[2]) - (x[0] + x[2]) - 8.0).abs() < 0.01, "tab {i}: 8 after the ×: {t:?} {x:?}");
+            assert!((l[0] - t[0] - ROW_PAD).abs() < 0.01, "tab {i}: name {ROW_PAD} from the left edge");
+        }
+        for i in 0..2 {
+            assert!((tab(i + 1)[0] - (tab(i)[0] + tab(i)[2]) - 8.0).abs() < 0.01, "8 between tab {i} and the next");
+        }
+        // The front tab's metal edge (`RING_W` outside it) fits in the gap and the bar: `_RING_FITS`.
     }
 
     fn key(c: char, cmd: bool, shift: bool, alt: bool, ctrl: bool) -> KeyEvent {

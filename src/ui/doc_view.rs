@@ -1130,8 +1130,8 @@ mod tests {
         let pad = crate::ui::theme::ROW_PAD;
         for (tab, label) in [(a, la), (b, lb)] {
             assert!((label[0] - tab[0] - pad).abs() <= 0.5, "text at {pad} from the edge: {tab:?} {label:?}");
-            // After the name, the × (always in its place): 4 + 16 + 6.
-            let tail = 4.0 + crate::ui::tabs::CLOSE + 6.0;
+            // After the name, the × (always in its place): 8 + 16 + 8 (record 2026-11-18-small-choices-review).
+            let tail = 8.0 + crate::ui::tabs::CLOSE + 8.0;
             assert!((tab[0] + tab[2] - label[0] - label[2] - tail).abs() <= 0.5, "and the × at the end: {tab:?} {label:?}");
         }
         assert!(b[2] > a[2] + 100.0, "as wide as the name: {a:?} {b:?}");

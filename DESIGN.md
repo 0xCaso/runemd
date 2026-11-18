@@ -97,7 +97,8 @@ spacing:
   hairline: "0.5px"
   tab-bar: "44px"
   tab-bar-pad: "0 10px"
-  tab-gap: "2px"
+  tab-bar-lead: "14px"
+  tab-gap: "8px"
   tab-max: "240px"
   recent-gap: "3px"
   recent-row: "44px"
@@ -252,7 +253,7 @@ the fix of 2026-11-14 (`docs/decisions/2026-11-14-find-dark-contrast.md`).
 | Width popover: title (`fg-2`) and value (`fg`) on panel | — | 11.19 / 16.89 | — | 10.71 / 17.07 | 4.5 |
 | Width popover: shortcuts and track (`fg-3`) on panel | — | 7.88 | — | 7.34 | 4.5 |
 | Shortcuts ⌘ button (`fg-2`) on panel / panel + `sel` | — | 11.19 / 8.30 | — | 10.71 / 9.38 | 3 |
-| Shortcuts popover: rows, keys (`fg-2`) and groups (`fg-3`) on panel | — | 11.19 / 7.88 | — | 10.71 / 7.34 | 4.5 |
+| Settings › Shortcuts: rows, keys (`fg-2`) and group headings (`fg-3`) on panel | — | 11.19 / 7.88 | — | 10.71 / 7.34 | 4.5 |
 | ⌘P: name (`fg`) and repo or folder and time (`fg-2`) on panel + `sel` | — | 12.53 / 8.30 | — | 14.94 / 9.38 | 4.5 |
 | `line` on panel (decorative lines) | 1.19 | 1.44 | 1.22 | 1.22 | — |
 | `line` on glass (field border) | 1.28 | 1.52 | 1.21 | 1.19 | — |
@@ -428,10 +429,12 @@ accent: caret `fg`, selection `sel`. No results: "No files" in `fg-3`.
 
 **Tab.** A row like the sidebar ones, as wide as the file name up to 240 (`tab-max`, D5; beyond that, the name is
 cut in the middle): 28 tall (`row`), radius 6, UI text 13 px with 10 at the sides (`row-pad`), hover `sel`, pressed
-scale 0.98. The active file's tab has a `sel` fill and `fg` text; the others `fg-2` text. Bar 44 tall (`tab-bar`), 10
-margin at the sides (`tab-bar-pad`), 2 between tabs (`tab-gap`), a 0.5 line in `line` below; no separator or icon. At
-the end of the tab a "×" (glyph 14 in `fg-2`, area of 16, radius 4, hover `sel`, 4 after the name and 6 from the right
-edge): always shown on the front tab and on the others only on hover (or with keyboard focus), but its space is
+scale 0.98. The active file's tab has a `sel` fill and `fg` text; the others `fg-2` text. Bar 44 tall (`tab-bar`), 14
+before the first tab (`tab-bar-lead`), 10 margin on the right (`tab-bar-pad`), 8 between tabs (`tab-gap`), a 0.5 line
+in `line` below; no separator or icon. At the end of the tab a "×" (glyph 14 in `fg-2`, area of 16, radius 4, hover
+`sel`, 8 after the name and 8 from the right edge). These are the sidebar's steps (8 `row-gap`, 14 above section
+labels), so tabs and × no longer touch and the front tab's metal edge (`RING_W`, 3.25) fits in the gap (record
+`2026-11-18-small-choices-review`, constraint 1; before 10 / 2 / 4 / 6): always shown on the front tab and on the others only on hover (or with keyboard focus), but its space is
 always there, so the name does not move. Label "Close <name>"; a click closes like ⌘W (the same question with unsaved
 changes); the middle click stays. Glyph contrast: 8.30 / 9.38 on `sel`, 5.67 / 8.22 on hover on the ×. Preview tab
 (a single click in the sidebar, like VS Code): the same look, name in italics; at most one, the next single click
@@ -450,7 +453,8 @@ panel and 8.30 / 9.38 on `sel`; shortcuts 7.88 / 7.34.
 **Shortcuts (⌘ button).** Just left of ↔, the same as it: 28 × 28, glyph "⌘" 15 in `fg-2`, hover `sel`, full `sel`
 with the popover open, tooltip and label "Shortcuts" (↔ has its own tooltip too, "Text width"). A click opens under
 the button the width popover with other content: 300 wide, margins 12 / 14, "Shortcuts" (13 in `fg-2`), the groups
-File, Tabs, Reading, App (12 weight 500 in `fg-3`) and 24 rows with the action (13 in `fg-2`) and the keys on the
+File, Tabs, Reading, App (12 weight 400 in `fg-3`, a step lighter than the rows; 14 above each group after the first
+and 6 below, like the sidebar's section labels; record `2026-11-18-small-choices-review`, constraint 2) and 24 rows with the action (13 in `fg-2`) and the keys on the
 right (11.5 in `fg-2`, border `line` 0.5, radius 4). Esc, a click outside or the button close it; opening ⌘ closes ↔
 and the other way round. The list is `ui::shortcuts::GROUPS` (docs/decisions/2026-11-15-shortcuts-popover.md).
 

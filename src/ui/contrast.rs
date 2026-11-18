@@ -162,7 +162,7 @@ pub fn rows(t: &Theme, rings: &Rings, glass: Color) -> Vec<Row> {
         row("⌘ shortcuts button (fg2) on panel", t.fg2, panel, mark),
         row("⌘ shortcuts button (fg2) on panel + sel (hover, popover open)", t.fg2, panel_sel, mark),
         row("shortcuts popover: title and rows (fg2) on panel", t.fg2, panel, 4.5),
-        row("shortcuts popover: groups (fg3) on panel", t.fg3, panel, 4.5),
+        row("settings › shortcuts: group headings (fg3) on panel", super::shortcuts::heading_color(t), panel, 4.5),
         row("shortcuts popover: keys (fg2) on panel", t.fg2, panel, 4.5),
         row("shortcuts popover: key border (line) on panel, decorative", t.line, panel, 1.0),
         // Compact ⌘P (`ui::quick_open::panel`), on the panel: rows with hover and choice `sel`.
