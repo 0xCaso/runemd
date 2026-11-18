@@ -291,6 +291,8 @@ the fix of 2026-11-14 (`docs/decisions/2026-11-14-find-dark-contrast.md`).
   shots, tab at 369.5,16,238×28 pt, one frame): dark minimum 6.16 on the bar and 4.59 on `sel` (medians 14.60 and
   10.86), light 5.99 and 5.25 (medians 17.51 and 15.36); ≥ 3:1 on the whole perimeter in both themes. Proof:
   `docs/proof/thicker-metal/`.
+- 2026-11-18, moving metal: every metal edge is one width, 2 pt (`RING_W`), calm and writing alike; it replaces
+  3.25 (ring, ⌘P panel) and 2.3 (`CALM_W`, removed). Proof: `docs/proof/moving-metal/`.
 - The duplicate name (repo or folder) is in `fg-2` on the selected ⌘P row: in `fg-3` on `sel` it went down to
   3.2:1.
 - Each small text inside a row that takes `sel` on hover on glass (the second line of Recent, that is folder or
@@ -543,8 +545,8 @@ during the drag: as it was. The widths stay after a restart.
 
 | Effect | Meaning | Where | Start | End |
 |---|---|---|---|---|
-| Liquid metal (ring on 4 sides, 3.25 px, a 3 s turn) | An agent is writing this file | The file's tab, the whole ⌘P panel (while any file in its list is written; no ⌘P row has metal), its row in "Recent", its row in the tree | Appears in 220 ms ease-out at the first change | Stops when the file no longer changes (assumption: 3 s without writes) |
-| Frozen gunmetal edge (4 sides, still; 2.3 px on the tab, 3.25 px on the ⌘P panel; in light a mid grey on the tab and a lighter grey on the panel, so both read as light; `fx::ring::calm_layer`) | The tab you are reading, the open ⌘P panel (metal-tab, docs/decisions/2026-11-16-metal-and-rune-effects.md, docs/decisions/2026-11-16-metal-tab-quick-open-panel.md) | The active tab, the whole ⌘P panel (the chosen row keeps only its `sel` fill) | With the tab or the panel, no entrance | When the file is written (for the panel: any listed file) it becomes the liquid ring above |
+| Liquid metal, writing (ring on 4 sides, 2 pt, a 3 s turn) | An agent is writing this file | The file's tab, the whole ⌘P panel (while any file in its list is written; no ⌘P row has metal), its row in "Recent", its row in the tree | Appears in 220 ms ease-out at the first change | Stops when the file no longer changes (assumption: 3 s without writes); it goes back to the calm edge below where there is one |
+| Liquid metal, calm (the same chrome, same colour, same 2 pt, always moving; `fx::ring::calm_layer`, docs/decisions/2026-11-18-moving-metal-edges.md) | The tab you are reading, the open ⌘P panel | The active tab, the whole ⌘P panel (the chosen row keeps only its `sel` fill) | With the tab or the panel, no entrance; every calm edge turns in step on Rune's clock | When the file is written (for the panel: any listed file) it is the writing ring above. Reduce Motion or an inactive window: every metal edge is still. At rest it steps 8 times a second without the display link and without running the view (`ring::METAL_FRAME`) |
 | Rune fire (flames and embers) | At rest, low (26 px): it is the bottom of the panel. 110 px tall: there is new text below the part you are reading | Bottom of the panel, in reading: with "Brief" (default) at rest for 5 s when the window becomes active, when a document comes to the front and after the tall fire calms, then it fades out in 1 s (smoothstep, display link) and is gone, with no wake-ups; with "Always" at rest all the time; tall, with the label "N new paragraphs further down", in Brief and Always | From rest it rises to 110 in 420 ms ease-out | Goes back to rest in 300 ms ease-out when you scroll to the new text |
 | Caret (2 px, `fg`, pulses in 4 steps over 1.6 s: opacity 100/81/62/81 %) | An agent has just written here | At the point of the last change, also in the middle of the file: after the last word changed (or added at the end), as tall as the letter; outside the flow, the text does not move | At the first reload from outside | With the ring (the file no longer changes); if it is out of view the view does not jump |
 

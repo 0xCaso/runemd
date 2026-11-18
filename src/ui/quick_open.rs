@@ -424,11 +424,11 @@ pub fn panel<S: 'static>(s: &S, hooks: Hooks<S>, list: Option<[f32; 4]>, left: f
         .child(line())
         .child(foot)
         .modal(true, move |s: &mut S| (hooks.get_mut)(s).quick.close());
-    // metal-tab: the metal edge around the whole panel, calm (frozen gunmetal) or moving, always the
-    // thick width (follow-up 2026-11-16). The host sits outside the panel's rounded clip, so the edge
-    // drawn outside its rect is not cut.
+    // metal-tab: the metal edge around the whole panel, calm or writing, the same moving chrome and
+    // width as every edge (rune-fx, constraint 1). The host sits outside the panel's rounded clip, so
+    // the edge drawn outside its rect is not cut.
     let host = el().key("quick-edge").w_full().max_w(QUICK_W).radius(R_PANEL).child(surface);
-    let host = fx::ring::slot_as(host, Mark::QuickPanel, fx::ring::edge(writing, true), reduced, theme.dark, fx::ring::Calm::Panel);
+    let host = fx::ring::slot(host, Mark::QuickPanel, fx::ring::edge(writing, true), reduced, theme.dark);
     // A box as tall as the full panel, centred on the main panel; the panel hangs from its top. On a short
     // window the box shrinks and the list scrolls.
     let slot = col().key("quick-slot").w_full().max_w(QUICK_W).h(FULL_H).shrink().min_h(0.0).items_center().child(host);
@@ -668,40 +668,56 @@ mod tests {
             }
         }
 
-        fn lum(c: rune_fx::Rgb) -> f32 {
-            0.2126 * c.0[0] + 0.7152 * c.0[1] + 0.0722 * c.0[2]
-        }
-
-        /// Follow-up 2026-11-16 (case c_bf56ebdc): in light, the panel's calm edge is lighter metal
-        /// than the tab's, so the long thick edge reads as light as the tab's; in dark both are the
-        /// same gunmetal.
+        /// rune-fx, constraint 1: the open panel and the active tab have the same edge, calm and
+        /// writing, in both themes: the moving chrome, `RING_W` wide (the turn's angle aside).
         #[test]
-        fn in_light_the_calm_panel_edge_is_lighter_than_the_tab() {
-            let (_d, mut rt) = open();
-            rt.update(|s: &mut App, _| s.set_theme(crate::settings::ThemePref::Light));
-            quick_on_a(&mut rt);
-            let (panel, tab) = (metal(&mut rt, Mark::QuickPanel), metal(&mut rt, Mark::TabRing(0)));
-            assert_eq!(panel.flow, 0.0, "still frozen");
-            assert!(lum(panel.tint) > lum(tab.tint), "panel {:?} vs tab {:?}", panel.tint, tab.tint);
-            assert_eq!(tab, crate::fx::ring::calm_metal(false, crate::fx::ring::Calm::Tab), "the tab is unchanged");
-
-            rt.update(|s: &mut App, _| s.set_theme(crate::settings::ThemePref::Dark));
-            settle(&mut rt);
-            assert_eq!(metal(&mut rt, Mark::QuickPanel), metal(&mut rt, Mark::TabRing(0)), "dark: same gunmetal");
-        }
-
-        /// Follow-up 2026-11-16 (case c_bf56ebdc): the open panel always has the thick edge,
-        /// calm and writing; the active tab keeps the two widths.
-        #[test]
-        fn the_panel_edge_is_always_thick_and_the_tab_keeps_two_widths() {
-            use crate::fx::ring::{CALM_W, RING_W};
+        fn the_panel_and_the_tab_have_the_same_moving_edge() {
+            use crate::fx::ring::RING_W;
+            let same = |m: rune_fx::LiquidMetalParams| rune_fx::LiquidMetalParams { angle: 0.0, ..m };
             let (d, mut rt) = open();
             quick_on_a(&mut rt);
-            assert_eq!(width(&mut rt, Mark::QuickPanel), RING_W, "calm panel");
-            assert_eq!(width(&mut rt, Mark::TabRing(0)), CALM_W, "calm tab");
+            for theme in [crate::settings::ThemePref::Light, crate::settings::ThemePref::Dark] {
+                rt.update(|s: &mut App, _| s.set_theme(theme));
+                settle(&mut rt);
+                assert_eq!(width(&mut rt, Mark::QuickPanel), RING_W, "calm panel");
+                assert_eq!(width(&mut rt, Mark::TabRing(0)), RING_W, "calm tab");
+                let (panel, tab) = (metal(&mut rt, Mark::QuickPanel), metal(&mut rt, Mark::TabRing(0)));
+                assert_eq!(same(panel), same(tab), "{theme:?}");
+                assert_eq!(same(panel), same(crate::fx::ring::metal(theme == crate::settings::ThemePref::Dark)));
+                assert!(panel.flow > 0.0, "liquid, not frozen");
+            }
             write(&mut rt, d.path().canonicalize().unwrap().join("alfa.md"));
             assert_eq!(width(&mut rt, Mark::QuickPanel), RING_W, "writing panel");
             assert_eq!(width(&mut rt, Mark::TabRing(0)), RING_W, "writing tab");
+        }
+
+        /// rune-fx, constraint 2: an inactive window and Reduce Motion keep every metal edge still
+        /// (calm tab, ⌘P panel, writing rings) and ask for no paced wake-ups; active, they move.
+        #[test]
+        fn an_inactive_window_and_reduce_motion_keep_the_metal_still() {
+            let (d, mut rt) = open();
+            quick_on_a(&mut rt);
+            quick_index(&rt, "beta.md");
+            write(&mut rt, d.path().canonicalize().unwrap().join("beta.md"));
+            let layers = |rt: &mut Runtime<App>| {
+                rt.track_marks = true;
+                rt.frame(1.0 / 60.0);
+                crate::fx::ring_layers(rt)
+            };
+            let all = layers(&mut rt);
+            assert!(all.len() >= 2, "a calm and a writing edge: {all:?}");
+            assert!(all.iter().all(|(_, l)| l.is_animating()), "active: all move");
+            assert!(rt.state.metal_moves());
+
+            rt.update(|s: &mut App, _| s.window_focus(false));
+            assert!(layers(&mut rt).iter().all(|(m, l)| !l.is_animating() || panic!("inactive, {m} moves")));
+            assert!(!rt.state.metal_moves(), "no paced wake-ups");
+
+            rt.update(|s: &mut App, _| s.window_focus(true));
+            rt.update(|s: &mut App, _| s.motion_env = Some(true));
+            settle(&mut rt);
+            assert!(layers(&mut rt).iter().all(|(m, l)| !l.is_animating() || panic!("reduce motion, {m} moves")));
+            assert!(!rt.state.metal_moves(), "no paced wake-ups");
         }
 
         /// metal-tab, writing a listed file: the ⌘P panel edge moves (no row edge, the chosen row

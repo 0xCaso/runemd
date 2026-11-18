@@ -441,6 +441,8 @@ pub struct App {
     pub(crate) forge_images: std::cell::RefCell<ui::forge::Images>,
     /// When (Rune clock) `poll` last ran (`rest_wake`).
     polled_at: Option<f64>,
+    /// When (Rune clock) the compositor last drew a moving metal edge (`metal_due`).
+    pub(crate) metal_drawn: std::cell::Cell<Option<f64>>,
     /// When the last ring went out with no other lit (Rune clock): the empty screen's fire falls from
     /// there. `None` while one is lit, and before any agent wrote.
     writing_stopped: Option<f64>,
@@ -489,6 +491,7 @@ impl App {
             images: None,
             forge_images: Default::default(),
             polled_at: None,
+            metal_drawn: std::cell::Cell::new(None),
             writing_stopped: None,
             restore_pending: false,
             #[cfg(debug_assertions)]
@@ -620,6 +623,9 @@ impl App {
 
     /// The window became active (`focused`) or not: active, the Brief fire shows.
     pub fn window_focus(&mut self, focused: bool) {
+        // `MDSPIKE_ACTIVE=1` (measurements): the window counts as active on a virtual screen, where
+        // windows never become key.
+        let focused = focused || crate::probe::force_active();
         self.window_active = focused;
         if focused {
             self.show_fire();
@@ -1435,6 +1441,27 @@ impl App {
         }
     }
 
+    /// The metal edges move at rest (rune-fx, constraint 1): a tab is open (its calm edge), the ⌘P
+    /// panel is open, or a ring is lit, in an active window without "reduce motion" and outside the
+    /// lab's test state. Then `poll` asks for a frame every `fx::ring::METAL_FRAME`; still, none.
+    pub fn metal_moves(&self) -> bool {
+        if !self.window_active || self.reduced_seen.get() || crate::lab::lab_time().is_some() {
+            return false;
+        }
+        !self.tabs.is_empty() || self.sidebar.quick.active() || !self.rings.is_empty()
+    }
+
+    /// While the metal moves at rest: whether a frame is due at `clock` (one `METAL_FRAME` after the
+    /// last one the compositor drew, with a quarter of slack for the wake-up's lateness), or else
+    /// the clock it is due at.
+    pub fn metal_due(&self, clock: f64) -> Result<(), f64> {
+        let frame = crate::fx::ring::METAL_FRAME.as_secs_f64();
+        match self.metal_drawn.get() {
+            Some(at) if clock >= at && clock < at + frame * 0.75 => Err(at + frame),
+            _ => Ok(()),
+        }
+    }
+
     /// Cmd+E on the front tab: enters the source or, if already there, saves if there are changes and
     /// goes back to reading, from the block where reading had stopped. If the save does not write (the
     /// file changed on disk, or an error) it stays in the source with the row. True if there was a
@@ -1989,6 +2016,19 @@ mod tests {
         assert_eq!(wake, Some(end(0.0)));
         assert!(app.tick_fire(gone(0.0)).0, "gone at the end");
         assert_eq!(app.fire_flames(), None);
+    }
+
+    /// The moving metal at rest steps once per `METAL_FRAME` after the frame that last drew it: a
+    /// poll inside that window waits for the step, one at or past it asks for the frame now.
+    #[test]
+    fn the_metal_steps_once_per_metal_frame() {
+        let (_dir, app) = brief_app();
+        let frame = crate::fx::ring::METAL_FRAME.as_secs_f64();
+        assert_eq!(app.metal_due(5.0), Ok(()), "never drawn: now");
+        app.metal_drawn.set(Some(5.0));
+        assert_eq!(app.metal_due(5.008), Err(5.0 + frame), "the frame Rune adds after it: wait");
+        assert_eq!(app.metal_due(5.0 + frame * 0.8), Ok(()), "a late wake-up: now");
+        assert_eq!(app.metal_due(4.0), Ok(()), "a clock before the stamp: now");
     }
 
     /// Picking Brief in the settings shows it, so the choice is seen.
