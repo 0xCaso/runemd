@@ -9,12 +9,9 @@
 //! While an agent writes: they move at full rate and rise to `WRITING` in `fire::RISE`. When it stops
 //! they ease back down to `CALM` in the same time, then go on moving calm. With "reduce motion" or the
 //! window inactive they stay still: at the writing height while it writes, calm (`Frozen`) after.
-//!
-//! While an agent writes the strip also melts: the ring's liquid chrome over it, `Overlay`-blended on a
-//! backdrop copy ([`melt_layer`]); calm there is no melt slot at all.
 
 use rune::El;
-use rune_fx::{FireParams, Fx, FxBlend, FxLayer, LiquidMetalParams, Rect, Shape};
+use rune_fx::{FireParams, Fx, FxLayer, Rect, Shape};
 
 use super::{Mark, fire};
 
@@ -157,61 +154,6 @@ pub fn slot(el: El, m: Motion, since: f64) -> El {
     el.effect(Mark::Forge.id()).effect_data(slot_data(m, since))
 }
 
-/// How strongly the melt shows at its peak: the liquid chrome over the strip, `Overlay`-blended.
-pub const MELT: f32 = 0.85;
-/// The frame shown while melted and still (reduce motion, inactive window), rune-fx time.
-pub const MELT_T: f32 = 1.7;
-/// The melt's blend: the moving chrome lights and darkens the strip under it, so the letters' cut
-/// and the fire stay readable (rune-fx shapes are rounded rects: the layer covers the whole strip).
-pub const MELT_BLEND: FxBlend = FxBlend::Overlay;
-
-/// How melted the wordmark is, 0 (frozen chrome) to 1 (liquid): it eases in over `fire::RISE` when an
-/// agent starts writing and out in the same time when it stops, like the flames' height. Still with
-/// reduce motion: melted at once while writing, frozen at once after.
-pub fn melt(m: Motion, t: f32) -> f32 {
-    match m {
-        Motion::Calm | Motion::Frozen => 0.0,
-        Motion::Still => 1.0,
-        Motion::Moving => ease(t),
-        Motion::Falling => 1.0 - ease(t),
-    }
-}
-
-/// Whether the wordmark has a melt slot: only while an agent writes or the melt eases out. Calm, the
-/// slot is not in the tree, so no backdrop copy and no layer (`ui::forge::view`).
-pub fn melts(m: Motion) -> bool {
-    matches!(m, Motion::Moving | Motion::Still | Motion::Falling)
-}
-
-/// The liquid chrome of the ring metal, faster and rippling more: molten.
-pub fn melt_metal() -> LiquidMetalParams {
-    let chrome = LiquidMetalParams::chrome();
-    LiquidMetalParams { flow: 1.0, speed: 0.6, scale: 60.0, ..chrome }
-}
-
-/// The melt over the strip `plate` (pt) with corner radius `radius`; `None` when nothing shows (the
-/// fall ended). Moving on Rune's `clock`, still at `MELT_T` with `Still`.
-pub fn melt_layer(plate: Rect, radius: f32, m: Motion, t: f32, clock: f32) -> Option<FxLayer> {
-    let k = melt(m, t);
-    if k <= 0.0 {
-        return None;
-    }
-    let shape = Shape::rounded(plate.x, plate.y, plate.w, plate.h, radius);
-    let (time, moving) = match m {
-        Motion::Still => (MELT_T, false),
-        _ => (clock.max(0.0), true),
-    };
-    Some(Fx::fill(melt_metal()).on(shape).at(time).seed(12).reduced(!moving).opacity(MELT * k))
-}
-
-/// Makes `el` the melt slot over the strip, radius `radius` (pt): data as [`slot_data`], the radius in
-/// the last float; the slot reads the backdrop for [`MELT_BLEND`].
-pub fn melt_slot(el: El, m: Motion, since: f64, radius: f32) -> El {
-    let mut d = slot_data(m, since);
-    d[3] = radius;
-    el.effect(super::Mark::Melt.id()).effect_data(d).effect_backdrop(true)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -307,48 +249,6 @@ mod tests {
         assert!(done.is_animating() && paced(Motion::Falling, fire::RISE + 1.0), "calm again, paced");
         assert!((done.time - (10.0 + fire::RISE + 1.0)).abs() < 1e-4, "on the clock: {}", done.time);
         assert!((params(&done).height - CALM * 70.0).abs() < 1e-3);
-    }
-
-
-    fn plate() -> Rect {
-        Rect::new(0.0, 0.0, 440.0, 101.0)
-    }
-
-    /// Calm the wordmark is frozen chrome: no melt slot, no layer. Writing melts it in the rise's
-    /// time, moving; stopping freezes it back in the same time.
-    #[test]
-    fn the_wordmark_melts_while_an_agent_writes() {
-        assert!(!melts(Motion::Calm) && !melts(Motion::Frozen), "calm: no slot, no backdrop copy");
-        assert!(melts(Motion::Moving) && melts(Motion::Still) && melts(Motion::Falling));
-        assert_eq!(melt(Motion::Calm, 5.0), 0.0);
-        assert_eq!(melt(Motion::Moving, 0.0), 0.0, "it starts frozen: no jump");
-        let mid = melt(Motion::Moving, fire::RISE / 2.0);
-        assert!(mid > 0.5 && mid < 1.0, "ease-out: {mid}");
-        assert_eq!(melt(Motion::Moving, fire::RISE), 1.0);
-        assert_eq!(melt(Motion::Falling, 0.0), 1.0, "the fall starts melted");
-        assert_eq!(melt(Motion::Falling, fire::RISE), 0.0);
-        let a = melt_layer(plate(), 14.0, Motion::Moving, 9.0, 3.0).unwrap();
-        let b = melt_layer(plate(), 14.0, Motion::Moving, 9.0, 4.0).unwrap();
-        assert!(a.is_animating() && a.time != b.time, "liquid: it moves with the clock");
-        assert!((a.opacity - MELT).abs() < 1e-4);
-        assert_eq!((a.shape.rect.w, a.shape.rect.h), (440.0, 101.0), "over the whole strip");
-        match a.fx {
-            Fx::Fill(f) => assert!(matches!(f.style, rune_fx::FillStyle::LiquidMetal(p) if p.flow > LiquidMetalParams::chrome().flow)),
-            other => panic!("not a fill: {other:?}"),
-        }
-        let half = melt_layer(plate(), 14.0, Motion::Falling, fire::RISE / 2.0, 3.0).unwrap();
-        assert!(half.opacity < MELT && half.opacity > 0.0, "it eases out");
-        assert!(melt_layer(plate(), 14.0, Motion::Falling, fire::RISE, 3.0).is_none(), "frozen again: no layer");
-        assert!(melt_layer(plate(), 14.0, Motion::Calm, 0.0, 3.0).is_none());
-    }
-
-    #[test]
-    fn reduced_motion_shows_the_melt_still() {
-        let a = melt_layer(plate(), 14.0, Motion::Still, 0.0, 1.0).unwrap();
-        let b = melt_layer(plate(), 14.0, Motion::Still, 4.0, 9.0).unwrap();
-        assert!(!a.is_animating() && a.reduced_motion);
-        assert_eq!(a.time, b.time, "one frame");
-        assert!((a.opacity - MELT).abs() < 1e-4, "melted at once");
     }
 
     #[test]

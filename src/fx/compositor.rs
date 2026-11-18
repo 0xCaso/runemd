@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use rune::compose::{Compositor, Frame};
-use rune::render::{EffectPhase, EffectSite, Instance, KIND_EFFECT};
+use rune::render::{EffectSite, Instance, KIND_EFFECT};
 use rune_fx::{FxFrame, FxLayer, FxOptions, FxRenderer, FxSlot, Rect};
 
 use super::marks::Mark;
@@ -213,14 +213,6 @@ impl Compositor<App> for FxCompositor {
                     paced.push(layers.len());
                 }
                 forge::layer(rect_pt(i), s.motion, s.t, clock as f32)
-            } else if mark == Mark::Melt.id() {
-                // The wordmark melting while an agent writes; none once the melt has eased out.
-                let s = forge::slot_state(i.uv, clock);
-                let Some(layer) = forge::melt_layer(rect_pt(i), i.uv[3], s.motion, s.t, clock as f32) else { continue };
-                at.push(n as u32);
-                layers.push(layer);
-                slots.push(FxSlot::default().scale(i.params[3]).clip(i.clip, i.fade).blend(forge::MELT_BLEND));
-                continue;
             } else if mark == Mark::Caret.id() {
                 let (layer, moving) = caret_layer(i, clock);
                 pulsing |= moving;
@@ -247,17 +239,9 @@ impl Compositor<App> for FxCompositor {
         fx.prepare_with_slots(device, queue, &FxFrame { viewport: [size.0, size.1], scale: 1.0, layers: &layers, backdrop: None, sources: &[] }, &slots);
         let clear = f.rt.clear_color();
         f.ui.prepare(device, queue, &mut f.rt.text.atlas, &f.rt.instances, size);
-        // Only the melt slot asks for a backdrop (`El::effect_backdrop`): the copy of the frame under it
-        // that its `Overlay` blend reads. Other slots draw in the open pass.
-        f.ui.draw_with_backdrop(f.encoder, f.target, clear, &mut |phase, s: &EffectSite<'_>| {
-            let Some(k) = at.iter().position(|n| *n == s.index) else { return };
-            match phase {
-                EffectPhase::Backdrop(_) => {
-                    if let Some(b) = s.backdrop {
-                        fx.set_layer_backdrop(device, b, k);
-                    }
-                }
-                EffectPhase::Draw(pass) => fx.draw_layer_in(pass, s.format, s.origin, k),
+        f.ui.draw_with(f.encoder, f.target, clear, &mut |pass, s: &EffectSite<'_>| {
+            if let Some(k) = at.iter().position(|n| *n == s.index) {
+                fx.draw_layer_in(pass, s.format, s.origin, k);
             }
         });
     }
