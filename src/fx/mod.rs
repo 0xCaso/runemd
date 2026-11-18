@@ -5,6 +5,7 @@ pub mod caret;
 pub mod fire;
 pub mod forge;
 mod marks;
+pub mod outline;
 pub mod ring;
 
 pub use compositor::FxCompositor;

@@ -5,7 +5,7 @@ use rune::render::{EffectSite, Instance, KIND_EFFECT};
 use rune_fx::{FxBlend, FxFrame, FxLayer, FxOptions, FxRenderer, FxSlot, Rect};
 
 use super::marks::Mark;
-use super::{caret, fire, forge, ring};
+use super::{caret, fire, forge, outline, ring};
 use crate::App;
 
 /// A single compositor for the window. Without effects (no layer, no slot) the frame is
@@ -41,7 +41,7 @@ fn rect_pt(i: &Instance) -> Rect {
 /// and the fire are drawn at the lab's time, lit at `lab::REST_MS` (`App::ring_of`, `App::fire_of`).
 /// The empty screen's agent line is not part of the test state: it stays on Rune's clock.
 fn lab_clock(mark: u32) -> Option<f64> {
-    let on_lab = mark == Mark::Fire.id() || (Mark::is_ring(mark) && mark != Mark::ForgeLine.id());
+    let on_lab = mark == Mark::Fire.id() || mark == Mark::Page.id() || (Mark::is_ring(mark) && mark != Mark::ForgeLine.id());
     crate::lab::lab_time().filter(|_| on_lab).map(|t| t / 1000.0)
 }
 
@@ -59,14 +59,51 @@ fn ring_layer(i: &Instance, mark: u32, clock: f64, active: bool) -> FxLayer {
 /// holds the display link, so the fade is smooth.
 fn ring_layer_paced(i: &Instance, mark: u32, clock: f64, active: bool) -> (FxLayer, bool) {
     let radius = i.radii.iter().fold(0.0f32, |a, v| a.max(v.abs())) / i.params[3].max(f32::EPSILON);
+    let (pose, paced) = ring_pose(i, mark, clock, active);
+    (ring::band(ring::around(rect_pt(i), radius), pose, ring::slot_dark(i.uv), true), paced)
+}
+
+/// Where the metal of a `ring::slot` slot is at `clock`, and whether it is paced (see
+/// [`ring_layer_paced`]).
+fn ring_pose(i: &Instance, mark: u32, clock: f64, active: bool) -> (ring::Pose, bool) {
     let lab = lab_clock(mark);
-    let dark = ring::slot_dark(i.uv);
     if ring::slot_calm(i.uv) {
         let still = (ring::slot_calm_reduced(i.uv) || !active) && lab.is_none();
-        return (ring::calm_layer(rect_pt(i), radius, lab.unwrap_or(clock), still, dark), true);
+        return (ring::Pose::calm(lab.unwrap_or(clock), still), true);
     }
     let (t, reduced) = ring::slot_time(i.uv, lab.unwrap_or(clock));
-    (ring::layer_rounded(rect_pt(i), radius, t, (reduced || !active) && lab.is_none(), dark), ring::entered(t))
+    (ring::Pose::writing(t, (reduced || !active) && lab.is_none()), ring::entered(t))
+}
+
+/// A piece of an outline as drawn: its layer, device-pixel clip and soft-edge words.
+type Piece = (FxLayer, [f32; 4], [u32; 4]);
+
+/// The pieces of the front tab's outline (`fx::outline`) for the slot `i` (the front tab or the page),
+/// each with the device-pixel clip and soft-edge words it shows through, and whether they are paced.
+/// The front tab's slot alone, with no page slot in the frame, is an ordinary ring.
+fn outline_layers(f: &[Instance], i: &Instance, mark: u32, clock: f64, active: bool, front: Option<usize>, page: Option<usize>) -> (Vec<Piece>, bool) {
+    let (pose, paced) = ring_pose(i, mark, clock, active);
+    let dark = ring::slot_dark(i.uv);
+    let scale = i.params[3].max(f32::EPSILON);
+    let width = crate::lab::tuning().ring.width;
+    let radius = |i: &Instance| i.radii.iter().fold(0.0f32, |a, v| a.max(v.abs())) / scale;
+    let cuts = if mark == Mark::FrontTab.id() {
+        let Some(p) = page.map(|n| &f[n]) else {
+            return (vec![(ring::band(ring::around(rect_pt(i), radius(i)), pose, dark, true), i.clip, i.fade)], paced);
+        };
+        outline::tab_cuts(rect_pt(i), radius(i), rect_pt(p).y, width, scale).to_vec()
+    } else {
+        // The stretch the front tab opens, as far as the tab is on screen (the strip clips it).
+        let hole = front.map(|n| &f[n]).and_then(|t| {
+            let r = rect_pt(t);
+            let (a, b) = outline::hole(r.x, r.x + r.w);
+            let (a, b) = (a.max(t.clip[0] / scale), b.min(t.clip[2] / scale));
+            (b > a).then_some((a, b))
+        });
+        outline::page_cuts(rect_pt(i), radius(i), width, hole, scale)
+    };
+    let layers = cuts.iter().filter_map(|c| outline::narrow(i.clip, i.fade, c.clip).map(|(clip, fade)| (ring::band(c.shape, pose, dark, false), clip, fade))).collect();
+    (layers, paced)
 }
 
 /// Each ring layer in the last frame of `rt`, as the compositor paints it: (slot id, layer). Only for
@@ -200,6 +237,9 @@ impl Compositor<App> for FxCompositor {
         let mut saw_fire = false;
         let mut tip_layer: Option<FxLayer> = None;
         let mut metal = false;
+        // The front tab's outline is cut from the front tab's slot and the page's (`fx::outline`).
+        let slot_of = |m: Mark| (0..f.rt.instances.len()).find(|n| f.rt.instances[*n].params[1] == KIND_EFFECT && f.rt.marks.get(*n).copied() == Some(m.id()));
+        let (front, page) = (slot_of(Mark::FrontTab), slot_of(Mark::Page));
         for (n, i) in f.rt.instances.iter().enumerate() {
             if i.params[1] != KIND_EFFECT {
                 continue;
@@ -208,6 +248,22 @@ impl Compositor<App> for FxCompositor {
             // The layers on the lab's clock stand still: each new `lab.json` wakes the app instead.
             if lab_clock(mark).is_some() {
                 on_lab.push(layers.len());
+            }
+            if mark == Mark::FrontTab.id() || mark == Mark::Page.id() {
+                let (pieces, rests) = outline_layers(&f.rt.instances, i, mark, clock, f.rt.state.window_active, front, page);
+                for (layer, clip, fade) in pieces {
+                    if rests {
+                        paced.push(layers.len());
+                    }
+                    if lab_clock(mark).is_some() && on_lab.last() != Some(&layers.len()) {
+                        on_lab.push(layers.len());
+                    }
+                    metal |= layer.is_animating();
+                    at.push(n as u32);
+                    layers.push(layer);
+                    slots.push(FxSlot::default().scale(i.params[3]).clip(clip, fade));
+                }
+                continue;
             }
             let layer = if Mark::is_ring(mark) {
                 let (layer, rests) = ring_layer_paced(i, mark, clock, f.rt.state.window_active);

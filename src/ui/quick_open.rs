@@ -570,7 +570,7 @@ mod tests {
             crate::lab::publish(&crate::lab::LabState { t: Some(600.0), ..Default::default() });
             rt.update(|_: &mut App, _| {});
             let (_, writing) = edges(&mut rt);
-            assert!(writing.contains(&Mark::TabRing(0).id()), "{writing:?}");
+            assert!(writing.contains(&Mark::FrontTab.id()), "{writing:?}");
             let rows: Vec<u32> = writing.iter().copied().filter(|m| (Mark::RecentRing(0).id()..=Mark::RecentRing(9_999).id()).contains(m)).collect();
             assert_eq!(rows, vec![Mark::RecentRing(recent).id()], "only the front file's Recent row");
             assert_eq!(rt.state.ring_of(&front), Some(crate::lab::REST_MS / 1000.0));
@@ -583,7 +583,7 @@ mod tests {
             crate::lab::publish(&crate::lab::LabState { t: None, seq: 2, ..Default::default() });
             rt.update(|s: &mut App, _| s.sidebar.quick.close());
             settle(&mut rt);
-            assert_eq!(edges(&mut rt), (vec![Mark::TabRing(0).id()], vec![]), "back to the calm edge");
+            assert_eq!(edges(&mut rt), (vec![Mark::FrontTab.id()], vec![]), "back to the calm edge");
             assert_eq!(rt.state.fire_of(rt.state.tab().unwrap()), None);
         }
 
@@ -595,7 +595,7 @@ mod tests {
             let (_d, mut rt) = open();
             crate::lab::publish(&crate::lab::LabState { t: Some(200.0), ..Default::default() });
             rt.update(|_: &mut App, _| {});
-            assert_eq!(edges(&mut rt), (vec![Mark::TabRing(0).id()], vec![]), "the calm edge, no ring");
+            assert_eq!(edges(&mut rt), (vec![Mark::FrontTab.id()], vec![]), "the calm edge, no ring");
             assert_eq!(rt.state.fire_of(rt.state.tab().unwrap()), None, "no label");
             assert!(find(&rt, "fire-label").is_none() && find(&rt, "fire-text").is_none());
         }
@@ -619,7 +619,7 @@ mod tests {
             let d = LabTuning::DEFAULT;
 
             at(&mut rt, 410.0, 1);
-            let tab = crate::fx::ring_layers(&rt).into_iter().find(|(m, _)| *m == Mark::TabRing(0).id()).expect("tab ring").1;
+            let tab = crate::fx::ring_layers(&rt).into_iter().find(|(m, _)| *m == Mark::FrontTab.id()).expect("tab ring").1;
             assert!(!tab.reduced_motion);
             assert!((tab.opacity - ring_at(110.0, &d.ring).0).abs() < 1e-4, "mid-entrance: {}", tab.opacity);
             let height = |l: rune_fx::FxLayer| match l.fx {
@@ -642,9 +642,9 @@ mod tests {
         #[test]
         fn calm_edge_on_the_active_tab_and_the_quick_panel() {
             let (_d, mut rt) = open();
-            assert_eq!(edges(&mut rt), (vec![Mark::TabRing(0).id()], vec![]));
+            assert_eq!(edges(&mut rt), (vec![Mark::FrontTab.id()], vec![]));
             quick_on_a(&mut rt);
-            assert_eq!(edges(&mut rt), (vec![Mark::TabRing(0).id(), Mark::QuickPanel.id()], vec![]));
+            assert_eq!(edges(&mut rt), (vec![Mark::QuickPanel.id(), Mark::FrontTab.id()], vec![]));
             panel_edge_wraps_the_panel(&mut rt);
             assert!(rt.state.effects_lit());
         }
@@ -680,15 +680,15 @@ mod tests {
                 rt.update(|s: &mut App, _| s.set_theme(theme));
                 settle(&mut rt);
                 assert_eq!(width(&mut rt, Mark::QuickPanel), RING_W, "calm panel");
-                assert_eq!(width(&mut rt, Mark::TabRing(0)), RING_W, "calm tab");
-                let (panel, tab) = (metal(&mut rt, Mark::QuickPanel), metal(&mut rt, Mark::TabRing(0)));
+                assert_eq!(width(&mut rt, Mark::FrontTab), RING_W, "calm tab");
+                let (panel, tab) = (metal(&mut rt, Mark::QuickPanel), metal(&mut rt, Mark::FrontTab));
                 assert_eq!(same(panel), same(tab), "{theme:?}");
                 assert_eq!(same(panel), same(crate::fx::ring::metal(theme == crate::settings::ThemePref::Dark)));
                 assert!(panel.flow > 0.0, "liquid, not frozen");
             }
             write(&mut rt, d.path().canonicalize().unwrap().join("alfa.md"));
             assert_eq!(width(&mut rt, Mark::QuickPanel), RING_W, "writing panel");
-            assert_eq!(width(&mut rt, Mark::TabRing(0)), RING_W, "writing tab");
+            assert_eq!(width(&mut rt, Mark::FrontTab), RING_W, "writing tab");
         }
 
         /// rune-fx, constraint 2: an inactive window and Reduce Motion keep every metal edge still
@@ -730,13 +730,13 @@ mod tests {
             quick_index(&rt, "beta.md");
             write(&mut rt, root.join("beta.md"));
             let (calm, writing) = edges(&mut rt);
-            assert_eq!(calm, vec![Mark::TabRing(0).id()], "only the active tab is calm");
+            assert_eq!(calm, vec![Mark::FrontTab.id()], "only the active tab is calm");
             assert!(writing.contains(&Mark::QuickPanel.id()), "{writing:?}");
             panel_edge_wraps_the_panel(&mut rt);
             if let Some(r) = recent_index(&rt, "beta.md") {
                 assert!(writing.contains(&Mark::RecentRing(r).id()), "{writing:?}");
             }
-            assert!(!writing.contains(&Mark::TabRing(0).id()));
+            assert!(!writing.contains(&Mark::FrontTab.id()));
         }
 
         /// metal-tab: a file that is written but not in the ⌘P list leaves the panel edge calm.
@@ -765,7 +765,7 @@ mod tests {
             let (d, mut rt) = open();
             write(&mut rt, d.path().canonicalize().unwrap().join("alfa.md"));
             let (calm, writing) = edges(&mut rt);
-            assert!(!calm.contains(&Mark::TabRing(0).id()) && writing.contains(&Mark::TabRing(0).id()), "{calm:?} {writing:?}");
+            assert!(!calm.contains(&Mark::FrontTab.id()) && writing.contains(&Mark::FrontTab.id()), "{calm:?} {writing:?}");
         }
 
         fn tabs(rt: &Runtime<App>) -> Vec<(String, bool)> {
