@@ -141,6 +141,15 @@ pub fn rows(t: &Theme, rings: &Rings, glass: Color) -> Vec<Row> {
         row("settings: \"Already watched\" (fg2) on panel", t.fg2, panel, 4.5),
         row("fire-off label (fg2) on panel", t.fg2, panel, 4.5),
         row("frontmatter: text (fg2) on panel + half sel", t.meta().text, over(t.meta().fill, panel), 4.5),
+        // Tab names (`ui::tabs::tab_row`): front in `fg` on `sel`, the others in `fg2`, hover `sel`.
+        row("tab name, front (fg) on panel + sel", t.fg, panel_sel, 4.5),
+        row("tab name, back (fg2) on panel", t.fg2, panel, 4.5),
+        row("tab name, back on hover (fg2) on panel + sel", t.fg2, panel_sel, 4.5),
+        row("\"⌘E source\" key (fg3) on panel", t.fg3, panel, 4.5),
+        // Sidebar "Open file ⌘P" field (`quick_open::launcher`): plain theme on the `field` fill over glass.
+        row("Open file field: placeholder (fg2) on field over glass", t.fg2, over(t.field, glass), 4.5),
+        row("Open file field: ⌘P key (fg2) on field over glass", t.fg2, over(t.field, glass), 4.5),
+        row("Open file field: search icon (fg2) on field over glass", t.fg2, over(t.field, glass), mark),
         row("tab × (fg2) on panel + sel (front tab or hover)", t.fg2, panel_sel, mark),
         row("tab × (fg2) on hover on panel + sel + sel", t.fg2, over(t.sel, panel_sel), mark),
         row("width ↔ button (fg2) on panel", t.fg2, panel, mark),
