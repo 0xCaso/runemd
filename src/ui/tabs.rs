@@ -224,9 +224,7 @@ const R_CLOSE: f32 = 4.0;
 
 /// The front tab's pill (record 2026-11-18-tab-bar-style, constraint 2, as in the installed app): the
 /// tab's full width, `PILL_H` tall, in `sel`. The metal ring runs closed `RING_W` outside it, inside
-/// the bar: never on the page. Matteo, 2026-11-18 (scrawl 1795002435465): the ring had 12 above and
-/// 3.5 below, on the line; now `RING_GAP` (8) on both sides, the pill 4 higher and the room under it
-/// 4.5 taller, everything on whole device pixels.
+/// the bar: never on the page, with `RING_GAP` (8) above and below it, everything on whole device pixels.
 pub const PILL_H: f32 = 24.0;
 /// The pill's corner radius: half the dark page panel's (`R_PANEL / 2` = 5 pt), not half circles
 /// (record 2026-11-18-tab-bar-style, constraint 5; Matteo, scrawl 1795009884949: "il border radius
@@ -609,8 +607,7 @@ mod tests {
     /// Record 2026-11-18-tab-bar-style, constraint 2 (the installed app): the front tab is a pill inside
     /// the bar with a closed metal ring round it. The ring's shape is `RING_W` outside the pill, all of it
     /// inside the slot's clip (no side cut), inside the bar and above the page's top edge, and above the
-    /// scroll bar, which shows whole below it when the tabs overflow (a1420a2 cut into the page, faa020c
-    /// cut the bottom side off).
+    /// scroll bar, which shows whole below it when the tabs overflow.
     #[test]
     fn the_front_tab_is_a_pill_with_a_closed_ring_inside_the_bar() {
         for n in [3, 16] {

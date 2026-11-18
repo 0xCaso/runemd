@@ -214,7 +214,7 @@ mod tests {
     }
 
     /// docs/decisions/2026-11-18-rune-fx-markdown.md, constraint 1: one width, 2 pt, for the
-    /// writing ring and the calm edge (3.25 and 2.3 before).
+    /// writing ring and the calm edge.
     #[test]
     fn every_metal_edge_is_2_pt_wide() {
         assert_eq!(RING_W, 2.0);

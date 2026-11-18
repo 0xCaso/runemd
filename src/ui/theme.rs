@@ -28,7 +28,7 @@ pub const UI_SMALL_WEIGHT: f32 = 500.0;
 pub const KBD_WEIGHT: f32 = 400.0;
 /// Tab bar (DESIGN.md, `spacing.tab-bar`, `tab-bar-pad`, `tab-bar-lead`, `tab-top`, `tab-pad`): 44 tall
 /// on the `tab_bar` tint, 10 margin on the right, 8 before the first tab. Tabs sit edge to edge (VS Code,
-/// record 2026-11-18-vscode-tabs; c6b02b5 had 8 between them, "troppo spazio"), from `TAB_TOP` below the
+/// record 2026-11-18-vscode-tabs), from `TAB_TOP` below the
 /// bar's top down to the document, with `TAB_PAD_X` before the name and a `TAB_DIVIDER` line in `line`
 /// between back tabs. The front tab is a `sel` pill inside the bar with a closed metal ring
 /// (`ui::tabs::PILL_H`, record 2026-11-18-tab-bar-style).

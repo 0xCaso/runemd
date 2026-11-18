@@ -78,11 +78,11 @@ pub(super) fn button(s: &App, theme: &Theme, motion: Motion) -> El {
 
 /// Room above a group heading and below it: the sidebar's section labels (`SECTION_PAD_TOP` 14,
 /// `SECTION_PAD_BOTTOM` 6), so the groups stand apart while rows follow each other without a gap
-/// (record 2026-11-18-small-choices-review, constraint 2; before 8 and 2). The first heading has the
-/// same 14 below the "Shortcuts" title (record 2026-11-18-tab-outline; before 6, "troppo attaccato").
+/// (record 2026-11-18-small-choices-review, constraint 2). The first heading has the
+/// same 14 below the "Shortcuts" title (record 2026-11-18-tab-outline).
 const GROUP_GAP: f32 = SECTION_PAD_TOP;
 const GROUP_BELOW: f32 = SECTION_PAD_BOTTOM;
-/// Group headings at the regular weight (before 500): with `fg3` they read lighter than the rows.
+/// Group headings at the regular weight: with `fg3` they read lighter than the rows.
 const GROUP_WEIGHT: f32 = UI_WEIGHT;
 
 /// The group headings' colour, `fg3`: a step lighter than the rows' `fg2` and still ≥ 4.5:1 on the
