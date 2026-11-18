@@ -576,3 +576,33 @@ is ~0.1–0.3 ms higher (the glass and the chrome copies). The forge.md scroll r
 at load 43–55 (r3 had an 819 ms stall); big.md at the same load did not, so it is read as load, not the defaults
 (assumed: not re-run on a quiet machine).
 
+
+## Full forge round 2 2026-11-18
+
+Round 2 (brief `docs/decisions/2026-11-18-full-forge-round-2.md` on `main`): the metal frame back on code blocks only
+(`doc_fx::METAL_BLOCK = Some(Code)`), the quiet 1 pt edge elsewhere, and real liquid chrome inside the letters of every
+heading H1–H6: one paced rune-fx layer per heading, masked by an offscreen pass of that heading's glyphs (vendored
+rune-fx, `FillParams::masked`), in place of the 6 stacked text copies. The chrome steps at 8/s with the metal
+(`METAL_FRAME`), never reruns the view, and is still with Reduce Motion or an inactive window.
+Same method as "Full forge 2026-11-18", bundle `make app` from this branch at e70d6b2. Idle now runs on the
+heading-rich `fixtures/headings.md` (31 headings, 13 on screen): `FULL_FORGE_IDLE_DOC=headings bench/full_forge.py
+WORKDIR 3 defaults off`. The machine was not idle: load average 17–79 (other agents), so differences under ~0.5
+points are noise.
+
+| Idle, 60 s, headings.md | cpu_time r1 / r2 / r3 | median | ps_mean | frames/s | frame CPU p50/p95 ms | load |
+|---|---|---|---|---|---|---|
+| defaults | 2.12 / 2.30 / 2.22 % | 2.22 % | 1.80 / 1.97 / 1.89 % | 15.9 / 15.8 / 15.4 | 0.42/0.55 · 0.45/0.72 · 0.43/0.52 | 17 / 44 / 75 |
+| off | 2.13 / 2.40 / 2.62 % | 2.40 % | 1.82 / 2.12 / 2.24 % | 15.8 / 15.7 / 15.6 | 0.36/0.61 · 0.38/0.88 · 0.38/0.55 | 22 / 51 / 57 |
+
+| Scroll, 4 s | frames | dt p50/p95/p99 ms | missed | frame CPU p50/p95/p99 ms | load |
+|---|---|---|---|---|---|
+| defaults, forge.md 600 pt/s | 473 / 434 / 479 | 8.32/9.21/14.63 · 8.32/9.24/15.78 · 8.32/9.21/9.67 | 7 / 6 / 1 | 0.56/0.82/1.57 · 0.60/1.03/1.82 · 0.61/0.77/1.14 | 21 / 48 / 57 |
+| off, forge.md 600 pt/s | 463 / 395 / 389 | 8.32/9.20/9.53 · 8.31/9.23/9.51 · 8.31/9.34/13.61 | 2 / 5 / 6 | 0.41/0.59/1.22 · 0.42/0.57/0.91 · 0.43/0.76/1.09 | 44 / 79 / 57 |
+| defaults, big.md 3000 pt/s | 450 / 467 / 454 | 8.34/13.22/19.23 · 8.34/10.94/13.85 · 8.32/12.03/14.38 | 31 / 12 / 19 | 0.85/2.64/6.75 · 0.83/1.98/3.99 · 0.81/1.27/3.99 | 21 / 51 / 57 |
+| off, big.md 3000 pt/s | 464 / 409 / 456 | 8.32/11.37/14.38 · 8.36/11.71/14.05 · 8.36/12.64/14.72 | 16 / 15 / 25 | 0.82/2.31/4.57 · 0.82/1.46/5.14 · 0.82/2.13/4.60 | 43 / 72 / 73 |
+
+Idle with the defaults on the heading-rich page is 2.22 % (target ≤ ~2.5 %), the same as off within noise: the
+chrome rides the tab metal's 8 wake-ups a second (16 frames/s, as off), and the mask pass adds ~0.05 ms frame CPU at
+rest. forge.md at 120 Hz with the defaults missed 7 / 6 / 1 refreshes in 4 s (off: 2 / 5 / 6); frame CPU p50 is
+~0.15–0.2 ms higher (mask pass + chrome layers). The span of some runs is under 4 s (scroll started late under load).
+Not re-run on a quiet machine (none was available).

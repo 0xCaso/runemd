@@ -8,6 +8,7 @@ PID only, 10-70 s after launch: cpu_time = `ps -o time` delta / 60 s, ps_mean = 
 `ps -o %cpu`, frames/s = MDSPIKE_FRAMES lines with drawn=1 in the window.
 Scroll: MDSPIKE_SCROLL=4, fixtures/forge.md at 600 pt/s (it is short) and fixtures/big.md at
 3000 pt/s; the `scroll frames` line.
+FULL_FORGE_IDLE_DOC=headings idles on fixtures/headings.md instead (the heading-rich page, round 2).
 usage: bench/full_forge.py WORKDIR RUNS [CONFIG ...]   (CONFIG: off, a direction name, all)
 """
 import json, os, subprocess, sys, time
@@ -15,6 +16,7 @@ import json, os, subprocess, sys, time
 VS = os.path.expanduser("~/.claude/bin/vscreen")
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 APP = os.path.join(ROOT, "build/RuneMD.app")
+IDLE_DOC = os.environ.get("FULL_FORGE_IDLE_DOC", "forge")
 ALL = ["off", "defaults", "steel", "forged", "engraved", "ember", "glass", "tasks", "electric", "all"]
 
 
@@ -70,7 +72,7 @@ def idle(w, forge, run):
     frames = f"{w}/{tag}.frames"
     load = os.getloadavg()[0]
     t0 = time.time()
-    pid = launch(w, tag, forge, {"MDSPIKE_FRAMES": frames, "_args": [f"{ROOT}/fixtures/forge.md"]})
+    pid = launch(w, tag, forge, {"MDSPIKE_FRAMES": frames, "_args": [f"{ROOT}/fixtures/{IDLE_DOC}.md"]})
     time.sleep(max(0.0, t0 + 10 - time.time()))
     a, ea = cpu_s(pid), time.time() * 1000
     samples = []
@@ -91,7 +93,7 @@ def idle(w, forge, run):
     secs = (eb - ea) / 1000
     drawn.sort()
     pct = lambda q: drawn[round((len(drawn) - 1) * q)] if drawn else 0.0
-    return {"kind": "idle", "forge": forge, "run": run, "cpu_time": 100 * (b - a) / secs, "ps_mean": sum(samples) / len(samples), "fps": len(drawn) / secs, "frame_p50": pct(0.5), "frame_p95": pct(0.95), "load": load}
+    return {"kind": "idle", "doc": IDLE_DOC, "forge": forge, "run": run, "cpu_time": 100 * (b - a) / secs, "ps_mean": sum(samples) / len(samples), "fps": len(drawn) / secs, "frame_p50": pct(0.5), "frame_p95": pct(0.95), "load": load}
 
 
 def scroll(w, forge, run, fixture, speed):
