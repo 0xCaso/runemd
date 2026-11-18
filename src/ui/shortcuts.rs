@@ -37,7 +37,7 @@ pub static GEAR_ICON: Icon = Icon {
 /// The app's shortcuts, in the mockup's groups (design/mockups/2026-11-15-scorciatoie/scorciatoie.md).
 pub const GROUPS: &[(&str, &[(&str, &str)])] = &[
     ("File", &[("Open file", "⌘P"), ("Open the selected file", "↑↓  ↵"), ("New file", "⌘N"), ("Save (in source)", "⌘S"), ("Close tab", "⌘W")]),
-    ("Tabs", &[("Go to tab", "⌘1 … ⌘8"), ("Last tab", "⌘9"), ("Next tab, previous tab", "⌃⇥  ⌃⇧⇥")]),
+    ("Tabs", &[("Go to tab", "⌘1 … ⌘8"), ("Last tab", "⌘9"), ("Next tab", "⌘⇧]  ⌃⇥"), ("Previous tab", "⌘⇧[  ⌃⇧⇥")]),
     (
         "Reading",
         &[
@@ -154,7 +154,7 @@ mod tests {
     fn the_list_is_the_apps_list() {
         let md = include_str!("../../design/mockups/2026-11-15-scorciatoie/scorciatoie.md");
         let caps: Vec<&str> = GROUPS.iter().flat_map(|(_, k)| k.iter().map(|(_, c)| *c)).collect();
-        for want in ["⌘P", "⌘N", "⌘S", "⌘W", "⌘1 … ⌘8", "⌘9", "⌘E", "⌘F", "⌘A", "⌘,", "Esc", "↑↓  ↵", "⌃⇥  ⌃⇧⇥", "↵  ⇧↵", "⌘⌥+  ⌘⌥−"] {
+        for want in ["⌘P", "⌘N", "⌘S", "⌘W", "⌘1 … ⌘8", "⌘9", "⌘E", "⌘F", "⌘A", "⌘,", "Esc", "↑↓  ↵", "⌘⇧]  ⌃⇥", "⌘⇧[  ⌃⇧⇥", "↵  ⇧↵", "⌘⌥+  ⌘⌥−"] {
             assert!(caps.contains(&want), "missing {want}");
         }
         for k in ["⌘P", "⌘N", "⌘S", "⌘W", "⌘9", "⌘E", "⌘F", "⌘A", "⌘,"] {

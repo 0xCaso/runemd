@@ -1076,10 +1076,9 @@ impl App {
         true
     }
 
-    /// The tab after (`step` 1) or before (-1) the front one, wrapping around (Ctrl+Tab).
+    /// The tab after (`step` 1) or before (-1) the front one, wrapping around (⌃⇥ ⌃⇧⇥, ⌘⇧] ⌘⇧[).
     pub fn cycle(&mut self, step: isize) -> bool {
-        let n = self.tabs.len() as isize;
-        n > 1 && self.select((self.active as isize + step).rem_euclid(n) as usize)
+        cycle_index(self.active, self.tabs.len(), step).is_some_and(|i| self.select(i))
     }
 
     /// Another tab is in front: the sidebar shows its repo and the Brief fire shows.
@@ -1628,6 +1627,13 @@ impl App {
         }
         (changed, wakes)
     }
+}
+
+/// The tab `step` places from `active` among `len`, wrapping around both ends; `None` with fewer
+/// than two tabs (nothing to go to).
+pub fn cycle_index(active: usize, len: usize, step: isize) -> Option<usize> {
+    let n = isize::try_from(len).ok().filter(|n| *n > 1)?;
+    Some((active as isize + step).rem_euclid(n) as usize)
 }
 
 #[cfg(test)]

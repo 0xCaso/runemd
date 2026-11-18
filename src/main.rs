@@ -263,11 +263,13 @@ fn fire_band(lit: Option<(f64, usize)>, flames: Option<Option<f64>>, look: fx::f
 
 /// Tab keys: Cmd+W closes the front one (with unsaved changes it asks,
 /// `App::close`), Cmd+1…8 go to the tab, Cmd+9 to the last one (like Safari and Finder), Ctrl+Tab
-/// and Ctrl+Shift+Tab to the next and the previous. True if the key belongs to the tabs; Cmd+W with no tabs
+/// and Cmd+Shift+] to the next, Ctrl+Shift+Tab and Cmd+Shift+[ to the previous, wrapping around. True if the key belongs to the tabs; Cmd+W with no tabs
 /// is left to Rune, which closes the window.
 fn tab_key(s: &mut App, key: &rune::KeyEvent, tx: &mut Tx) -> bool {
     let m = key.mods;
+    let step = ui::tabs::step_key(key, tx.key_base());
     let changed = match key.key {
+        _ if step.is_some() => s.cycle(step.unwrap_or(0)),
         rune::Key::Command('w') if m.cmd && !m.shift && !m.alt && !m.ctrl => {
             if s.tabs.is_empty() {
                 return false;

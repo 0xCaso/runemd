@@ -15,7 +15,8 @@
 //!
 //! Too many tabs for the bar: the row scrolls sideways. A click brings a tab to the front; the × (on the
 //! front tab, or on hover) and a middle click close it, Cmd+W closes the front one
-//! (`main::tab_key`); with unsaved changes they ask first (`App::close`).
+//! (`main::tab_key`); with unsaved changes they ask first (`App::close`). ⌘⇧] ⌘⇧[ and ⌃⇥ ⌃⇧⇥ go to
+//! the next and previous tab, wrapping around (`step_key`, `App::cycle`).
 
 use rune::{Align, Color, El, Side, TextStyle, Tx, col, el, row, text};
 
@@ -56,6 +57,22 @@ pub fn width_key(key: &rune::KeyEvent, base: Option<char>) -> Option<i32> {
         '-' => Some(-1),
         _ => None,
     }
+}
+
+/// ⌘⇧] and ⌘⇧[: the next (+1) or previous (−1) tab, wrapping (record
+/// 2026-11-18-release-small-choices, constraint 3). With ⇧ macOS gives "}" / "{" on a US layout, so
+/// both the character and `base` (`Tx::key_base`, the key without modifiers) count.
+pub fn step_key(key: &rune::KeyEvent, base: Option<char>) -> Option<isize> {
+    let m = key.mods;
+    if !(m.cmd && m.shift) || m.alt || m.ctrl {
+        return None;
+    }
+    let rune::Key::Command(c) = key.key else { return None };
+    [Some(c), base].into_iter().flatten().find_map(|c| match c {
+        ']' | '}' => Some(1),
+        '[' | '{' => Some(-1),
+        _ => None,
+    })
 }
 
 /// The ↔ button: 28 × 28, radius `R_ROW`, glyph in `fg2`, hover `sel`; with the popover open
@@ -156,7 +173,8 @@ fn close_tab(s: &mut App, id: u64, tx: &mut Tx) {
 
 /// The × at the end of the tab: an area of `CLOSE` pt, glyph in `fg2`, hover `sel`. Its place is
 /// always there, so the name does not move; on the front tab it always shows, on the others only with
-/// the pointer (or keyboard focus) on the tab (`hover_group`).
+/// the pointer (or keyboard focus) on the tab (`hover_group`), the × itself included: no `hover_alone`,
+/// which would rest the tab's group under the pointer and hide the × it is about to click.
 fn close_button(key: &str, id: u64, title: &str, front: bool, theme: &Theme, motion: Motion) -> El {
     let glyph = text("×").key(format!("{key}-close-glyph")).font(TextStyle::new(CLOSE_GLYPH, KBD_WEIGHT)).color(theme.fg2).a11y_hidden();
     let mut b = el()
@@ -166,7 +184,6 @@ fn close_button(key: &str, id: u64, title: &str, front: bool, theme: &Theme, mot
         .center()
         .role("button")
         .label(format!("Close {title}"))
-        .hover_alone()
         .child(glyph)
         .on_press_tx(move |s: &mut App, tx: &mut Tx| close_tab(s, id, tx));
     if motion.hover {
@@ -438,5 +455,116 @@ mod tests {
         tap(&mut rt, button.rect[0] + button.rect[2] / 2.0, button.rect[1] + button.rect[3] / 2.0);
         tap(&mut rt, button.rect[0] + button.rect[2] / 2.0, button.rect[1] + button.rect[3] / 2.0);
         assert!(find(&rt, WIDTH_POPOVER).is_none());
+    }
+
+    fn tabs(names: &[&str]) -> Runtime<App> {
+        let mut state = App::bare(crate::index::Library::load(Vec::new(), None));
+        for n in names {
+            state.push_tab(Document::from_source(Path::new(n), &format!("# {n}\n")));
+        }
+        let mut rt = Runtime::new(state, crate::view, (1200.0, 900.0), Env::new(true, 2.0));
+        rt.on_key = Some(crate::on_key);
+        rt.frame(0.0);
+        settle(&mut rt);
+        rt
+    }
+
+    fn close_of(rt: &Runtime<App>, i: usize) -> rune::ElementInfo {
+        find(rt, &format!("t-{:x}-close", rt.state.tabs[i].doc.id)).expect("×")
+    }
+
+    /// Record 2026-11-18-release-small-choices, constraint 2: a back tab shows its × with the pointer on
+    /// the tab and keeps it with the pointer on the × itself; a click there closes that tab only, and the
+    /// front tab stays in front with its ×. The × has its place at rest too, so the name does not move.
+    #[test]
+    fn a_back_tab_shows_its_close_on_hover_and_closes_alone() {
+        let mut rt = tabs(&["a.md", "b.md", "c.md"]);
+        assert_eq!(rt.state.active, 2);
+        assert_eq!((close_of(&rt, 0).opacity, close_of(&rt, 1).opacity, close_of(&rt, 2).opacity), (0.0, 0.0, 1.0), "at rest only the front ×");
+        let label = |rt: &Runtime<App>, i: usize| find(rt, &format!("t-{:x}-label", rt.state.tabs[i].doc.id)).expect("label").rect;
+        let before = label(&rt, 0);
+        rt.pointer_move(before[0] + 4.0, before[1] + before[3] / 2.0);
+        settle(&mut rt);
+        assert_eq!(close_of(&rt, 0).opacity, 1.0, "pointer on the name: the × shows");
+        assert_eq!(label(&rt, 0), before, "the name does not move or change width");
+        let x = close_of(&rt, 0).rect;
+        rt.pointer_move(x[0] + x[2] / 2.0, x[1] + x[3] / 2.0);
+        settle(&mut rt);
+        assert_eq!(close_of(&rt, 0).opacity, 1.0, "pointer on the ×: it stays");
+        let (a, c) = (rt.state.tabs[0].doc.id, rt.state.tabs[2].doc.id);
+        tap(&mut rt, x[0] + x[2] / 2.0, x[1] + x[3] / 2.0);
+        let left: Vec<u64> = rt.state.tabs.iter().map(|t| t.doc.id).collect();
+        assert_eq!(left.len(), 2, "one tab closed");
+        assert!(!left.contains(&a), "the hovered one");
+        assert_eq!(rt.state.tab().map(|t| t.doc.id), Some(c), "the front tab stays in front");
+        assert_eq!(close_of(&rt, rt.state.active).opacity, 1.0, "with its ×");
+    }
+
+    fn key(c: char, cmd: bool, shift: bool, alt: bool, ctrl: bool) -> KeyEvent {
+        KeyEvent { key: Key::Command(c), mods: Mods { cmd, shift, alt, ctrl, ..Mods::default() } }
+    }
+
+    /// ⌘⇧] next, ⌘⇧[ previous, as the character macOS gives with ⇧ ("}" "{") or the key's own
+    /// (`key_base`); other modifiers, or no ⇧, are not ours (⌘[ ⌘] stay free).
+    #[test]
+    fn cmd_shift_brackets_step_the_tabs() {
+        assert_eq!(step_key(&key(']', true, true, false, false), None), Some(1));
+        assert_eq!(step_key(&key('}', true, true, false, false), None), Some(1));
+        assert_eq!(step_key(&key('[', true, true, false, false), None), Some(-1));
+        assert_eq!(step_key(&key('{', true, true, false, false), None), Some(-1));
+        assert_eq!(step_key(&key('x', true, true, false, false), Some(']')), Some(1), "a layout that gives another character");
+        assert_eq!(step_key(&key(']', true, false, false, false), None), None, "no ⇧");
+        assert_eq!(step_key(&key(']', true, true, true, false), None), None, "with ⌥");
+        assert_eq!(step_key(&key(']', true, true, false, true), None), None, "with ⌃");
+        assert_eq!(step_key(&key(']', false, true, false, false), None), None, "no ⌘");
+        assert_eq!(step_key(&KeyEvent { key: Key::Tab, mods: Mods { cmd: true, shift: true, ..Mods::default() } }, None), None);
+    }
+
+    /// Next and previous wrap around both ends; with no tab or one tab there is nowhere to go.
+    #[test]
+    fn next_and_previous_wrap_and_need_two_tabs() {
+        use crate::app::cycle_index;
+        assert_eq!(cycle_index(0, 3, 1), Some(1));
+        assert_eq!(cycle_index(2, 3, 1), Some(0), "next from the last: the first");
+        assert_eq!(cycle_index(0, 3, -1), Some(2), "previous from the first: the last");
+        assert_eq!(cycle_index(1, 3, -1), Some(0));
+        assert_eq!(cycle_index(1, 2, 1), Some(0));
+        assert_eq!(cycle_index(0, 1, 1), None, "one tab");
+        assert_eq!(cycle_index(0, 1, -1), None);
+        assert_eq!(cycle_index(0, 0, 1), None, "no tab");
+        assert_eq!(cycle_index(0, 0, -1), None);
+    }
+
+    /// The keys through the app's key handler: ⌘⇧] and ⌃⇥ forward, ⌘⇧[ and ⌃⇧⇥ back, wrapping; with
+    /// one tab nothing changes and the key is still taken.
+    #[test]
+    fn the_tab_keys_go_round_the_tabs() {
+        let mut rt = tabs(&["a.md", "b.md", "c.md"]);
+        let ctrl_tab = |shift| KeyEvent { key: Key::Tab, mods: Mods { ctrl: true, shift, ..Mods::default() } };
+        assert_eq!(rt.state.active, 2);
+        rt.key(key('}', true, true, false, false));
+        settle(&mut rt);
+        assert_eq!(rt.state.active, 0, "⌘⇧] from the last wraps to the first");
+        rt.key(key('{', true, true, false, false));
+        settle(&mut rt);
+        assert_eq!(rt.state.active, 2, "⌘⇧[ from the first wraps to the last");
+        rt.key(key('[', true, true, false, false));
+        settle(&mut rt);
+        assert_eq!(rt.state.active, 1);
+        rt.key(ctrl_tab(false));
+        settle(&mut rt);
+        assert_eq!(rt.state.active, 2, "⌃⇥");
+        rt.key(ctrl_tab(false));
+        settle(&mut rt);
+        assert_eq!(rt.state.active, 0, "⌃⇥ wraps");
+        rt.key(ctrl_tab(true));
+        settle(&mut rt);
+        assert_eq!(rt.state.active, 2, "⌃⇧⇥ wraps back");
+
+        let mut one = tabs(&["a.md"]);
+        one.key(key('}', true, true, false, false));
+        one.key(ctrl_tab(true));
+        settle(&mut one);
+        assert_eq!((one.state.active, one.state.tabs.len()), (0, 1), "one tab: nothing moves");
     }
 }
