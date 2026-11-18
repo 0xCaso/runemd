@@ -112,6 +112,11 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
     let focus = ui::theme::focus_ring(cx.focus_color(), dark);
     cx.focus_ring(3.0, 0.0, focus);
     let hooks = ui::sidebar::Hooks { get: |s: &App| &s.sidebar, get_mut: |s: &mut App| &mut s.sidebar, open: App::open_from_sidebar, pin: App::pin_from_sidebar, ring: App::ring_of, query: App::requery_sidebar, create: App::create_from_sidebar, save: App::save_from_sidebar, unsave: App::unsave_from_sidebar, recent_collapsed: App::recent_collapsed, toggle_recent: App::toggle_recent };
+    // With a file open the wordmark is not drawn: its handles go, so the cache frees the decoded
+    // pixels (about 6 MB at 2×); going back to the empty screen decodes them again.
+    if s.tab().is_some() && s.forge_images.borrow().holds() {
+        *s.forge_images.borrow_mut() = Default::default();
+    }
     let body = match s.tab() {
         Some(tab @ app::Tab { mode: app::Mode::Source(src), .. }) => {
             let caret = ui::source::caret_lines(cx, tab, src);
@@ -363,7 +368,8 @@ fn poll(s: &mut App, clock: f64, tx: &mut Tx) -> bool {
     if std::mem::take(&mut s.restore_pending) {
         s.restore_view(tx);
     }
-    let queued = open::queue::drain();
+    let mut queued = open::queue::drain();
+    queued.extend(probe::late_open(clock, tx));
     let opened = !queued.is_empty();
     if opened {
         let before = s.tab().map(|t| t.doc.id);
@@ -453,19 +459,23 @@ fn poll(s: &mut App, clock: f64, tx: &mut Tx) -> bool {
     // A new `lab.json` (`--lab`): the view draws the new tuning, or the test state at the new time.
     let lab = lab::take_changed();
     let changed = opened || tabs || ring || side || blurred || found || wordmark || brief || lab || settled;
-    // Only the fire at rest to redraw: a frame without running the view again.
-    if resting && !changed {
-        tx.live_only();
-    }
-    let changed = changed || resting;
+    // Only the fire at rest to redraw: the `REST_FRAME` wake-up commits to get a frame (a
+    // resting window draws only for a poll that changed something; `Tx::live_only` does not hold
+    // for `poll`). Inside a stream of frames (a scroll) the compositor already moves the flames
+    // on every frame, and committing there would run the whole view on each one (~2 ms on a long
+    // file). The empty screen's fire keeps committing on every poll (its CPU is by design).
+    let rest_wake = s.rest_wake(clock);
+    let changed = changed || (resting && (rest_wake || s.tab().is_none()));
     let Some(run) = s.scroll.as_mut() else { return changed };
     if let Some(y) = run.step(clock) {
         tx.scroll_to_instant("doc", 0.0, y);
         tx.wake_after(Duration::from_millis(1));
-        // Without an animating glass bar, nothing asks for a frame: the measurement scroll asks for it here.
-        return true;
+        // Like a wheel scroll: the view runs again only when its rows change or something else
+        // does. `MDSPIKE_SCROLL_VIEW=1` runs it on every frame (the probe before 2026-11-17).
+        return changed || std::env::var_os("MDSPIKE_SCROLL_VIEW").is_some();
     } else if run.finished() {
         probe::finish_scroll();
+        s.scroll = None;
     } else {
         tx.wake_after(Duration::from_millis(16));
     }
@@ -491,4 +501,59 @@ fn main() {
     let photo = std::env::var_os("RUNEMD_GLASS").is_some();
     let options = rune::WindowOptions { transparent: true, position: photo.then_some((200, 120)), ..rune::WindowOptions::default() };
     rune::App::new(spec).window_options(options).chrome(window_chrome()).on_close(|s, _| if !rune::quitting() { s.save_all() }).on_quit(|s, _| s.save_all()).compositor(fx::FxCompositor::default()).on_frame_encoded(probe::on_frame).run();
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    /// While frames stream (a scroll at 120 Hz), the resting fire does not run the view again on
+    /// each one: a `poll` that returns true commits the whole view (~2 ms on `big.md`).
+    #[test]
+    fn the_resting_fire_does_not_run_the_view_on_every_frame() {
+        let mut app = crate::App::bare(crate::index::Library::load(Vec::new(), None));
+        app.settings.fire = crate::settings::FireMode::Always;
+        app.open_paths(vec![PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("fixtures/normal.md")]);
+        let mut rt = rune::Runtime::new(app, crate::view, (1280.0, 800.0), rune::Env::new(true, 2.0));
+        rt.poll = Some(crate::poll);
+        rt.frame(0.0);
+        for _ in 0..400 {
+            if !rt.frame(1.0 / 120.0) { break; }
+        }
+        assert!(rt.state.fire_rests(rt.clock), "the fire is at rest");
+        let commits = rt.stats.commits;
+        // Half a second of frames.
+        for _ in 0..60 {
+            rt.frame(1.0 / 120.0);
+        }
+        assert_eq!(rt.stats.commits, commits, "the view did not run again");
+    }
+
+    /// The empty screen's wordmark images are let go once a file is open: the cache frees
+    /// their decoded pixels only when no handle is left.
+    #[test]
+    fn opening_a_file_lets_the_wordmark_images_go() {
+        let mut app = crate::App::bare(crate::index::Library::load(Vec::new(), None));
+        app.images = Some(rune::ImageCache::new(std::sync::Arc::new(|| {})));
+        let mut rt = rune::Runtime::new(app, crate::view, (1280.0, 800.0), rune::Env::new(true, 2.0));
+        rt.frame(0.0);
+        assert!(rt.state.forge_images.borrow().holds(), "the empty screen draws the wordmark");
+        rt.state.open_paths(vec![PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("fixtures/normal.md")]);
+        rt.invalidate();
+        rt.frame(1.0 / 120.0);
+        assert!(!rt.state.forge_images.borrow().holds(), "no handle left with a file open");
+    }
+
+    /// A poll after a `REST_FRAME` of quiet is a resting wake-up; polls a frame apart are a
+    /// stream of frames.
+    #[test]
+    fn a_rest_wake_is_a_poll_after_a_quiet_rest_frame() {
+        let mut app = crate::App::bare(crate::index::Library::load(Vec::new(), None));
+        let rest = crate::fx::fire::REST_FRAME.as_secs_f64();
+        assert!(app.rest_wake(1.0), "the first poll");
+        assert!(!app.rest_wake(1.0 + 1.0 / 120.0), "the next frame");
+        assert!(!app.rest_wake(1.0 + 2.0 / 120.0));
+        assert!(app.rest_wake(1.0 + 2.0 / 120.0 + rest), "the wake-up after a quiet REST_FRAME");
+        assert!(app.rest_wake(0.5), "a clock that went back");
+    }
 }

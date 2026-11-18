@@ -41,6 +41,10 @@ struct Frames {
     recording: bool,
     /// (encoding end, display link target) of the `Drawn` frames during the scroll.
     drawn: Vec<(Instant, Option<Instant>)>,
+    /// CPU ms (update + encode) of the same frames.
+    cpu: Vec<f64>,
+    /// (start after the drawable came, update ms, encode ms) of the same frames.
+    detail: Vec<(Option<Instant>, f64, f64)>,
     skipped: usize,
     refresh_hz: Option<f64>,
     /// Reload waiting for its frame: (write, reload) in epoch ms, blocks touched.
@@ -51,7 +55,7 @@ thread_local! { static FRAMES: RefCell<Frames> = RefCell::default(); }
 
 pub fn on_frame(f: &FrameEncoded) {
     // `MDSPIKE_FRAMES=path`: one line per drawn or skipped frame, with its CPU cost (bench/forge_frame.sh).
-    if std::env::var_os("MDSPIKE_FRAMES").is_some() && matches!(f.outcome(), FrameOutcome::Drawn | FrameOutcome::Skipped) {
+    if std::env::var_os("MDSPIKE_FRAMES").is_some() && !FRAMES.with_borrow(|fr| fr.recording) && matches!(f.outcome(), FrameOutcome::Drawn | FrameOutcome::Skipped) {
         log_to("MDSPIKE_FRAMES", &format!(
             "frame epoch_ms={:.1} drawn={} update_ms={:.3} encode_ms={:.3} hz={:.0}",
             epoch_ms(f.at()), u8::from(f.outcome() == FrameOutcome::Drawn), f.update_ms().unwrap_or(0.0), f.encode_ms().unwrap_or(0.0), f.refresh_hz().unwrap_or(0.0)
@@ -77,7 +81,11 @@ pub fn on_frame(f: &FrameEncoded) {
         if fr.recording {
             fr.refresh_hz = fr.refresh_hz.or(f.refresh_hz());
             match f.outcome() {
-                FrameOutcome::Drawn => fr.drawn.push((f.at(), f.presents_at())),
+                FrameOutcome::Drawn => {
+                    fr.drawn.push((f.at(), f.presents_at()));
+                    fr.cpu.push(f.update_ms().unwrap_or(0.0) + f.encode_ms().unwrap_or(0.0));
+                    fr.detail.push((f.started(), f.update_ms().unwrap_or(0.0), f.encode_ms().unwrap_or(0.0)));
+                }
                 FrameOutcome::Skipped => fr.skipped += 1,
                 _ => {}
             }
@@ -104,10 +112,27 @@ pub fn index_scanned(entries: usize) {
     log(&format!("index_scan_epoch_ms={:.1} entries={entries}", epoch_ms(Instant::now())));
 }
 
+/// `MDSPIKE_OPEN_AT=secs:path`: opens `path` once the Rune clock reaches `secs` (memory runs:
+/// launch, then a file open, in one process).
+pub fn late_open(clock: f64, tx: &mut rune::Tx) -> Option<std::path::PathBuf> {
+    thread_local! { static DONE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
+    if DONE.get() { return None; }
+    let v = std::env::var("MDSPIKE_OPEN_AT").ok()?;
+    let (at, path) = v.split_once(':')?;
+    let at: f64 = at.parse().ok()?;
+    if clock < at {
+        tx.wake_after(std::time::Duration::from_secs_f64(at - clock));
+        return None;
+    }
+    DONE.set(true);
+    Some(path.into())
+}
+
 /// A constant-speed scroll, step by step from `poll`.
 pub struct ScrollRun {
     secs: f64,
     speed: f64,
+    delay: f64,
     start: Option<f64>,
     done: bool,
 }
@@ -116,12 +141,14 @@ impl ScrollRun {
     pub fn from_env() -> Option<ScrollRun> {
         let secs = std::env::var("MDSPIKE_SCROLL").ok()?.parse().ok()?;
         let speed = std::env::var("MDSPIKE_SPEED").ok().and_then(|v| v.parse().ok()).unwrap_or(3000.0);
-        Some(ScrollRun { secs, speed, start: None, done: false })
+        // `MDSPIKE_DELAY`: seconds from the first poll to the start of the scroll (default 1).
+        let delay = std::env::var("MDSPIKE_DELAY").ok().and_then(|v| v.parse().ok()).unwrap_or(1.0);
+        Some(ScrollRun { secs, speed, delay, start: None, done: false })
     }
 
     /// The offset to apply in this frame, or `None` before the start and after the end.
     pub fn step(&mut self, clock: f64) -> Option<f32> {
-        let start = *self.start.get_or_insert(clock + 1.0);
+        let start = *self.start.get_or_insert(clock + self.delay);
         if clock < start || self.done { return None; }
         let t = clock - start;
         if t > self.secs { self.done = true; return None; }
@@ -141,15 +168,34 @@ pub fn finish_scroll() {
         let period = 1000.0 / hz;
         // A dropped frame = an interval over 1.5 periods; counts how many refreshes are missing.
         let missed: f64 = dt.iter().filter(|d| **d > period * 1.5).map(|d| (d / period).round() - 1.0).sum();
-        let mut sorted = dt.clone();
-        sorted.sort_by(f64::total_cmp);
-        let pct = |p: f64| sorted.get(((sorted.len() as f64 - 1.0) * p).round() as usize).copied().unwrap_or(0.0);
+        let pct = |v: &[f64], p: f64| {
+            let mut s = v.to_vec();
+            s.sort_by(f64::total_cmp);
+            s.get(((s.len() as f64 - 1.0) * p).round() as usize).copied().unwrap_or(0.0)
+        };
         let span = at.last().unwrap_or(&0.0) - at.first().unwrap_or(&0.0);
+        // The display link targets of the same frames: a gap there is a refresh the screen showed twice.
+        let shown: Vec<f64> = fr.drawn.iter().filter_map(|d| d.1).map(epoch_ms).collect();
+        let shown_dt: Vec<f64> = shown.windows(2).map(|w| w[1] - w[0]).collect();
+        let shown_missed: f64 = shown_dt.iter().filter(|d| **d > period * 1.5).map(|d| (d / period).round() - 1.0).sum();
+        let cpu = &fr.cpu;
         log(&format!(
-            "scroll frames={} span_ms={span:.0} refresh_hz={hz:.0} dt_p50={:.2} dt_p95={:.2} dt_p99={:.2} dt_max={:.2} missed_refreshes={missed:.0} skipped={}",
-            at.len(), pct(0.5), pct(0.95), pct(0.99), pct(1.0), fr.skipped
+            "scroll frames={} span_ms={span:.0} refresh_hz={hz:.0} dt_p50={:.2} dt_p95={:.2} dt_p99={:.2} dt_max={:.2} missed_refreshes={missed:.0} skipped={} target_missed={shown_missed:.0} cpu_p50={:.2} cpu_p95={:.2} cpu_p99={:.2} cpu_max={:.2}",
+            at.len(), pct(&dt, 0.5), pct(&dt, 0.95), pct(&dt, 0.99), pct(&dt, 1.0), fr.skipped, pct(cpu, 0.5), pct(cpu, 0.95), pct(cpu, 0.99), pct(cpu, 1.0)
         ));
         log(&format!("scroll_dt_ms={}", dt.iter().map(|d| format!("{d:.2}")).collect::<Vec<_>>().join(",")));
+        // `MDSPIKE_FRAMES`: one line per scroll frame, written once at the end (no file write per frame).
+        if std::env::var_os("MDSPIKE_FRAMES").is_some() {
+            let t0 = at.first().copied().unwrap_or(0.0);
+            let lines: Vec<String> = fr.drawn.iter().zip(&fr.detail).map(|((end, target), (start, up, enc))| {
+                let rel = |i: Instant| epoch_ms(i) - t0;
+                format!("sf start={:.2} end={:.2} target={:.2} update={up:.3} encode={enc:.3}", start.map_or(-1.0, rel), rel(*end), target.map_or(-1.0, rel))
+            }).collect();
+            log_to("MDSPIKE_FRAMES", &lines.join("\n"));
+        }
     });
-    std::process::exit(0);
+    // `MDSPIKE_NOEXIT`: the app stays open after the scroll (memory after scrolling).
+    if std::env::var_os("MDSPIKE_NOEXIT").is_none() {
+        std::process::exit(0);
+    }
 }

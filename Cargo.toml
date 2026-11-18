@@ -36,5 +36,9 @@ lto = false
 debug = false
 incremental = false
 
+[features]
+# Rune's per-frame stage log (`RUNE_FRAME_LOG=file`), for measurement builds only.
+frame-profile = ["rune/frame-profile"]
+
 [dev-dependencies]
 tempfile = "3"
