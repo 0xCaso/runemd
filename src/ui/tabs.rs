@@ -172,12 +172,14 @@ pub fn view(s: &App, hooks: Hooks<App>, theme: &Theme, reduced: bool, hover: boo
     let motion = Motion { reduced, hover };
     let n = s.tabs.len();
     let list = row().key("tabs").role("tablist").label("Tabs").h_full().items_start().pt(TAB_TOP).pl(TAB_BAR_LEAD).pr(END_ROOM)
-        .children(s.tabs.iter().enumerate().map(|(i, tab)| tab_row(s, hooks, i, n, tab, theme, motion)));
+        .children(s.tabs.iter().enumerate().map(|(i, tab)| tab_row(s, hooks, i, n, tab, theme, motion)))
+        .on_layout_tx(|s: &mut App, r: [f32; 4], tx: &mut Tx| measure_tabs(s, 0, r[2], tx));
     // The thumb follows the scroll in the same frame, without running the view.
     let at = rune::Live::new(thumb(0.0, 0.0, 0.0));
     let set = at.clone();
     let strip = row().key(STRIP).w_full().h_full().scroll_x().scroll_margin(END_ROOM).scroll_edge_fade(FADE_W)
         .on_scroll_offset(move |p: rune::ScrollPos| { set.set(thumb(p.offset[0], p.max[0], p.viewport[0])); })
+        .on_layout_tx(|s: &mut App, r: [f32; 4], tx: &mut Tx| measure_tabs(s, 1, r[2], tx))
         .child(list);
     let track = el().key("tabs-scroll-bar").pin(Some(0.0), Some(SCROLL_BAR_Y), Some(0.0), None).h(SCROLL_BAR).a11y_hidden()
         .child(el().key("tabs-scroll-thumb").pin(Some(0.0), Some(0.0), None, None).h(SCROLL_BAR).radius(SCROLL_BAR / 2.0).fill(theme.fg3.alpha(0.45)).live_rect(&at));
@@ -190,15 +192,27 @@ pub fn view(s: &App, hooks: Hooks<App>, theme: &Theme, reduced: bool, hover: boo
     let find = s.find.open.then(|| super::find::field(s, theme).mr(ROW_GAP));
     let tools = row().key("bar-tools").gap(TOOL_GAP).center_y().child(super::shortcuts::button(s, theme, motion)).child(width_button(s, theme, motion)).child(key.ml(SOURCE_GAP - TOOL_GAP));
     // The buttons' backdrop: the bar's own colour, a little see-through over a blur, fading in over
-    // `FADE_W` on the left, laid over the strip's end (`ml(-FADE_W)`).
+    // `FADE_W` on the left, laid over the strip's end (`ml(-FADE_W)`). The blur only while the tabs
+    // overflow: otherwise only the flat bar is under it, and it would cost every metal frame ~1 ms.
     let bar_color = super::theme::flatten(theme.tab_bar(), theme.panel);
     let end = row().key("bar-end").h(TAB_BAR_H).pt(TAB_TOP).pb(MID_PAD).ml(-FADE_W).pl(FADE_W + ROW_GAP).pr(TAB_BAR_PAD_X).center_y()
-        .backdrop_blur(FADE_BLUR).fill(bar_color.alpha(FADE_TINT)).clip_fade_linear(FADE_W, 0.0, 0.0, 0.0)
+        .backdrop_blur(if s.tabs_overflow { FADE_BLUR } else { 0.0 }).fill(bar_color.alpha(FADE_TINT)).clip_fade_linear(FADE_W, 0.0, 0.0, 0.0)
         .children(find).child(tools);
     let line = el().key("tab-bar-line").pin(Some(0.0), None, Some(0.0), Some(0.0)).h(HAIRLINE).fill(theme.line);
     // The bar moves the window like a title bar (`main`: `Chrome::drag_regions`); its tabs and buttons
     // keep their presses, so a double click on a tab pins it and does not zoom the window.
     row().key("tab-bar").window_drag().w_full().h(TAB_BAR_H + HAIRLINE).fill(theme.tab_bar()).child(line).child(strip_box).child(end)
+}
+
+/// The strip's tabs (`which` 0) or viewport (1) laid out `w` wide: the view runs again only when the
+/// tabs start or stop running past the viewport (`App::tabs_overflow`).
+fn measure_tabs(s: &mut App, which: usize, w: f32, tx: &mut Tx) {
+    s.tab_widths[which] = w;
+    let overflow = s.tab_widths[0] > s.tab_widths[1] + 0.5;
+    if overflow == s.tabs_overflow {
+        tx.live_only();
+    }
+    s.tabs_overflow = overflow;
 }
 
 /// The × area (16 pt), its margin from the tab's right edge (8, the sidebar's `row-gap`) and from the
@@ -732,6 +746,18 @@ mod tests {
         rt.key(key('9', true, false, false, false));
         settle(&mut rt);
         assert!(visible(&rt, 15), "⌘9 brings the last back");
+    }
+
+    /// The buttons' blurred backdrop costs ~1 ms on every frame of the moving metal (idle 2.6 % with it,
+    /// 2.1 % without, docs/perf-memory-2026-11-16.md "Release integration 2026-11-18"); it only shows
+    /// something when tabs pass under the buttons, so it is on only while the strip overflows.
+    #[test]
+    fn the_buttons_blur_only_while_the_tabs_overflow() {
+        let few = tabs(&["notes.md", "readme.md", "release.md"]);
+        assert!(!few.state.tabs_overflow, "three tabs fit: no blur");
+        let names: Vec<String> = (0..16).map(|i| format!("a-long-file-name-{i:02}.md")).collect();
+        let many = tabs(&names.iter().map(String::as_str).collect::<Vec<_>>());
+        assert!(many.state.tabs_overflow, "sixteen tabs scroll under the buttons: blur");
     }
 
     #[test]

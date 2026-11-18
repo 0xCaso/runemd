@@ -388,6 +388,10 @@ pub struct App {
     /// The front tab the tab strip last scrolled into view (`ui::tabs::view`), so a manual scroll of the
     /// strip is not undone until the front tab changes.
     pub revealed_tab: Option<u64>,
+    /// The tab strip's laid-out widths, `[tabs, viewport]` (`ui::tabs::view`), and whether the tabs run
+    /// past the viewport: only then do they pass under the bar's buttons, whose backdrop blurs.
+    pub tab_widths: [f32; 2],
+    pub tabs_overflow: bool,
     /// The document style in the light and in the dark theme (index `dark as usize`), from the font and
     /// the size in the settings: the view picks with the current theme, without rebuilding it.
     styles: [MarkdownStyle; 2],
@@ -474,6 +478,8 @@ impl App {
             tabs: Vec::new(),
             active: 0,
             revealed_tab: None,
+            tab_widths: [0.0; 2],
+            tabs_overflow: false,
             styles: styles_for(&settings),
             settings,
             prefs,
