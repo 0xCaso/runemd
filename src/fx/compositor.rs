@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use rune::compose::{Compositor, Frame};
 use rune::render::{EffectSite, Instance, KIND_EFFECT};
-use rune_fx::{FxFrame, FxLayer, FxOptions, FxRenderer, FxSlot, Rect};
+use rune_fx::{FxBlend, FxFrame, FxLayer, FxOptions, FxRenderer, FxSlot, Rect};
 
 use super::marks::Mark;
 use super::{caret, fire, forge, ring};
@@ -133,12 +133,13 @@ impl FireFall {
     /// by the `fire::REST_FRAME` wake-ups, not the display link). In the lab's test state it is the
     /// frame at the lab's time: lit from `lab::REST_MS`, at rest before, with no fall in between (the
     /// scrub may go back), still, and drawn as if the window were active and motion not reduced.
-    fn fire_layer(&mut self, i: &Instance, clock: f64) -> (FxLayer, bool) {
+    fn fire_layer(&mut self, i: &Instance, clock: f64) -> (FxLayer, Option<FxLayer>, bool) {
         if let Some(clock) = lab_clock(Mark::Fire.id()) {
             let s = fire::slot_state(i.uv, clock);
             *self = FireFall::default();
             let phase = if s.lit { fire::Phase::Rising(s.t) } else { fire::Phase::Rest };
-            return (fire::layer(rect_pt(i), phase, clock as f32, s.dark, false, true, s.look), false);
+            let layer = fire::layer(rect_pt(i), phase, clock as f32, s.dark, false, true, s.look);
+            return (layer, fire::tips(layer, s.dark), false);
         }
         // The slot rect touches the bottom of the panel and has its width.
         let s = fire::slot_state(i.uv, clock);
@@ -154,7 +155,7 @@ impl FireFall {
         if paced {
             self.out = None;
         }
-        (layer, paced)
+        (layer, fire::tips(layer, s.dark), paced)
     }
 }
 
@@ -185,6 +186,7 @@ impl Compositor<App> for FxCompositor {
         let mut pulsing = false;
         let mut paced: Vec<usize> = Vec::new();
         let mut saw_fire = false;
+        let mut tip_layer: Option<FxLayer> = None;
         for (n, i) in f.rt.instances.iter().enumerate() {
             if i.params[1] != KIND_EFFECT {
                 continue;
@@ -197,13 +199,24 @@ impl Compositor<App> for FxCompositor {
             let layer = if Mark::is_ring(mark) {
                 ring_layer(i, mark, clock)
             } else if mark == Mark::Fire.id() {
-                let (layer, rests) = self.fire.fire_layer(i, clock);
+                let (layer, tips, rests) = self.fire.fire_layer(i, clock);
                 // At rest the flames move with the `fire::REST_FRAME` wake-ups (`App::fire_rests`),
                 // not with the display link; the Brief fade-out does hold it, so it is smooth.
                 if rests {
                     paced.push(layers.len());
                 }
                 saw_fire = true;
+                // The light theme's warm tips go on top, in the same slot, with Screen.
+                if let Some(tips) = tips {
+                    let k = layers.len() + 1;
+                    if rests {
+                        paced.push(k);
+                    }
+                    if lab_clock(mark).is_some() {
+                        on_lab.push(k);
+                    }
+                    tip_layer = Some(tips);
+                }
                 layer
             } else if mark == Mark::Forge.id() {
                 // The empty screen's wordmark: the slot is the letters' box (`fx::forge`).
@@ -224,7 +237,13 @@ impl Compositor<App> for FxCompositor {
             };
             at.push(n as u32);
             layers.push(layer);
-            slots.push(FxSlot::default().scale(i.params[3]).clip(i.clip, i.fade));
+            let slot = FxSlot::default().scale(i.params[3]).clip(i.clip, i.fade);
+            slots.push(slot);
+            if let Some(tips) = tip_layer.take() {
+                at.push(n as u32);
+                layers.push(tips);
+                slots.push(slot.blend(FxBlend::Screen));
+            }
         }
         // Without fire (source, fire off) the next one starts again from rest, without descent.
         if !saw_fire {
@@ -240,7 +259,8 @@ impl Compositor<App> for FxCompositor {
         let clear = f.rt.clear_color();
         f.ui.prepare(device, queue, &mut f.rt.text.atlas, &f.rt.instances, size);
         f.ui.draw_with(f.encoder, f.target, clear, &mut |pass, s: &EffectSite<'_>| {
-            if let Some(k) = at.iter().position(|n| *n == s.index) {
+            // One slot may carry more than one layer (the fire and its light-theme tips), in order.
+            for (k, _) in at.iter().enumerate().filter(|(_, n)| **n == s.index) {
                 fx.draw_layer_in(pass, s.format, s.origin, k);
             }
         });

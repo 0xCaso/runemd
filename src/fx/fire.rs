@@ -235,6 +235,26 @@ pub fn layer(panel: Rect, phase: Phase, clock: f32, dark: bool, reduced: bool, a
     Fx::fire(fire).on(shape).at(t).seed(12).reduced(still)
 }
 
+/// Light theme: how much taller the warm-tips layer is than the flame (`tips`).
+const TIP_STRETCH: f32 = 1.8;
+/// Light theme: the warm-tips layer's strength.
+const TIP_LIGHT: f32 = 0.8;
+
+/// The light theme's warm tips, drawn over `layer` with [`rune_fx::FxBlend::Screen`] (record
+/// `2026-11-18-release-small-choices`, constraint 5). Rune's flame cools to near black at its tips
+/// and leaves a dark veil above them: on white they read grey. This is the same flame, `TIP_STRETCH`
+/// taller and without embers: where `layer` cools to dark it is still orange-yellow, and Screen
+/// lightens the dark toward it; over white Screen leaves white, and its own dark tips change nothing.
+/// `None` in the dark theme, whose flame stays as it is.
+pub fn tips(layer: FxLayer, dark: bool) -> Option<FxLayer> {
+    let Fx::Fire(p) = layer.fx else { return None };
+    if dark {
+        return None;
+    }
+    let warm = FireParams { height: p.height * TIP_STRETCH, intensity: p.intensity * TIP_LIGHT, embers: 0, base_glow: 0.0, ..p };
+    Some(FxLayer { fx: Fx::Fire(warm), ..layer })
+}
+
 /// Makes `el` the fire slot: lit (new text below) since time `lit` of Rune's
 /// clock, at rest with `None`; at rest it fades out from `fade_at` (Brief), or never with `None`. The
 /// compositor paints it with [`layer`] on the rect of `el`, which must touch the bottom of the panel
@@ -439,6 +459,27 @@ mod tests {
         let (d, l) = (fire(&layer(panel(), Phase::Rising(1.0), 1.0, true, false, true, Look::default())), fire(&layer(panel(), Phase::Rising(1.0), 1.0, false, false, true, Look::default())));
         assert_eq!(l.occlusion, d.occlusion);
         assert_eq!(l.occlusion, OCCLUSION);
+    }
+
+    #[test]
+    fn the_dark_theme_gets_no_tips_layer() {
+        for phase in [Phase::Rest, Phase::Rising(1.0)] {
+            let l = layer(panel(), phase, 1.0, true, false, true, Look::default());
+            assert!(tips(l, true).is_none(), "dark: the flame alone, as before");
+        }
+    }
+
+    /// Light theme: a taller copy of the same flame, so its warm body sits where the flame cools to dark.
+    #[test]
+    fn light_tips_are_the_same_flame_taller() {
+        let l = layer(panel(), Phase::Rising(1.0), 1.0, false, false, true, Look::default());
+        let t = tips(l, false).expect("light: tips layer");
+        let (f, w) = (fire(&l), fire(&t));
+        assert_eq!(w.height, f.height * TIP_STRETCH);
+        assert_eq!((w.low, w.mid, w.hot, w.scale, w.speed, w.warp), (f.low, f.mid, f.hot, f.scale, f.speed, f.warp));
+        assert_eq!(w.intensity, f.intensity * TIP_LIGHT);
+        assert_eq!((w.embers, w.base_glow), (0, 0.0), "no second set of embers or edge glow");
+        assert_eq!((t.shape, t.place, t.opacity), (l.shape, l.place, l.opacity), "same place, time, seed and fade");
     }
 
     #[test]
