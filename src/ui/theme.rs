@@ -26,14 +26,20 @@ pub const UI_WEIGHT: f32 = 400.0;
 pub const UI_STRONG_WEIGHT: f32 = 600.0;
 pub const UI_SMALL_WEIGHT: f32 = 500.0;
 pub const KBD_WEIGHT: f32 = 400.0;
-/// Tab bar (DESIGN.md, `spacing.tab-bar`, `tab-bar-pad`, `tab-bar-lead`, `tab-gap`): 44 tall, 10
-/// margin on the right, 14 before the first tab, 8 between tabs: the sidebar's scale (section labels
-/// 14 above, `row-gap` 8), record 2026-11-18-small-choices-review. Tabs are `ROW` tall, radius `R_ROW`,
-/// with `ROW_PAD` before the name.
+/// Tab bar (DESIGN.md, `spacing.tab-bar`, `tab-bar-pad`, `tab-bar-lead`, `tab-top`, `tab-pad`): 44 tall
+/// on the `tab_bar` tint, 10 margin on the right, 8 before the first tab. Tabs sit edge to edge (VS Code,
+/// record 2026-11-18-vscode-tabs; c6b02b5 had 8 between them, "troppo spazio"), from `TAB_TOP` below the
+/// bar's top down to the document, with `TAB_PAD_X` before the name and a `TAB_DIVIDER` line in `line`
+/// between back tabs. The front tab has the page's `panel` fill and rounded top corners (`R_ROW`) and runs
+/// into the document: the bar's bottom line stops under it.
 pub const TAB_BAR_H: f32 = 44.0;
 pub const TAB_BAR_PAD_X: f32 = 10.0;
-pub const TAB_BAR_LEAD: f32 = 14.0;
-pub const TAB_GAP: f32 = 8.0;
+pub const TAB_BAR_LEAD: f32 = 8.0;
+pub const TAB_TOP: f32 = 8.0;
+pub const TAB_PAD_X: f32 = 12.0;
+pub const TAB_DIVIDER: f32 = 1.0;
+/// A tab's height: from `TAB_TOP` to the bar's bottom, over its 0.5 line.
+pub const TAB_H: f32 = TAB_BAR_H + HAIRLINE - TAB_TOP;
 /// Find in file (DESIGN.md, `spacing.find-field`): the field in the tab bar is 240 wide.
 pub const FIND_W: f32 = 240.0;
 /// The inner ring of Find matches, 1 pt above the `sel` fill, in `mark`
@@ -200,6 +206,13 @@ impl Theme {
         }
     }
 
+    /// The tab bar's tint over `panel` (record 2026-11-18-vscode-tabs): a shade darker than the page, so
+    /// the front tab, which has the page's `panel` fill, reads as part of the document below (VS Code's
+    /// `editorGroupHeader.tabsBackground`).
+    pub fn tab_bar(&self) -> Color {
+        if self.dark { oklcha(0.0, 0.0, 0.0, 0.4) } else { oklcha(0.0, 0.0, 0.0, 0.04) }
+    }
+
     /// The window fill when there is no system glass (headless, material
     /// off): the solid glass tint, so the desktop does not show through without blur.
     pub fn glass_fallback(&self) -> Color {
@@ -258,7 +271,7 @@ mod tests {
     fn tokens_match_design_md() {
         assert_eq!((FIND_RING, FIND_RING_ACTIVE), (1.0, 2.0), "DESIGN.md, spacing.find-ring and find-ring-active");
         assert_eq!(TAB_MAX_W, 240.0, "DESIGN.md, spacing.tab-max");
-        assert_eq!((TAB_BAR_PAD_X, TAB_BAR_LEAD, TAB_GAP), (10.0, 14.0, 8.0), "DESIGN.md, spacing.tab-bar-pad, tab-bar-lead and tab-gap");
+        assert_eq!((TAB_BAR_PAD_X, TAB_BAR_LEAD, TAB_TOP, TAB_PAD_X, TAB_DIVIDER), (10.0, 8.0, 8.0, 12.0, 1.0), "DESIGN.md, spacing.tab-bar-pad, tab-bar-lead, tab-top, tab-pad and tab-divider");
         assert_eq!((crate::ui::sidebar::RECENT_GAP, crate::ui::sidebar::RECENT_SHARE), (3.0, 0.4), "DESIGN.md, spacing.recent-gap and recent-share");
         assert_eq!(crate::ui::sidebar::RECENT_ROW, 44.0, "DESIGN.md, spacing.recent-row");
         let dark = Theme::for_mode(true);

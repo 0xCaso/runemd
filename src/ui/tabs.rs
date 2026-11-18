@@ -1,11 +1,11 @@
-//! The tab bar at the top of the panel (DESIGN.md, "Tab"; mockup `scheda`): the names of the
-//! open files, each tab as wide as its name with `ROW_PAD` on the sides (at most 240, the name
-//! cut in the middle), the front one with
-//! `sel` fill, the "is writing" ring around the file's tab, "⌘E source" on the
-//! right and, to its left, the gear (settings, `ui::shortcuts`) and the text width ↔ button: it opens a
-//! popover with the settings slider (same `settings.column`, continuous); ⌘⌥+ and ⌘⌥- take one step.
+//! The tab bar at the top of the panel (DESIGN.md, "Tab"; record 2026-11-18-vscode-tabs): the names of
+//! the open files in VS Code's shape, edge to edge, each tab as wide as its name with `TAB_PAD_X` before
+//! it (at most 240, the name cut in the middle), the front one in the page's `panel` fill and joined to
+//! the document, the "is writing" ring around the file's tab, "⌘E source" on the right and, to its left,
+//! the gear (settings, `ui::shortcuts`) and the text width ↔ button: it opens a popover with the
+//! settings slider (same `settings.column`, continuous); ⌘⌥+ and ⌘⌥- take one step.
 //!
-//! Tabs are rows like the sidebar ones (`sidebar::pressable`: hover `sel`, scale 0.98
+//! Tabs press like the sidebar's rows (`sidebar::pressable`: hover `sel`, scale 0.98
 //! when pressed), not rune-kit's `TabStrip`: `TabStrip` gives every tab the same width
 //! (28–224 pt) and keeps 16 pt for an avatar before the name, and neither can be changed
 //! from outside. The mockup Matteo chose has tabs as wide as their name.
@@ -13,7 +13,8 @@
 //! The preview tab (single click in the sidebar, `App::open_preview`) has its name in italics;
 //! a double click pins it.
 //!
-//! Too many tabs for the bar: the row scrolls sideways. A click brings a tab to the front; the × (on the
+//! Too many tabs for the bar: the strip scrolls sideways under the buttons, with its own scroll bar, and
+//! the front tab scrolls into view when it changes. A click brings a tab to the front; the × (on the
 //! front tab, or on hover) and a middle click close it, Cmd+W closes the front one
 //! (`main::tab_key`); with unsaved changes they ask first (`App::close`). ⌘⇧] ⌘⇧[ and ⌃⇥ ⌃⇧⇥ go to
 //! the next and previous tab, wrapping around (`step_key`, `App::cycle`).
@@ -21,7 +22,7 @@
 use rune::{Align, Color, El, Side, TextStyle, Tx, col, el, row, text};
 
 use super::sidebar::{self, Hooks, Motion};
-use super::theme::{HAIRLINE, KBD_PAD_X, KBD_PAD_Y, KBD_TEXT, KBD_WEIGHT, R_KBD, R_PANEL, R_ROW, ROW, ROW_GAP, ROW_PAD, SIDEBAR, TAB_BAR_H, TAB_BAR_LEAD, TAB_BAR_PAD_X, TAB_GAP, TAB_MAX_W, Theme, UI_SMALL, UI_WEIGHT};
+use super::theme::{HAIRLINE, KBD_PAD_X, KBD_PAD_Y, KBD_TEXT, KBD_WEIGHT, R_KBD, R_PANEL, R_ROW, ROW, ROW_GAP, ROW_PAD, SIDEBAR, TAB_BAR_H, TAB_BAR_LEAD, TAB_BAR_PAD_X, TAB_DIVIDER, TAB_H, TAB_MAX_W, TAB_PAD_X, TAB_TOP, Theme, UI_SMALL, UI_WEIGHT};
 use crate::app::App;
 use crate::fx::ring::RING_W;
 use crate::fx::{self, Mark};
@@ -132,37 +133,87 @@ pub fn width_popover(s: &App, theme: &Theme) -> Vec<El> {
     vec![scrim, surface]
 }
 
-/// The bar: `TAB_BAR_H` tall, with a line at the bottom that separates it from the document. `hover`: the
-/// pointer is a fine one and can hover.
-pub fn view(s: &App, hooks: Hooks<App>, theme: &Theme, reduced: bool, hover: bool) -> El {
-    let motion = Motion { reduced, hover };
-    // `RING_W` around the row: the ring sits outside the tab and the scrolling row clips it.
-    let list = row().key("tabs").role("tablist").label("Tabs").gap(TAB_GAP).center_y().padding(RING_W)
-        .children(s.tabs.iter().enumerate().map(|(i, tab)| tab_row(s, hooks, i, tab, theme, motion)));
-    let strip = row().key("tabs-scroll").grow(1.0).shrink().min_w(0.0).scroll_x().child(list);
-    let key = el().key("source-key").border(HAIRLINE, theme.line).radius(R_KBD).px(KBD_PAD_X).py(KBD_PAD_Y)
-        .child(text(SOURCE_KEY).font(TextStyle::new(KBD_TEXT, KBD_WEIGHT)).color(theme.fg3));
-    // The bar moves the window like a title bar (`main`: `Chrome::drag_regions`); its tabs and buttons
-    // keep their presses, so a double click on a tab pins it and does not zoom the window.
-    let mut bar = row().key("tab-bar").window_drag().w_full().h(TAB_BAR_H).pl(TAB_BAR_LEAD - RING_W).pr(TAB_BAR_PAD_X - RING_W).gap(TAB_GAP).center_y().child(strip);
-    // Find (Cmd+F): the field sits in the bar, right of the tabs, so the document does not move.
-    if s.find.open {
-        bar = bar.child(super::find::field(s, theme).mr(ROW_GAP));
+/// The bar's key and the scrolling strip's (`App::restore_view` reveals the front tab in it).
+pub const STRIP: &str = "tabs-scroll";
+
+/// Where the strip passes under the bar's buttons (record 2026-11-18-vscode-tabs, "un leggero blur"):
+/// `FADE_W` of the buttons' backdrop over the strip's end, blurred by `FADE_BLUR` and fading in from
+/// the left; the strip's content ends `FADE_W` later, so the last tab can come out from under it, and a
+/// tab brought to the front stops `FADE_W` clear of either edge.
+pub const FADE_W: f32 = 24.0;
+const FADE_BLUR: f32 = 6.0;
+/// The room after the last tab and around a tab brought into view: the fade plus the front tab's
+/// metal edge and a little air, so the edge never runs under the fade.
+const END_ROOM: f32 = FADE_W + RING_W + 4.0;
+/// How much of the bar's colour the buttons' backdrop keeps over the tabs passing under it.
+const FADE_TINT: f32 = 0.78;
+
+/// The scroll bar under the tabs (Matteo: "con uno slider anche visibile"): `SCROLL_BAR` tall, at the
+/// strip's bottom, over the tabs like VS Code's, drawn only while the tabs overflow. Rune's own bars
+/// follow the system setting and hide at rest, so the strip draws its own.
+pub const SCROLL_BAR: f32 = 3.0;
+const SCROLL_BAR_MIN: f32 = 24.0;
+
+/// The thumb's rect in the track, `[x, 0, w, SCROLL_BAR]`, for a strip at `offset` of `max`,
+/// `viewport` wide: as wide as the visible share of the tabs, at least `SCROLL_BAR_MIN`; zero wide when
+/// nothing overflows.
+pub fn thumb(offset: f32, max: f32, viewport: f32) -> [f32; 4] {
+    if max <= 0.5 || viewport <= 0.0 {
+        return [0.0, 0.0, 0.0, SCROLL_BAR];
     }
-    let tools = row().key("bar-tools").gap(TOOL_GAP).center_y().child(super::shortcuts::button(s, theme, motion)).child(width_button(s, theme, motion)).child(key.ml(SOURCE_GAP - TOOL_GAP));
-    let bar = bar.child(tools.ml(ROW_GAP));
-    rune::col().w_full().child(bar).child(el().key("tab-bar-line").w_full().h(HAIRLINE).fill(theme.line))
+    let w = (viewport * viewport / (viewport + max)).max(SCROLL_BAR_MIN).min(viewport);
+    let x = (offset / max).clamp(0.0, 1.0) * (viewport - w);
+    [x, 0.0, w, SCROLL_BAR]
 }
 
-/// The × area (16 pt), its margin from the tab's right edge and from the name: 8 each, the sidebar's
-/// `row-gap` (record 2026-11-18-small-choices-review; before 6 and 4, "tutto appiccicato").
+/// The bar: `TAB_BAR_H` tall on the `tab_bar` tint, with a 0.5 line at the bottom that the front tab
+/// covers. The tabs scroll sideways under the buttons on the right. `hover`: the pointer is a fine one
+/// and can hover.
+pub fn view(s: &App, hooks: Hooks<App>, theme: &Theme, reduced: bool, hover: bool) -> El {
+    let motion = Motion { reduced, hover };
+    let n = s.tabs.len();
+    let list = row().key("tabs").role("tablist").label("Tabs").h_full().items_start().pt(TAB_TOP).pl(TAB_BAR_LEAD).pr(END_ROOM)
+        .children(s.tabs.iter().enumerate().map(|(i, tab)| tab_row(s, hooks, i, n, tab, theme, motion)));
+    // The thumb follows the scroll in the same frame, without running the view.
+    let at = rune::Live::new(thumb(0.0, 0.0, 0.0));
+    let set = at.clone();
+    let strip = row().key(STRIP).w_full().h_full().scroll_x().scroll_margin(END_ROOM).scroll_edge_fade(FADE_W)
+        .on_scroll_offset(move |p: rune::ScrollPos| { set.set(thumb(p.offset[0], p.max[0], p.viewport[0])); })
+        .child(list);
+    let track = el().key("tabs-scroll-bar").pin(Some(0.0), None, Some(0.0), Some(HAIRLINE)).h(SCROLL_BAR).a11y_hidden()
+        .child(el().key("tabs-scroll-thumb").pin(Some(0.0), Some(0.0), None, None).h(SCROLL_BAR).radius(SCROLL_BAR / 2.0).fill(theme.fg3.alpha(0.45)).live_rect(&at));
+    let strip_box = el().key("tabs-strip").grow(1.0).shrink().min_w(0.0).h_full().child(strip).child(track);
+    let key = el().key("source-key").border(HAIRLINE, theme.line).radius(R_KBD).px(KBD_PAD_X).py(KBD_PAD_Y)
+        .child(text(SOURCE_KEY).font(TextStyle::new(KBD_TEXT, KBD_WEIGHT)).color(theme.fg3));
+    // Find (Cmd+F): the field sits in the bar, right of the tabs, so the document does not move.
+    let find = s.find.open.then(|| super::find::field(s, theme).mr(ROW_GAP));
+    let tools = row().key("bar-tools").gap(TOOL_GAP).center_y().child(super::shortcuts::button(s, theme, motion)).child(width_button(s, theme, motion)).child(key.ml(SOURCE_GAP - TOOL_GAP));
+    // The buttons' backdrop: the bar's own colour, a little see-through over a blur, fading in over
+    // `FADE_W` on the left, laid over the strip's end (`ml(-FADE_W)`).
+    let bar_color = super::theme::flatten(theme.tab_bar(), theme.panel);
+    let end = row().key("bar-end").h(TAB_BAR_H).pt(TAB_TOP).ml(-FADE_W).pl(FADE_W + ROW_GAP).pr(TAB_BAR_PAD_X).center_y()
+        .backdrop_blur(FADE_BLUR).fill(bar_color.alpha(FADE_TINT)).clip_fade_linear(FADE_W, 0.0, 0.0, 0.0)
+        .children(find).child(tools);
+    let line = el().key("tab-bar-line").pin(Some(0.0), None, Some(0.0), Some(0.0)).h(HAIRLINE).fill(theme.line);
+    // The bar moves the window like a title bar (`main`: `Chrome::drag_regions`); its tabs and buttons
+    // keep their presses, so a double click on a tab pins it and does not zoom the window.
+    row().key("tab-bar").window_drag().w_full().h(TAB_BAR_H + HAIRLINE).fill(theme.tab_bar()).child(line).child(strip_box).child(end)
+}
+
+/// The × area (16 pt), its margin from the tab's right edge (8, the sidebar's `row-gap`) and from the
+/// name (6). Its place is always there, so hover does not change the tab's width.
 pub const CLOSE: f32 = 16.0;
-const CLOSE_PAD: f32 = ROW_GAP;
-const CLOSE_GAP: f32 = ROW_GAP;
+pub const CLOSE_PAD: f32 = ROW_GAP;
+pub const CLOSE_GAP: f32 = 6.0;
 const R_CLOSE: f32 = 4.0;
 
-/// The front tab's metal edge, `RING_W` outside the tab, stays clear of the next tab and inside the bar.
-const _RING_FITS: () = assert!(TAB_GAP > RING_W && (TAB_BAR_H - ROW) / 2.0 > RING_W);
+/// How far the front tab's ring host runs below the strip, which clips it: the metal's bottom edge and
+/// its lower corners fall out of sight, so the ring reads as a frame open into the document.
+const RING_TAIL: f32 = R_ROW + RING_W + 1.0;
+
+/// The front tab's metal edge, `RING_W` outside the tab: inside the bar above it, clear of the first
+/// tab's lead, and only over the neighbours' padding, never their names or ×.
+const _RING_FITS: () = assert!(TAB_TOP > RING_W && TAB_BAR_LEAD > RING_W && TAB_PAD_X > RING_W && CLOSE_PAD > RING_W);
 
 /// Closes tab `id` (middle click, ×): with unsaved changes it brings it to the front with the
 /// question, like Cmd+W (`App::close`).
@@ -203,11 +254,13 @@ fn close_button(key: &str, id: u64, title: &str, front: bool, theme: &Theme, mot
 /// The × glyph, pt.
 const CLOSE_GLYPH: f32 = 14.0;
 
-/// A tab: `ROW` tall, radius `R_ROW`, `ROW_PAD` on the sides of the name. Front: `sel` and text
-/// `fg`; the others: text `fg2`, hover `sel`.
-fn tab_row(s: &App, hooks: Hooks<App>, i: usize, tab: &crate::app::Tab, theme: &Theme, motion: Motion) -> El {
+/// A tab (record 2026-11-18-vscode-tabs): `TAB_H` tall, edge to edge with the others, `TAB_PAD_X` before
+/// the name and the × after it. Front: the page's `panel` fill, rounded top corners, text `fg`, no
+/// divider. The others: no fill (the bar's tint), text `fg2`, hover `sel`, a `TAB_DIVIDER` line in
+/// `line` on the right unless the next tab is the front one.
+fn tab_row(s: &App, hooks: Hooks<App>, i: usize, n: usize, tab: &crate::app::Tab, theme: &Theme, motion: Motion) -> El {
     let front = i == s.active;
-    let key = format!("t-{:x}", tab.doc.id);
+    let key = tab_key(tab.doc.id);
     let title = tab.title();
     let id = tab.doc.id;
     // The preview tab has its name in italics (like VS Code).
@@ -218,8 +271,8 @@ fn tab_row(s: &App, hooks: Hooks<App>, i: usize, tab: &crate::app::Tab, theme: &
     // out.
     let mut e = row()
         .max_w(TAB_MAX_W)
-        .h(ROW)
-        .pl(ROW_PAD)
+        .h(TAB_H)
+        .pl(TAB_PAD_X)
         .pr(CLOSE_PAD)
         .gap(CLOSE_GAP)
         .center_y()
@@ -239,13 +292,44 @@ fn tab_row(s: &App, hooks: Hooks<App>, i: usize, tab: &crate::app::Tab, theme: &
         .on_double_press(move |s: &mut App| s.pin(id))
         .on_middle_press(move |s: &mut App, tx: &mut Tx| close_tab(s, id, tx));
     if front {
-        e = e.fill(theme.sel);
+        e = e.fill(theme.panel);
     }
-    let e = sidebar::pressable(e, key.clone(), &s.sidebar, hooks, theme, motion, !front).key(key);
-    // The ring's host: always present, so the structure does not change when it lights up.
-    let host = el().radius(R_ROW).child(e);
+    let divider = !front && i + 1 != s.active && i + 1 < n;
+    let e = sidebar::pressable(e, key.clone(), &s.sidebar, hooks, theme, motion, !front).corners([R_ROW, R_ROW, 0.0, 0.0]).key(key.clone());
+    // The front tab comes out from under the bar's buttons and the strip's ends, however it got to the
+    // front (click, keys, a file opened, launch): a marker keyed by the document is new each time the
+    // front changes, so its first layout scrolls the strip once; later layouts (the strip scrolling by
+    // hand) leave it.
+    let e = if front {
+        e.child(el().key(format!("{key}-reveal")).pin(Some(0.0), Some(0.0), None, None).size(0.0, 0.0).a11y_hidden().on_layout_tx(move |s: &mut App, _: [f32; 4], tx: &mut Tx| {
+            if s.revealed_tab != Some(id) {
+                s.revealed_tab = Some(id);
+                tx.scroll_into_view_in(STRIP, tab_key(id));
+            }
+            tx.live_only();
+        }))
+    } else {
+        e
+    };
+    let e = if divider {
+        e.child(el().key("tab-divider").pin(None, Some(TAB_DIVIDER_INSET), Some(0.0), Some(TAB_DIVIDER_INSET)).w(TAB_DIVIDER).fill(theme.line).a11y_hidden())
+    } else {
+        e
+    };
+    // The ring's host: always present, so the structure does not change when it lights up; it runs
+    // `RING_TAIL` below the strip, which clips its bottom (`RING_TAIL`).
+    let host = el().radius(R_ROW).h(TAB_H + RING_TAIL).child(e);
     let edge = fx::ring::edge(s.ring_of(tab.path()), front);
     fx::ring::slot(host, Mark::TabRing(i as u32), edge, motion.reduced, theme.dark)
+}
+
+/// The divider between back tabs stops this far from the tab's top and bottom, so it reads as a light
+/// stroke rather than a wall (Matteo: "un leggero bordino").
+const TAB_DIVIDER_INSET: f32 = 9.0;
+
+/// The key of the tab of document `id`.
+pub fn tab_key(id: u64) -> String {
+    format!("t-{id:x}")
 }
 
 #[cfg(test)]
@@ -504,28 +588,84 @@ mod tests {
         assert_eq!(close_of(&rt, rt.state.active).opacity, 1.0, "with its ×");
     }
 
-    /// Record 2026-11-18-small-choices-review, constraint 1: the tabs get the sidebar's spacing scale,
-    /// so they and their × no longer touch: 8 between tabs (`row-gap`), 8 between name and ×, 8 from the
-    /// × to the tab's edge, 14 before the first tab (`section-pad` top). Bar and tab heights stay.
+    /// Record 2026-11-18-vscode-tabs: tabs sit edge to edge from `TAB_TOP` to the bar's bottom, `TAB_PAD_X`
+    /// before the name, 6 between name and ×, 8 after it; a divider between back tabs only; the front
+    /// tab has the page's fill and covers the bar's bottom line.
     #[test]
-    fn the_tabs_have_room_between_them_and_their_close() {
-        let rt = tabs(&["alpha.md", "beta.md", "gamma.md"]);
-        let tab = |i: usize| find(&rt, &format!("t-{:x}", rt.state.tabs[i].doc.id)).expect("tab").rect;
-        let label = |i: usize| find(&rt, &format!("t-{:x}-label", rt.state.tabs[i].doc.id)).expect("label").rect;
+    fn the_tabs_sit_edge_to_edge_like_vs_code() {
+        let rt = tabs(&["alpha.md", "beta.md", "gamma.md", "delta.md"]);
+        let tab = |i: usize| find(&rt, &tab_key(rt.state.tabs[i].doc.id)).expect("tab").rect;
+        let label = |i: usize| find(&rt, &format!("{}-label", tab_key(rt.state.tabs[i].doc.id))).expect("label").rect;
         let bar = find(&rt, "tab-bar").expect("bar").rect;
-        assert_eq!(bar[3], TAB_BAR_H, "the bar stays 44 tall");
-        assert!((tab(0)[0] - bar[0] - 14.0).abs() < 0.01, "14 before the first tab: {:?} {:?}", bar, tab(0));
-        for i in 0..3 {
+        assert_eq!(bar[3], TAB_BAR_H + HAIRLINE, "the bar stays 44 tall, with its line");
+        assert!((tab(0)[0] - bar[0] - TAB_BAR_LEAD).abs() < 0.01, "{TAB_BAR_LEAD} before the first tab");
+        for i in 0..4 {
             let (t, l, x) = (tab(i), label(i), close_of(&rt, i).rect);
-            assert_eq!(t[3], ROW, "tab {i} stays a row tall");
-            assert!((x[0] - (l[0] + l[2]) - 8.0).abs() < 0.01, "tab {i}: 8 between name and ×: {l:?} {x:?}");
-            assert!(((t[0] + t[2]) - (x[0] + x[2]) - 8.0).abs() < 0.01, "tab {i}: 8 after the ×: {t:?} {x:?}");
-            assert!((l[0] - t[0] - ROW_PAD).abs() < 0.01, "tab {i}: name {ROW_PAD} from the left edge");
+            assert!((t[1] - bar[1] - TAB_TOP).abs() < 0.01 && (t[1] + t[3] - bar[1] - bar[3]).abs() < 0.01, "tab {i} from TAB_TOP to the bar's bottom: {t:?} {bar:?}");
+            assert!((l[0] - t[0] - TAB_PAD_X).abs() < 0.01, "tab {i}: name {TAB_PAD_X} from the left edge");
+            assert!((x[0] - (l[0] + l[2]) - CLOSE_GAP).abs() < 0.01, "tab {i}: {CLOSE_GAP} between name and ×");
+            assert!(((t[0] + t[2]) - (x[0] + x[2]) - CLOSE_PAD).abs() < 0.01, "tab {i}: {CLOSE_PAD} after the ×");
         }
-        for i in 0..2 {
-            assert!((tab(i + 1)[0] - (tab(i)[0] + tab(i)[2]) - 8.0).abs() < 0.01, "8 between tab {i} and the next");
+        for i in 0..3 {
+            assert!((tab(i + 1)[0] - (tab(i)[0] + tab(i)[2])).abs() < 0.01, "no gap between tab {i} and the next");
         }
-        // The front tab's metal edge (`RING_W` outside it) fits in the gap and the bar: `_RING_FITS`.
+        // Front is the last (3): dividers after 0 and 1, none after 2 (next to the front) or on the front.
+        let dividers = rt.elements().iter().filter(|e| e.key.as_deref() == Some("tab-divider")).count();
+        assert_eq!(dividers, 2);
+        let line = find(&rt, "tab-bar-line").expect("line").rect;
+        let front = tab(3);
+        assert!(front[1] + front[3] >= line[1] + line[3] - 0.01, "the front tab runs over the bar's line into the page");
+    }
+
+    /// Hovering a back tab shows its × in the slot it always had: no tab moves or changes width.
+    #[test]
+    fn hover_does_not_change_any_tab_width() {
+        let mut rt = tabs(&["alpha.md", "beta.md", "gamma.md"]);
+        let rects = |rt: &Runtime<App>| (0..3).map(|i| find(rt, &tab_key(rt.state.tabs[i].doc.id)).expect("tab").rect).collect::<Vec<_>>();
+        let before = rects(&rt);
+        for i in 0..3 {
+            let t = before[i];
+            rt.pointer_move(t[0] + t[2] / 2.0, t[1] + t[3] / 2.0);
+            settle(&mut rt);
+            assert_eq!(close_of(&rt, i).opacity, 1.0, "tab {i} hovered: its × shows");
+            assert_eq!(rects(&rt), before, "hover on tab {i} moves nothing");
+        }
+    }
+
+    fn visible(rt: &Runtime<App>, i: usize) -> bool {
+        let strip = find(rt, STRIP).expect("strip").rect;
+        let t = find(rt, &tab_key(rt.state.tabs[i].doc.id)).expect("tab").rect;
+        // Clear of the buttons' fade at the right end.
+        t[0] >= strip[0] - 0.5 && t[0] + t[2] <= strip[0] + strip[2] - FADE_W + 0.5
+    }
+
+    /// With more tabs than the bar holds, the strip scrolls: the front tab is in view at launch and
+    /// after a switch by keys (⌘1, ⌘9), clear of the buttons; the scroll bar's thumb shows.
+    #[test]
+    fn the_front_tab_scrolls_into_view_when_the_tabs_overflow() {
+        let names: Vec<String> = (0..16).map(|i| format!("a-long-file-name-{i:02}.md")).collect();
+        let mut rt = tabs(&names.iter().map(String::as_str).collect::<Vec<_>>());
+        assert_eq!(rt.state.active, 15);
+        assert!(visible(&rt, 15), "the last-opened (front) tab is in view");
+        assert!(!visible(&rt, 0), "the first is scrolled away");
+        assert!(find(&rt, "tabs-scroll-thumb").expect("thumb").rect[2] >= SCROLL_BAR_MIN, "the thumb shows");
+        rt.key(key('1', true, false, false, false));
+        settle(&mut rt);
+        assert_eq!(rt.state.active, 0);
+        assert!(visible(&rt, 0), "⌘1 brings the first tab into view");
+        rt.key(key('9', true, false, false, false));
+        settle(&mut rt);
+        assert!(visible(&rt, 15), "⌘9 brings the last back");
+    }
+
+    #[test]
+    fn the_thumb_follows_the_scroll() {
+        assert_eq!(thumb(0.0, 0.0, 500.0)[2], 0.0, "nothing overflows: no thumb");
+        let [x0, _, w, _] = thumb(0.0, 500.0, 500.0);
+        assert_eq!((x0, w), (0.0, 250.0), "half the tabs visible: half the track");
+        let [x1, _, _, _] = thumb(500.0, 500.0, 500.0);
+        assert_eq!(x1, 250.0, "at the end: the thumb at the end");
+        assert_eq!(thumb(0.0, 100_000.0, 500.0)[2], SCROLL_BAR_MIN);
     }
 
     fn key(c: char, cmd: bool, shift: bool, alt: bool, ctrl: bool) -> KeyEvent {

@@ -97,8 +97,10 @@ spacing:
   hairline: "0.5px"
   tab-bar: "44px"
   tab-bar-pad: "0 10px"
-  tab-bar-lead: "14px"
-  tab-gap: "8px"
+  tab-bar-lead: "8px"
+  tab-top: "8px"
+  tab-pad: "12px"
+  tab-divider: "1px"
   tab-max: "240px"
   recent-gap: "3px"
   recent-row: "44px"
@@ -246,10 +248,15 @@ the fix of 2026-11-14 (`docs/decisions/2026-11-14-find-dark-contrast.md`).
 | Settings: "Already watched" (`fg-2`) on panel | — | 11.19 | — | 10.71 | 4.5 |
 | Label of the fire when off (`fg-2`) on panel | — | 11.19 | — | 10.71 | 4.5 |
 | Frontmatter (`fg-2`) on panel + half `sel` | — | 9.89 | — | 10.03 | 4.5 |
-| Tab × (`fg-2`) on panel + `sel` | — | 8.30 | — | 9.38 | 3 |
-| Tab × (`fg-2`) on hover on panel + `sel` + `sel` | — | 5.67 | — | 8.22 | 3 |
-| Width ↔ button (`fg-2`) on panel | — | 11.19 | — | 10.71 | 3 |
-| Width ↔ button (`fg-2`) on panel + `sel` (hover, popover open) | — | 8.30 | — | 9.38 | 3 |
+| Tab name, front (`fg`) on panel | — | 16.89 | — | 17.07 | 4.5 |
+| Tab name, back (`fg-2`) on panel + `tab-bar` | — | 11.52 | — | 9.81 | 4.5 |
+| Tab name, back on hover (`fg-2`) on panel + `tab-bar` + `sel` | — | 8.78 | — | 8.60 | 4.5 |
+| "⌘E source" (`fg-3`) on panel + `tab-bar` | — | 8.10 | — | 6.72 | 4.5 |
+| Tab × (`fg-2`) on panel (front tab) | — | 11.19 | — | 10.71 | 3 |
+| Tab × (`fg-2`) on panel + `tab-bar` + `sel` (back tab on hover) | — | 8.78 | — | 8.60 | 3 |
+| Tab × (`fg-2`) on hover on panel + `tab-bar` + `sel` + `sel` | — | 6.01 | — | 7.54 | 3 |
+| Width ↔ button (`fg-2`) on panel + `tab-bar` | — | 11.52 | — | 9.81 | 3 |
+| Width ↔ button (`fg-2`) on panel + `tab-bar` + `sel` (hover, popover open) | — | 8.78 | — | 8.60 | 3 |
 | Width popover: title (`fg-2`) and value (`fg`) on panel | — | 11.19 / 16.89 | — | 10.71 / 17.07 | 4.5 |
 | Width popover: shortcuts and track (`fg-3`) on panel | — | 7.88 | — | 7.34 | 4.5 |
 | Shortcuts ⌘ button (`fg-2`) on panel / panel + `sel` | — | 11.19 / 8.30 | — | 10.71 / 9.38 | 3 |
@@ -427,19 +434,26 @@ pressed scale 0.98); the row chosen with the arrows has a `sel` fill and `fg` te
 folder in `fg-2`, as in Recent. Return opens, Esc clears and closes, no opening animation (a keyboard action). No
 accent: caret `fg`, selection `sel`. No results: "No files" in `fg-3`.
 
-**Tab.** A row like the sidebar ones, as wide as the file name up to 240 (`tab-max`, D5; beyond that, the name is
-cut in the middle): 28 tall (`row`), radius 6, UI text 13 px with 10 at the sides (`row-pad`), hover `sel`, pressed
-scale 0.98. The active file's tab has a `sel` fill and `fg` text; the others `fg-2` text. Bar 44 tall (`tab-bar`), 14
-before the first tab (`tab-bar-lead`), 10 margin on the right (`tab-bar-pad`), 8 between tabs (`tab-gap`), a 0.5 line
-in `line` below; no separator or icon. At the end of the tab a "×" (glyph 14 in `fg-2`, area of 16, radius 4, hover
-`sel`, 8 after the name and 8 from the right edge). These are the sidebar's steps (8 `row-gap`, 14 above section
-labels), so tabs and × no longer touch and the front tab's metal edge (`RING_W`, 3.25) fits in the gap (record
-`2026-11-18-small-choices-review`, constraint 1; before 10 / 2 / 4 / 6): always shown on the front tab and on the others only on hover (or with keyboard focus), but its space is
-always there, so the name does not move. Label "Close <name>"; a click closes like ⌘W (the same question with unsaved
-changes); the middle click stays. Glyph contrast: 8.30 / 9.38 on `sel`, 5.67 / 8.22 on hover on the ×. Preview tab
-(a single click in the sidebar, like VS Code): the same look, name in italics; at most one, the next single click
-replaces it in the same place. Too many tabs: the row scrolls sideways. "⌘E source" on the right like the "⌘P" key,
-in `fg-3`.
+**Tab.** VS Code's shape (record `2026-11-18-vscode-tabs`; the `c6b02b5` version with 8 between tabs read as "troppo
+spazio"). The bar is 44 tall (`tab-bar`) on the `tab-bar` tint over `panel` (black 4 % light, 40 % dark: a shade off the
+page), 8 before the first tab (`tab-bar-lead`), 10 margin on the right (`tab-bar-pad`), a 0.5 line in `line` at the
+bottom. Tabs sit edge to edge, as wide as the file name up to 240 (`tab-max`, D5; beyond that, the name is cut in the
+middle), from 8 below the bar's top (`tab-top`) down to the document, UI text 13 px with 12 before the name
+(`tab-pad`). Back tabs: no fill, `fg-2` text, hover `sel`, pressed scale 0.98, and a 1 px divider in `line`
+(`tab-divider`, 9 short of the tab's top and bottom) on the right, except next to the front tab. The front tab has the
+page's `panel` fill, rounded top corners (radius 6, square at the bottom) and `fg` text, and runs over the bar's line,
+so it reads as part of the document. Its metal edge (`RING_W` outside the tab) goes round the top and the sides and is
+cut where the tab meets the page, an open frame; it only crosses the neighbours' padding (const check `_RING_FITS`).
+At the end of each tab a "×" (glyph 14 in `fg-2`, area of 16, radius 4, hover `sel`, 6 after the name and 8 from the
+right edge), always shown on the front tab and on the others only on hover (or with keyboard focus); its space is
+always there, so hover changes no width. Label "Close <name>"; a click closes like ⌘W (the same question with unsaved
+changes); the middle click stays. Preview tab (a single click in the sidebar, like VS Code): the same look, name in
+italics; at most one, the next single click replaces it in the same place. Too many tabs: the strip scrolls sideways
+and passes under the buttons on the right, whose backdrop (the bar's colour at 78 % over a 6 pt blur) fades in over
+24 pt (`FADE_W`); the strip's own ends fade as well while tabs are hidden there. A 3 pt scroll bar (`fg-3` at 45 %,
+at least 24 wide) sits at the strip's bottom while the tabs overflow, and the front tab scrolls into view whenever it
+changes (click, keys, a file opened, launch), clear of the fade. "⌘E source" on the right like the "⌘P" key, in
+`fg-3`.
 
 **Text width (↔ button).** In the tab bar, just left of "⌘E source": 28 × 28 (`row`), radius 6, glyph "↔" 15 in
 `fg-2`, hover `sel`; with the popover open it has the `sel` fill. Label "Text width". A click opens under the button,

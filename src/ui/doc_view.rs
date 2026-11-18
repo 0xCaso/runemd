@@ -1115,7 +1115,7 @@ mod tests {
         assert!(since > 1.5, "clock of the switch, not of the reload: {since}");
     }
 
-    /// Tabs are as wide as their name, with `ROW_PAD` at the sides (mockup `scheda`): a
+    /// Tabs are as wide as their name, with `TAB_PAD_X` before it (mockup `scheda`): a
     /// long name is not cut while the bar has room.
     #[test]
     fn tabs_are_as_wide_as_their_names() {
@@ -1127,15 +1127,15 @@ mod tests {
         let ids: Vec<u64> = rt.state.tabs.iter().map(|t| t.doc.id).collect();
         let (a, b) = (rect(&format!("t-{:x}", ids[0])), rect(&format!("t-{:x}", ids[1])));
         let (la, lb) = (rect(&format!("t-{:x}-label", ids[0])), rect(&format!("t-{:x}-label", ids[1])));
-        let pad = crate::ui::theme::ROW_PAD;
+        let pad = crate::ui::theme::TAB_PAD_X;
         for (tab, label) in [(a, la), (b, lb)] {
             assert!((label[0] - tab[0] - pad).abs() <= 0.5, "text at {pad} from the edge: {tab:?} {label:?}");
-            // After the name, the × (always in its place): 8 + 16 + 8 (record 2026-11-18-small-choices-review).
-            let tail = 8.0 + crate::ui::tabs::CLOSE + 8.0;
+            // After the name, the × (always in its place): 6 + 16 + 8 (record 2026-11-18-vscode-tabs).
+            let tail = crate::ui::tabs::CLOSE_GAP + crate::ui::tabs::CLOSE + crate::ui::tabs::CLOSE_PAD;
             assert!((tab[0] + tab[2] - label[0] - label[2] - tail).abs() <= 0.5, "and the × at the end: {tab:?} {label:?}");
         }
         assert!(b[2] > a[2] + 100.0, "as wide as the name: {a:?} {b:?}");
-        assert_eq!(a[3], crate::ui::theme::ROW);
+        assert_eq!(a[3], crate::ui::theme::TAB_H);
     }
 
     /// The × to close: always on the front tab, on the others only on hover; the place is

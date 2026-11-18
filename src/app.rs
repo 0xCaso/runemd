@@ -381,6 +381,9 @@ pub struct App {
     pub tabs: Vec<Tab>,
     /// The index of the front tab; valid only if `tabs` is not empty.
     pub active: usize,
+    /// The front tab the tab strip last scrolled into view (`ui::tabs::view`), so a manual scroll of the
+    /// strip is not undone until the front tab changes.
+    pub revealed_tab: Option<u64>,
     /// The document style in the light and in the dark theme (index `dark as usize`), from the font and
     /// the size in the settings: the view picks with the current theme, without rebuilding it.
     styles: [MarkdownStyle; 2],
@@ -457,6 +460,7 @@ impl App {
         let mut app = App {
             tabs: Vec::new(),
             active: 0,
+            revealed_tab: None,
             styles: styles_for(&settings),
             settings,
             prefs,
