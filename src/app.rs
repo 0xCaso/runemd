@@ -377,6 +377,10 @@ pub enum CloseAnswer {
     Cancel,
 }
 
+/// The size SVG pictures in a document rasterize at (Full forge): the text column at 2×.
+const DOC_IMAGE_PT: f32 = 720.0;
+const DOC_IMAGE_SCALE: f32 = 2.0;
+
 pub struct App {
     pub tabs: Vec<Tab>,
     /// The index of the front tab; valid only if `tabs` is not empty.
@@ -399,6 +403,10 @@ pub struct App {
     /// `RUNEMD_GLASS` (glass opacity in percent, `glass_env`), read once at startup:
     /// only for photos, the default stays the one of `Theme`.
     pub(crate) glass_env: Option<f32>,
+    /// `RUNEMD_FORGE` (Full forge, `fx::doc_fx`), read once at startup: off by default.
+    pub(crate) forge: crate::fx::doc_fx::Directions,
+    /// The document pictures Full forge shows (Forged, Glass), by path: held so they decode once.
+    pub(crate) doc_images: std::cell::RefCell<std::collections::HashMap<PathBuf, rune::Image>>,
     /// "Reduce motion" as the last view saw it (`poll` has no `Cx`): the fire at rest
     /// requests its wakeups only if it moves.
     pub(crate) reduced_seen: std::cell::Cell<bool>,
@@ -470,6 +478,8 @@ impl App {
                 _ => None,
             },
             reduced_seen: std::cell::Cell::new(false),
+            forge: crate::fx::doc_fx::Directions::from_env(),
+            doc_images: Default::default(),
             motion_env: crate::fx::reduce_motion_env(std::env::var("RUNEMD_REDUCE_MOTION").ok().as_deref()),
             glass_env: glass_env(std::env::var("RUNEMD_GLASS").ok().as_deref()),
             scroll: None,
@@ -1397,6 +1407,19 @@ impl App {
     /// Whether block `id` of the front tab has the "what changed" mark.
     pub fn is_marked(&self, id: u64) -> bool {
         self.tab().is_some_and(|t| t.is_marked(id))
+    }
+
+    /// The picture for an image `src` of the document at `doc` (Full forge): from the image cache,
+    /// held until the app quits. `None` without a cache (tests) or for a URL.
+    pub fn doc_image(&self, doc: &std::path::Path, src: &str) -> Option<rune::Image> {
+        let path = crate::fx::doc_fx::image_path(doc, src)?;
+        let cache = self.images.as_ref()?;
+        Some(self.doc_images.borrow_mut().entry(path.clone()).or_insert_with(|| cache.file(&path, DOC_IMAGE_PT, DOC_IMAGE_SCALE)).clone())
+    }
+
+    /// How many document pictures have decoded (the rows build again when it changes).
+    pub fn doc_images_ready(&self) -> usize {
+        self.doc_images.borrow().values().filter(|i| i.is_ready()).count()
     }
 
     /// A "writing" ring is lit: only then does the compositor walk the instances.

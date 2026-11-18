@@ -135,7 +135,7 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
             // Labelled blocks in two columns if the text column is wide (from the last
             // layout; Rune runs the view again when the threshold is crossed).
             let columns = cx.layout_with("rows", |r| r[2] - 2.0 * ui::theme::ROW_PAD_X >= ui::doc_view::TWO_COLUMNS).unwrap_or(false);
-            let signals = ui::doc_view::Signals { marked: App::is_marked, mark: theme.mark, caret, hits: App::find_hits, edge: App::doc_edge, meta: theme.meta(), fonts: ui::markdown_style::fonts(fonts::Typeface::of(&s.settings.font, s.settings.size)), open: App::open_link, columns, bottom: fx::fire::doc_bottom(s.settings.fire.shows(), s.settings.fire_height) };
+            let signals = ui::doc_view::Signals { marked: App::is_marked, mark: theme.mark, caret, hits: App::find_hits, edge: App::doc_edge, meta: theme.meta(), fonts: ui::markdown_style::fonts(fonts::Typeface::of(&s.settings.font, s.settings.size)), open: App::open_link, columns, bottom: fx::fire::doc_bottom(s.settings.fire.shows(), s.settings.fire_height), forge: ui::doc_view::Forge { on: s.forge, look: fx::doc_fx::Look { dark, reduced } }, image: App::doc_image, images_ready: if s.forge.any() { s.doc_images_ready() } else { 0 } };
             let doc = ui::doc_view::view(s, App::active_document, s.style(dark), s.settings.column, App::visible_rows, signals);
             // The heading outline on the right, only if the window is at least sidebar + column
             // + 200 wide (before the first layout it is not known: no outline). The view reads it from Rune,
@@ -554,6 +554,54 @@ mod tests {
         rt.invalidate();
         rt.frame(1.0 / 120.0);
         assert!(!rt.state.forge_images.borrow().holds(), "no handle left with a file open");
+    }
+
+    /// The forge pieces drawn for `fixtures/forge.md` with `forge` on: (piece, still).
+    fn forge_pieces(forge: crate::fx::doc_fx::Directions) -> Vec<crate::fx::doc_fx::Piece> {
+        let mut app = crate::App::bare(crate::index::Library::load(Vec::new(), None));
+        app.forge = forge;
+        app.images = Some(rune::ImageCache::new(std::sync::Arc::new(|| {})));
+        app.open_paths(vec![PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("fixtures/forge.md")]);
+        let mut rt = rune::Runtime::new(app, crate::view, (1280.0, 2400.0), rune::Env::new(true, 2.0));
+        rt.track_marks = true;
+        rt.frame(0.0);
+        rt.frame(1.0 / 60.0);
+        rt.instances
+            .iter()
+            .enumerate()
+            .filter(|(n, i)| i.params[1] == rune::render::KIND_EFFECT && rt.marks.get(*n).copied() == Some(crate::fx::Mark::DocFx.id()))
+            .filter_map(|(_, i)| crate::fx::doc_fx::read(i.uv).map(|(p, _)| p))
+            .collect()
+    }
+
+    /// Full forge off: no forge slot in the document, so nothing is drawn differently.
+    #[test]
+    fn full_forge_off_draws_no_forge_piece() {
+        assert!(forge_pieces(crate::fx::doc_fx::Directions::default()).is_empty());
+    }
+
+    /// Each direction alone puts only its own pieces in the document; all together put every kind.
+    #[test]
+    fn each_forge_direction_dresses_its_blocks() {
+        use crate::fx::doc_fx::{Directions, Piece};
+        let alone = |name: &str| forge_pieces(Directions::parse(Some(name)));
+        let edges = |v: &[Piece]| v.iter().filter(|p| matches!(p, Piece::Edge { .. })).count();
+        // Steel: code, frontmatter, the five callouts.
+        assert_eq!(edges(&alone("steel")), 7, "{:?}", alone("steel"));
+        // Forged: those and the table (images decode on the worker: not in a headless frame).
+        assert!(edges(&alone("forged")) >= 8, "{:?}", alone("forged"));
+        assert!(alone("engraved").iter().all(|p| *p == Piece::Rod) && alone("engraved").len() == 2);
+        assert!(alone("ember").iter().all(|p| *p == Piece::Fire) && alone("ember").len() == 2);
+        let glass = alone("glass");
+        assert_eq!(glass.iter().filter(|p| matches!(p, Piece::Dither { .. })).count(), 5, "{glass:?}");
+        assert!(glass.contains(&Piece::Fluted));
+        let tasks = alone("tasks");
+        assert_eq!(tasks.iter().filter(|p| matches!(p, Piece::Bead { .. })).count(), 4, "{tasks:?}");
+        assert!(tasks.contains(&Piece::Tube) && tasks.contains(&Piece::TubeFill));
+        assert_eq!(alone("electric"), vec![Piece::Electric { red: false }, Piece::Electric { red: true }]);
+        let all = forge_pieces(Directions::ALL);
+        assert!(all.iter().any(|p| matches!(p, Piece::Edge { chrome: true, .. })), "Full forge edges are chrome");
+        assert!(all.iter().all(|p| !matches!(p, Piece::Edge { chrome: false, .. })));
     }
 
     /// A poll after a `REST_FRAME` of quiet is a resting wake-up; polls a frame apart are a

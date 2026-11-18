@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 
 use rune::compose::{Compositor, Frame};
-use rune::render::{EffectSite, Instance, KIND_EFFECT};
+use rune::render::{EffectPhase, EffectSite, Instance, KIND_EFFECT};
 use rune_fx::{FxFrame, FxLayer, FxOptions, FxRenderer, FxSlot, Rect};
 
 use super::marks::Mark;
-use super::{caret, fire, forge, ring};
+use super::{caret, doc_fx, fire, forge, ring};
 use crate::App;
 
 /// A single compositor for the window. Without effects (no layer, no slot) the frame is
@@ -231,6 +231,16 @@ impl Compositor<App> for FxCompositor {
                     paced.push(layers.len());
                 }
                 forge::layer(rect_pt(i), s.motion, s.t, clock as f32)
+            } else if mark == Mark::DocFx.id() {
+                // Full forge (`fx::doc_fx`): still pieces, and the charged edge, which moves with the
+                // metal's `ring::METAL_FRAME` wake-ups like a calm edge (no display link, no view run).
+                let radius = i.radii.iter().fold(0.0f32, |a, v| a.max(v.abs())) / i.params[3].max(f32::EPSILON);
+                let Some((layer, rests)) = doc_fx::layer(rect_pt(i), radius, i.uv, clock, f.rt.state.window_active) else { continue };
+                if rests {
+                    paced.push(layers.len());
+                }
+                metal |= layer.is_animating();
+                layer
             } else if mark == Mark::Caret.id() {
                 let (layer, moving) = caret_layer(i, clock);
                 pulsing |= moving;
@@ -261,6 +271,21 @@ impl Compositor<App> for FxCompositor {
         fx.prepare_with_slots(device, queue, &FxFrame { viewport: [size.0, size.1], scale: 1.0, layers: &layers, backdrop: None, sources: &[] }, &slots);
         let clear = f.rt.clear_color();
         f.ui.prepare(device, queue, &mut f.rt.text.atlas, &f.rt.instances, size);
+        // Glass (Full forge) reads what is painted before it: the pass splits at its slots.
+        if layers.iter().any(|l| l.fx.needs_backdrop()) {
+            f.ui.draw_with_backdrop(f.encoder, f.target, clear, &mut |phase, s: &EffectSite<'_>| {
+                let Some(k) = at.iter().position(|n| *n == s.index) else { return };
+                match phase {
+                    EffectPhase::Backdrop(encoder) => {
+                        if let Some(b) = s.backdrop {
+                            fx.blur_backdrop(device, queue, encoder, b, k);
+                        }
+                    }
+                    EffectPhase::Draw(pass) => fx.draw_layer_in(pass, s.format, s.origin, k),
+                }
+            });
+            return;
+        }
         f.ui.draw_with(f.encoder, f.target, clear, &mut |pass, s: &EffectSite<'_>| {
             if let Some(k) = at.iter().position(|n| *n == s.index) {
                 fx.draw_layer_in(pass, s.format, s.origin, k);

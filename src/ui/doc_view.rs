@@ -48,7 +48,23 @@ pub struct Signals<S> {
     pub columns: bool,
     /// The space under the last row (`fx::fire::doc_bottom`): the resting fire sits there.
     pub bottom: f32,
+    /// Full forge (`fx::doc_fx`, `RUNEMD_FORGE`): off by default, and then nothing below changes.
+    pub forge: Forge,
+    /// The picture for an image `src` of the document at the path (Forged and Glass only).
+    pub image: fn(&S, &std::path::Path, &str) -> Option<rune::Image>,
+    /// How many of the document's pictures have decoded: the rows build again when it changes.
+    pub images_ready: usize,
 }
+
+/// Which forge directions are on, and the theme and motion of their slots.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Forge {
+    pub on: crate::fx::doc_fx::Directions,
+    pub look: crate::fx::doc_fx::Look,
+}
+
+/// A block's pictures, by `src` as written (`Forge`: Forged and Glass load them).
+type Pictures = std::rc::Rc<std::collections::HashMap<String, rune::Image>>;
 
 /// From how wide the text column is (without the row margins) label blocks
 /// go on two columns (constraint 4 of the logs record, mockup t-mix).
@@ -204,7 +220,7 @@ pub fn view<S: 'static>(s: &S, doc_of: fn(&S) -> &Document, style: &MarkdownStyl
             move |s: &S, i| Cow::Owned(row_key(i, doc_of(s))),
             move |s: &S, i| {
                 let row = match doc_of(s).blocks.get(i) {
-                Some(b) if i == 0 && crate::doc::frontmatter::is_block(&b.source) => frontmatter_row(&b.source, signals.meta),
+                Some(b) if i == 0 && crate::doc::frontmatter::is_block(&b.source) => frontmatter_row(&b.source, signals.meta, signals.forge),
                 // Footnote definitions are drawn at the bottom (`footnotes`).
                 Some(b) if crate::doc::footnotes::definitions(&b.source).is_some() => el().w_full(),
                 Some(b) => {
@@ -217,7 +233,14 @@ pub fn view<S: 'static>(s: &S, doc_of: fn(&S) -> &Document, style: &MarkdownStyl
                         hits.push((vec![c.at.end.clone()], clear.key(caret_end_key(doc.id))));
                     }
                     let progress = doc.tasks.get(&b.id).copied();
-                    let row = block_row(&b.source, &style, &doc.notes, &places, progress, signals.columns, signals.open, signals.fonts, signals.meta, (signals.marked)(s, b.id).then_some(signals.mark), hits);
+                    let forge = signals.forge;
+                    let pictures: Pictures = if forge.on.glass || forge.on.forged {
+                        std::rc::Rc::new(crate::fx::doc_fx::image_sources(&b.source).into_iter().filter_map(|src| Some((src.to_owned(), (signals.image)(s, &doc.path, src)?))).collect())
+                    } else {
+                        Pictures::default()
+                    };
+                    let dress = Dress { forge, pictures };
+                    let row = block_row(&b.source, &style, &doc.notes, &places, progress, signals.columns, signals.open, signals.fonts, signals.meta, &dress, (signals.marked)(s, b.id).then_some(signals.mark), hits);
                     match caret {
                         Some(c) => caret_row(row, c),
                         None => row,
@@ -235,7 +258,7 @@ pub fn view<S: 'static>(s: &S, doc_of: fn(&S) -> &Document, style: &MarkdownStyl
                 })
             },
         )
-        .virtual_rows_version(rows_version(doc))
+        .virtual_rows_version((rows_version(doc), signals.forge.on.any().then_some(signals.images_ready)))
         .on_visible_rows(move |s: &mut S, rows| on_rows(s, generation, rows));
     let bottom = col().w_full().h(signals.bottom);
     let edge = signals.edge;
@@ -364,11 +387,15 @@ fn row_id(path: &str, generation: u64) -> Option<u64> {
 /// The YAML frontmatter: the text between the two `---` lines, as it is, in a metadata block
 /// (`UI_SMALL` mono in `meta.text` on `meta.fill`, radius `R_ROW`). Selectable like the rest:
 /// copying gives the block source, `---` included.
-fn frontmatter_row(source: &str, meta: Meta) -> El {
+fn frontmatter_row(source: &str, meta: Meta, forge: Forge) -> El {
     let body = source.split_once('\n').map_or("", |(_, rest)| rest);
     let body = body.rsplit_once('\n').map_or("", |(yaml, _)| yaml);
     let text = rune::text(body.to_owned()).font(TextStyle::new(UI_SMALL, UI_WEIGHT).family(Family::Mono)).color(meta.text).wrap().w_full().selectable(true);
     let block = col().key("frontmatter").w_full().fill(meta.fill).radius(R_ROW).px(FRONTMATTER_PAD_X).py(FRONTMATTER_PAD_Y).child(text);
+    let block = match forge.on.edge() {
+        Some(p) => crate::fx::doc_fx::slot(block, p, forge.look),
+        None => block,
+    };
     col().w_full().px(ROW_PAD_X).py(ROW_PAD_Y).child(block)
 }
 
@@ -379,17 +406,23 @@ const FRONTMATTER_PAD_Y: f32 = 10.0;
 /// A document row, with the Find marks `hits`; with `mark` it has the "what changed" mark
 /// in the left margin, out of the flow (the text does not move), as tall as the block's text.
 #[allow(clippy::too_many_arguments)]
-fn block_row<S: 'static>(source: &str, style: &MarkdownStyle, notes: &crate::doc::footnotes::Notes, places: &crate::doc::paths::Places, progress: Option<(u32, u32)>, columns: bool, open: fn(&mut S, &str, &mut rune::Tx), fonts: super::markdown_style::Fonts, meta: Meta, mark: Option<Color>, hits: super::find::Marks) -> El {
+fn block_row<S: 'static>(source: &str, style: &MarkdownStyle, notes: &crate::doc::footnotes::Notes, places: &crate::doc::paths::Places, progress: Option<(u32, u32)>, columns: bool, open: fn(&mut S, &str, &mut rune::Tx), fonts: super::markdown_style::Fonts, meta: Meta, dress: &Dress, mark: Option<Color>, hits: super::find::Marks) -> El {
+    let forge = dress.forge;
+    // Full forge: a thematic break and a flat task list are drawn here, not by the kit.
+    let rule = forge.on.rule().filter(|_| crate::fx::doc_fx::is_rule(source));
+    let tasks = if forge.on.tasks { crate::fx::doc_fx::flat_tasks(source) } else { None };
     // A label paragraph (logs, plans) keeps its line breaks, labels in bold
     // (`doc::labels`); with a wide column, labels and text on two columns. Other
     // paragraphs stay standard Markdown.
     let body = match crate::doc::labels::block(source) {
-        Some(lines) if columns => label_columns(source, &lines, hits, fonts, |src, hits| block_body(src, style, notes, places, None, open, fonts, meta, hits)),
+        _ if rule.is_some() => forged_rule(rule.unwrap_or(crate::fx::doc_fx::Rule::Engraved), forge.look),
+        _ if tasks.is_some() => task_list(tasks.unwrap_or_default(), style, notes, places, open, fonts, meta, dress),
+        Some(lines) if columns => label_columns(source, &lines, hits, fonts, |src, hits| block_body(src, style, notes, places, None, open, fonts, meta, dress, hits)),
         Some(lines) => {
             let e = crate::doc::labels::one_column(source, &lines);
-            block_body(&e.text, style, notes, places, None, open, fonts, meta, remap(hits, |r| e.map(r)))
+            block_body(&e.text, style, notes, places, None, open, fonts, meta, dress, remap(hits, |r| e.map(r)))
         }
-        None => block_body(source, style, notes, places, progress, open, fonts, meta, hits),
+        None => block_body(source, style, notes, places, progress, open, fonts, meta, dress, hits),
     };
     // Virtual rows want inner padding, not gaps between rows.
     let row = col().w_full().px(ROW_PAD_X).py(ROW_PAD_Y).child(body);
@@ -444,7 +477,9 @@ const LABEL_GAP: f32 = 16.0;
 
 /// The Markdown of a block (or of a piece of it) as it is drawn, with the Find marks `hits`.
 #[allow(clippy::too_many_arguments)]
-fn block_body<S: 'static>(source: &str, style: &MarkdownStyle, notes: &crate::doc::footnotes::Notes, places: &crate::doc::paths::Places, progress: Option<(u32, u32)>, open: fn(&mut S, &str, &mut rune::Tx), fonts: super::markdown_style::Fonts, meta: Meta, hits: super::find::Marks) -> El {
+fn block_body<S: 'static>(source: &str, style: &MarkdownStyle, notes: &crate::doc::footnotes::Notes, places: &crate::doc::paths::Places, progress: Option<(u32, u32)>, open: fn(&mut S, &str, &mut rune::Tx), fonts: super::markdown_style::Fonts, meta: Meta, dress: &Dress, hits: super::find::Marks) -> El {
+    let forge = dress.forge;
+    let table = forge.on.wide_edge().filter(|_| crate::fx::doc_fx::is_table(source));
     // A `Task N` heading: the number outside the Markdown, in `fg3`, and the progress on the right.
     let task = crate::doc::labels::task_head(source);
     let untasked = task.as_ref().map(|t| crate::doc::footnotes::Edited::new(source, vec![(t.hashes.end + 1..t.prefix.end, String::new())]));
@@ -499,31 +534,195 @@ fn block_body<S: 'static>(source: &str, style: &MarkdownStyle, notes: &crate::do
         Some(sh) if sh.bare => Cow::Owned(style.into_owned().inline_code_bg(Color::TRANSPARENT).inline_code_pad(0.0)),
         _ => style,
     };
+    // Ember: every link underlined in ember (paths keep their own look).
+    let style = if forge.on.ember { Cow::Owned(style.into_owned().link_underline(crate::fx::doc_fx::ember(forge.look.dark))) } else { style };
+    // Engraved: H1 and H2 in letterpress, from a copy of the heading drawn under it.
+    let press = (forge.on.engraved && matches!(level, Some(1 | 2))).then(|| letterpress(&shown, &style, forge.look));
     let md = rune_kit::Markdown::new(shown).highlights(hits).selectable(true);
     let md = if linked.is_some() { path_links(md, &meta, fonts) } else { md };
+    let md = if forge.on.any() { forge_markdown(md, dress, callout.is_some()) } else { md };
     // Every link opens (`App::open_link`): paths, URLs and `#heading`.
     let md = md.on_link_tx(move |s: &mut S, url, tx| open(s, url, tx));
     let body = md.render(&style).selection_group(false);
+    let body = match press {
+        Some(copy) => el().w_full().child(copy).child(body),
+        None => body,
+    };
+    let body = match (table, callout.as_ref()) {
+        (Some(p), None) => crate::fx::doc_fx::slot(el().w_full().radius(CARD_RADIUS).child(body), p, forge.look),
+        _ => body,
+    };
     let body = match callout {
+        Some(c) if forge.on.any() => forged_callout(callout_head(c.kind, &meta), body, c.kind, forge),
         Some(c) => col().w_full().child(callout_head(c.kind, &meta)).child(body),
         None => body,
     };
     match task {
-        Some(t) => task_heading(body, &t, progress, fonts, &meta),
+        Some(t) => task_heading(body, &t, progress, fonts, &meta, forge),
         None => body,
     }
 }
+
+/// What a row's blocks are dressed with: the forge directions and the block's pictures.
+pub(crate) struct Dress {
+    pub forge: Forge,
+    pub pictures: Pictures,
+}
+
+/// The kit's code cards and images radius (`markdown/render.rs`: code 6, images 4).
+const CARD_RADIUS: f32 = 6.0;
+const IMAGE_RADIUS: f32 = 4.0;
+/// Glass caption band over an image's bottom (mockup 5: about 40 pt, white text).
+const CAPTION_H: f32 = 40.0;
+const CAPTION_TEXT: f32 = 14.0;
+/// Inside a forged callout: the room between its edge and its text.
+const CALLOUT_PAD_X: f32 = 12.0;
+const CALLOUT_PAD_Y: f32 = 10.0;
+/// Glass: the dither band on a callout's side, pt (it covers the 2 pt quote line).
+const DITHER_W: f32 = 4.0;
+
+/// The kit's hooks for the forge directions that are on: code cards with an edge, quotes in
+/// fluted glass (not callouts: they have their own band), pictures with an edge and a glass caption.
+fn forge_markdown(md: rune_kit::Markdown, dress: &Dress, callout: bool) -> rune_kit::Markdown {
+    use crate::fx::doc_fx::{Piece, slot};
+    let (on, look) = (dress.forge.on, dress.forge.look);
+    let md = match on.edge() {
+        Some(p) => md.code_frame(move |card, _| slot(el().w_full().radius(CARD_RADIUS).child(card), p, look)),
+        None => md,
+    };
+    let md = if on.glass && !callout { md.quote_frame(move |quote, _| slot(el().w_full().radius(IMAGE_RADIUS).child(quote), Piece::Fluted, look)) } else { md };
+    if dress.pictures.is_empty() {
+        return md;
+    }
+    let pictures = dress.pictures.clone();
+    let md = md.images(move |src| pictures.get(src).cloned());
+    let edge = on.wide_edge();
+    let glass = on.glass;
+    md.image_frame(move |picture, f| {
+        let mut wrap = el().w_full().radius(IMAGE_RADIUS).child(picture);
+        if let Some([w, _]) = f.image.size() {
+            wrap = wrap.max_w(w as f32);
+        }
+        if glass && !f.alt.is_empty() {
+            let caption = rune::text(f.alt.to_owned()).font(TextStyle::new(CAPTION_TEXT, 500.0)).color(Color { r: 1.0, g: 1.0, b: 1.0, a: 1.0 }).selectable(false);
+            let band = rune::row().key("caption").pin(Some(0.0), None, Some(0.0), Some(0.0)).h(CAPTION_H).radius(IMAGE_RADIUS).px(CALLOUT_PAD_X).center_y().child(caption);
+            wrap = wrap.child(slot(band, Piece::Caption, look));
+        }
+        match edge {
+            Some(p) => slot(wrap, p, look),
+            None => wrap,
+        }
+    })
+}
+
+/// A callout, forged: the metal edge (with room inside it), Glass's dither band over the quote line,
+/// Electric's charged edge on Warning and Caution.
+fn forged_callout(head: El, body: El, kind: crate::doc::callout::Kind, forge: Forge) -> El {
+    use crate::doc::callout::Kind;
+    use crate::fx::doc_fx::{Piece, slot};
+    let (on, look) = (forge.on, forge.look);
+    let charged = on.electric && matches!(kind, Kind::Warning | Kind::Caution);
+    let edged = on.edge().is_some() || charged;
+    let mut c = col().w_full().child(head).child(body);
+    if on.glass {
+        let density = match kind {
+            Kind::Note => 0.25,
+            Kind::Tip => 0.40,
+            Kind::Important => 0.55,
+            Kind::Warning => 0.75,
+            Kind::Caution => 0.95,
+        };
+        let band = el().key("dither").pin(Some(if edged { CALLOUT_PAD_X } else { 0.0 } - 1.0), Some(if edged { CALLOUT_PAD_Y } else { 0.0 }), None, Some(if edged { CALLOUT_PAD_Y } else { 0.0 })).w(DITHER_W);
+        c = c.child(slot(band, Piece::Dither { density }, look));
+    }
+    if edged {
+        c = c.radius(CARD_RADIUS).px(CALLOUT_PAD_X).py(CALLOUT_PAD_Y);
+    }
+    let c = match on.edge() {
+        Some(p) => slot(c, p, look),
+        None => c,
+    };
+    if charged { slot(el().w_full().radius(CARD_RADIUS).child(c), Piece::Electric { red: kind == Kind::Caution }, look) } else { c }
+}
+
+/// A thematic break, forged (`doc_fx::Rule`), in the kit's rule height with its margins.
+fn forged_rule(rule: crate::fx::doc_fx::Rule, look: crate::fx::doc_fx::Look) -> El {
+    use crate::fx::doc_fx::{Piece, Rule, slot};
+    let theme = super::theme::Theme::for_mode(look.dark);
+    let line = match rule {
+        Rule::Engraved => {
+            let (cut, lit) = if look.dark { (Color { r: 0.0, g: 0.0, b: 0.0, a: 0.6 }, theme.line) } else { (theme.fg3.alpha(0.55), Color { r: 1.0, g: 1.0, b: 1.0, a: 1.0 }) };
+            col().w_full().child(el().w_full().h(1.0).fill(cut)).child(el().w_full().h(1.0).fill(lit))
+        }
+        Rule::Rod => slot(el().w_full().h(ROD_H), Piece::Rod, look),
+        Rule::Fire => slot(el().w_full().h(FIRE_H), Piece::Fire, look),
+    };
+    col().key("rule").w_full().py(RULE_PAD).child(line).a11y_hidden()
+}
+
+/// Engraved's rod and Ember's strip, pt (mockups 3 and 4), and the room above and below.
+const ROD_H: f32 = 3.0;
+const FIRE_H: f32 = 18.0;
+const RULE_PAD: f32 = 12.0;
+
+/// A heading's letterpress copy: the same text 1 pt off, in shadow (dark) or light (light theme),
+/// out of the flow, not selectable and hidden from VoiceOver.
+fn letterpress(shown: &str, style: &MarkdownStyle, look: crate::fx::doc_fx::Look) -> El {
+    let (ink, dy) = if look.dark { (Color { r: 0.0, g: 0.0, b: 0.0, a: 0.85 }, -1.0) } else { (Color { r: 1.0, g: 1.0, b: 1.0, a: 1.0 }, 1.0) };
+    let copy = rune_kit::Markdown::new(shown.to_owned()).render(&style.clone().text(ink));
+    el().key("press").pin(Some(0.0), Some(dy), Some(0.0), None).child(copy).a11y_hidden()
+}
+
+/// A flat task list, forged (Tasks): each item's checkbox a chrome bead (a gunmetal ring when
+/// unchecked), in the kit's checkbox place; the item's text is the block's Markdown.
+#[allow(clippy::too_many_arguments)]
+fn task_list<S: 'static>(items: Vec<(bool, &str)>, style: &MarkdownStyle, notes: &crate::doc::footnotes::Notes, places: &crate::doc::paths::Places, open: fn(&mut S, &str, &mut rune::Tx), fonts: super::markdown_style::Fonts, meta: Meta, dress: &Dress) -> El {
+    use crate::fx::doc_fx::{Piece, slot};
+    use super::theme::{ICON, R_KBD};
+    let look = dress.forge.look;
+    let top = ((fonts.body.line_height - ICON) * 0.5).max(0.0);
+    let n = items.len();
+    col().key("tasks").w_full().gap(TASK_ROW_GAP).children(items.into_iter().enumerate().map(|(k, (checked, text))| {
+        let mark = rune::icon(&CHECK_ICON, ICON * 0.625).color(Color { r: 0.07, g: 0.08, b: 0.1, a: 1.0 }).opacity(if checked { 1.0 } else { 0.0 });
+        let bead = el().key("control").size(ICON, ICON).ml(TASK_LEFT).mr(TASK_INDENT - TASK_LEFT - ICON).mt(top).radius(R_KBD).center().child(mark).a11y_hidden();
+        let body = block_body(text, style, notes, places, None, open, fonts, meta, dress, Vec::new());
+        rune::row().key(format!("i{k}")).role("checkbox").checked(checked).read_only(true).position_in_set(k + 1, n).w_full().child(slot(bead, Piece::Bead { checked }, look)).child(el().grow(1.0).min_w(0.0).child(body))
+    }))
+}
+
+/// The kit's checkbox place (`markdown_style`: 8 in, a 32 pt marker column) and the room between items.
+const TASK_LEFT: f32 = 8.0;
+const TASK_INDENT: f32 = 32.0;
+const TASK_ROW_GAP: f32 = 4.0;
+
+/// A check mark for the chrome bead (viewBox 16, stroke 1.6).
+static CHECK_ICON: rune::Icon = rune::Icon {
+    name: "runemd-forge-check",
+    view: 16.0,
+    body: r#"<path d="M3.5 8.5L6.5 11.5L12.5 4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/>"#,
+};
 
 /// A `Task N` heading (mockup t-sezioni): the number in the heading font in `fg3` on the left, the
 /// heading, and on the right "2 of 4" from the task's checkboxes, small in `fg3`, on the baseline of the
 /// first line: a row as tall as the heading's, lowered by how much higher the small body's baseline
 /// sits (`BASELINE_EM`).
-fn task_heading(body: El, t: &crate::doc::labels::TaskHead, progress: Option<(u32, u32)>, fonts: super::markdown_style::Fonts, meta: &Meta) -> El {
+fn task_heading(body: El, t: &crate::doc::labels::TaskHead, progress: Option<(u32, u32)>, fonts: super::markdown_style::Fonts, meta: &Meta, forge: Forge) -> El {
     let font = fonts.headings[t.level as usize - 1];
     let number = rune::text(t.number.clone()).font(font).color(meta.path.dim).selectable(false);
     let small = super::sidebar::small_font().lh(font.line_height);
     let drop = (BASELINE_EM * (font.size - small.size)).max(0.0);
-    let done = progress.map(|(d, n)| rune::text(format!("{d} of {n}")).font(small).color(meta.path.dim).selectable(false).pt(drop));
+    let done = progress.map(|(d, n)| match forge.on.tasks {
+        // Tasks: a gunmetal tube filled with chrome to `d / n`, before the count.
+        true => {
+            use crate::fx::doc_fx::{Piece, slot};
+            let k = if n == 0 { 0.0 } else { d as f32 / n as f32 };
+            let fill = slot(el().w(TUBE_W * k.clamp(0.0, 1.0)).h(TUBE_H).radius(TUBE_H / 2.0), Piece::TubeFill, forge.look);
+            let tube = slot(el().w(TUBE_W).h(TUBE_H).radius(TUBE_H / 2.0).child(fill), Piece::Tube, forge.look);
+            let count = rune::text(format!("{d} of {n}")).font(small).color(meta.path.dim).selectable(false);
+            rune::row().gap(TUBE_GAP).center_y().pt(drop).child(tube).child(count)
+        }
+        false => rune::text(format!("{d} of {n}")).font(small).color(meta.path.dim).selectable(false).pt(drop),
+    });
     rune::row().w_full().gap(TASK_GAP).child(number).child(el().grow(1.0).min_w(0.0).child(body)).children(done)
 }
 
@@ -534,6 +733,10 @@ const BASELINE_EM: f32 = 0.363;
 
 /// Between number, heading and progress of a `Task N` heading.
 const TASK_GAP: f32 = 10.0;
+/// Tasks: the progress tube, pt, and the room before the count.
+const TUBE_W: f32 = 44.0;
+const TUBE_H: f32 = 5.0;
+const TUBE_GAP: f32 = 6.0;
 
 /// The look of path links to files that exist (mockup p-mix): monospaced at 13.5 in
 /// `fg3`, underlined in `fg3` (the kit has no dotted line) and on hover a `sel` ground, a
