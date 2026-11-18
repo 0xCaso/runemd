@@ -78,7 +78,8 @@ pub(super) fn button(s: &App, theme: &Theme, motion: Motion) -> El {
 
 /// Room above a group heading and below it: the sidebar's section labels (`SECTION_PAD_TOP` 14,
 /// `SECTION_PAD_BOTTOM` 6), so the groups stand apart while rows follow each other without a gap
-/// (record 2026-11-18-small-choices-review, constraint 2; before 8 and 2).
+/// (record 2026-11-18-small-choices-review, constraint 2; before 8 and 2). The first heading has the
+/// same 14 below the "Shortcuts" title (record 2026-11-18-tab-outline; before 6, "troppo attaccato").
 const GROUP_GAP: f32 = SECTION_PAD_TOP;
 const GROUP_BELOW: f32 = SECTION_PAD_BOTTOM;
 /// Group headings at the regular weight (before 500): with `fg3` they read lighter than the rows.
@@ -100,7 +101,8 @@ pub fn list(theme: &Theme) -> El {
                 .key(format!("keys-group-{gi}"))
                 .font(TextStyle::new(UI_SMALL, GROUP_WEIGHT))
                 .color(heading_color(theme))
-                .mt(if gi == 0 { 0.0 } else { GROUP_GAP })
+                // The first one follows the section title, whose own `SECTION_PAD_BOTTOM` is part of the gap.
+                .mt(if gi == 0 { GROUP_GAP - SECTION_PAD_BOTTOM } else { GROUP_GAP })
                 .mb(GROUP_BELOW),
         );
         for (ki, (what, keys)) in keys.iter().enumerate() {
@@ -200,6 +202,19 @@ mod tests {
             assert_ne!(heading_color(&t), t.fg2, "rows are fg2");
         }
         assert_eq!((GROUP_GAP, GROUP_WEIGHT), (14.0, UI_WEIGHT), "14 above; regular weight, lighter than the 500 of before");
+    }
+
+    /// Record 2026-11-18-tab-outline (Matteo: "il titoletto Shortcuts è troppo attaccato a File"): the
+    /// first group heading sits `GROUP_GAP` below the "Shortcuts" title's text, as far as each later
+    /// heading sits below the row before it.
+    #[test]
+    fn the_first_group_stands_apart_from_the_title() {
+        let mut rt = open();
+        tap_el(&mut rt, SETTINGS_BUTTON);
+        let title = find(&rt, TITLE).expect("title").rect;
+        let head = find(&rt, "keys-group-0").expect("File").rect;
+        let gap = head[1] - (title[1] + title[3] - SECTION_PAD_BOTTOM);
+        assert!((gap - GROUP_GAP).abs() < 0.01, "{gap} between the title and File");
     }
 
     /// Feedback group 3, item 4: a gear left of ↔, same size, with a tooltip; a click opens the
