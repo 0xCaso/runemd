@@ -1,8 +1,13 @@
 //! Full forge: the document's rune-fx effects (docs/decisions/2026-11-18-rune-fx-markdown.md,
-//! directions 1–7 of the mockup), behind the `RUNEMD_FORGE` switch, off by default.
+//! directions 1–7 of the mockup). Six are on by default (docs/decisions/2026-11-18-full-forge-effects.md):
+//! steel, forged, engraved, ember, glass and tasks; electric is a Settings switch, off by default.
 //!
-//! Each direction turns on alone (`RUNEMD_FORGE=glass`), several together (`steel,ember`) or all
-//! (`all` or `1`): [`Directions`]. Off, the view builds exactly the tree it built before.
+//! `RUNEMD_FORGE` stays as a lab override: `off` (or `0`, `none`) turns every direction off, one
+//! name alone (`glass`), several (`steel,ember`) or all (`all` or `1`): [`Directions`]. Off, the
+//! view builds exactly the tree it built before.
+//!
+//! Metal frames are rare (constraint 3): code, tables, callouts, front matter and images get a quiet
+//! 1 pt edge in `line`, drawn by Rune, not rune-fx; only the block kind in [`METAL_BLOCK`] keeps metal.
 //!
 //! The view puts a [`slot`] on the element a [`Piece`] dresses (a code card, a callout, a rule, a
 //! task bead…); the compositor turns each slot into the layer of [`layer`] on its rect. Every piece
@@ -15,7 +20,7 @@ use rune_fx::{DitherParams, DitherPattern, ElectricParams, FillInput, FireParams
 use super::Mark;
 use crate::ui::theme::Theme;
 
-/// Which forge directions are on (`RUNEMD_FORGE`).
+/// Which forge directions are on (the defaults, or `RUNEMD_FORGE`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Directions {
     /// 1 · Steel: a still gunmetal edge on code, frontmatter and callouts; the rule engraved.
@@ -41,12 +46,19 @@ impl Directions {
     /// Every direction on: "Full forge".
     pub const ALL: Directions = Directions { steel: true, forged: true, engraved: true, ember: true, glass: true, tasks: true, electric: true };
 
-    /// `RUNEMD_FORGE` as read: missing, empty or `0` is off; `all` or `1` is every direction; else a
-    /// comma list of [`Directions::NAMES`] (case and spaces ignored; unknown names are skipped).
-    pub fn parse(value: Option<&str>) -> Directions {
-        let Some(v) = value.map(str::trim) else { return Directions::default() };
+    /// The six on by default: every direction but electric (a Settings switch, `with_electric`).
+    pub const DEFAULT: Directions = Directions { electric: false, ..Directions::ALL };
+
+    /// `RUNEMD_FORGE` as read (a lab override): missing or empty is `None` (the defaults); `off`,
+    /// `0` or `none` is every direction off; `all` or `1` is every direction; else a comma list of
+    /// [`Directions::NAMES`] (case and spaces ignored; unknown names are skipped).
+    pub fn parse(value: Option<&str>) -> Option<Directions> {
+        let v = value.map(str::trim).filter(|v| !v.is_empty())?;
         if v.eq_ignore_ascii_case("all") || v == "1" {
-            return Directions::ALL;
+            return Some(Directions::ALL);
+        }
+        if v.eq_ignore_ascii_case("off") || v.eq_ignore_ascii_case("none") || v == "0" {
+            return Some(Directions::default());
         }
         let mut d = Directions::default();
         for name in v.split(',').map(|n| n.trim().to_ascii_lowercase()) {
@@ -59,15 +71,20 @@ impl Directions {
                 "tasks" => d.tasks = true,
                 "electric" => d.electric = true,
                 "" => {}
-                other => eprintln!("runemd: RUNEMD_FORGE: no direction `{other}` (one of {}, or all)", Directions::NAMES.join(", ")),
+                other => eprintln!("runemd: RUNEMD_FORGE: no direction `{other}` (one of {}, all or off)", Directions::NAMES.join(", ")),
             }
         }
-        d
+        Some(d)
     }
 
-    /// From the environment, read once at startup.
-    pub fn from_env() -> Directions {
+    /// The lab override from the environment, read once at startup.
+    pub fn from_env() -> Option<Directions> {
         Directions::parse(std::env::var("RUNEMD_FORGE").ok().as_deref())
+    }
+
+    /// What is on: the lab override as set, else the defaults with the Settings switch `electric`.
+    pub fn effective(lab: Option<Directions>, electric: bool) -> Directions {
+        lab.unwrap_or(Directions { electric, ..Directions::DEFAULT })
     }
 
     /// At least one direction is on.
@@ -95,6 +112,16 @@ impl Directions {
         self.forged.then_some(Piece::Edge { width: FORGED_W, chrome: self.full() })
     }
 
+    /// The frame of a block of `kind`: the metal edge only if `kind` is the `metal` one, a quiet
+    /// edge for the others, none when no direction edges that kind.
+    pub fn frame(self, kind: BlockKind, metal: Option<BlockKind>) -> Option<Frame> {
+        let piece = match kind {
+            BlockKind::Table | BlockKind::Image => self.wide_edge(),
+            BlockKind::Code | BlockKind::Callout | BlockKind::Frontmatter => self.edge(),
+        }?;
+        Some(if metal == Some(kind) { Frame::Metal(piece) } else { Frame::Quiet })
+    }
+
     /// What a thematic break (`---`) becomes, or `None` for the kit's hairline. With several
     /// directions on, the chrome rod wins over the fire, which wins over the engraved line.
     pub fn rule(self) -> Option<Rule> {
@@ -109,6 +136,64 @@ impl Directions {
         }
     }
 }
+
+/// The block kinds a forged edge frames.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BlockKind {
+    Code,
+    Callout,
+    Table,
+    Frontmatter,
+    Image,
+}
+
+impl BlockKind {
+    /// The names `RUNEMD_METAL_BLOCK` takes (lab only: the variant shots).
+    fn parse(name: &str) -> Option<Option<BlockKind>> {
+        Some(match name.trim().to_ascii_lowercase().as_str() {
+            "none" | "off" | "" => None,
+            "code" => Some(BlockKind::Code),
+            "callout" | "callouts" => Some(BlockKind::Callout),
+            "table" | "tables" => Some(BlockKind::Table),
+            "frontmatter" => Some(BlockKind::Frontmatter),
+            "image" | "images" => Some(BlockKind::Image),
+            _ => return None,
+        })
+    }
+}
+
+/// The one block kind that keeps a metal frame (constraint 3: at most one): none, so every block
+/// gets the quiet edge. Metal stays on the front tab, the page outline and the writing ring.
+pub const METAL_BLOCK: Option<BlockKind> = None;
+
+/// [`METAL_BLOCK`], or `RUNEMD_METAL_BLOCK` (`none`, `code`, `callouts`, `tables`, `frontmatter`,
+/// `images`) in the lab, read once at startup.
+pub fn metal_block() -> Option<BlockKind> {
+    metal_block_from(std::env::var("RUNEMD_METAL_BLOCK").ok().as_deref())
+}
+
+fn metal_block_from(value: Option<&str>) -> Option<BlockKind> {
+    match value.map(BlockKind::parse) {
+        None => METAL_BLOCK,
+        Some(Some(kind)) => kind,
+        Some(None) => {
+            eprintln!("runemd: RUNEMD_METAL_BLOCK: one of none, code, callouts, tables, frontmatter, images");
+            METAL_BLOCK
+        }
+    }
+}
+
+/// How a block is framed.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Frame {
+    /// The still metal edge (a rune-fx slot).
+    Metal(Piece),
+    /// A [`QUIET_W`] outline in the theme's `line`: Rune draws it, no effect layer.
+    Quiet,
+}
+
+/// The quiet edge, pt.
+pub const QUIET_W: f32 = 1.0;
 
 /// Width of Steel's edge, pt (mockup 1: 1.25 px of gunmetal).
 pub const STEEL_W: f32 = 1.25;
@@ -393,34 +478,69 @@ mod tests {
         assert_eq!(blend_of(data(Piece::Rod, light)), FxBlend::Normal);
     }
 
+    /// Constraint 1: with no `RUNEMD_FORGE` the six are on and electric follows Settings.
     #[test]
-    fn the_switch_is_off_unless_set() {
-        assert!(!Directions::parse(None).any());
-        assert!(!Directions::parse(Some("")).any());
-        assert!(!Directions::parse(Some("0")).any());
-        assert!(!Directions::parse(Some("nope")).any());
+    fn six_are_on_by_default_and_electric_follows_settings() {
+        assert_eq!(Directions::parse(None), None);
+        assert_eq!(Directions::parse(Some("  ")), None);
+        let d = Directions::effective(None, false);
+        assert!(d.steel && d.forged && d.engraved && d.ember && d.glass && d.tasks && !d.electric, "{d:?}");
+        assert!(Directions::effective(None, true).full(), "the switch adds electric: all seven");
+    }
+
+    /// `RUNEMD_FORGE=off` turns all off, the switch included; any lab value wins over Settings.
+    #[test]
+    fn the_lab_override_turns_all_off() {
+        for v in ["off", "OFF", "0", "none"] {
+            let d = Directions::effective(Directions::parse(Some(v)), true);
+            assert!(!d.any(), "{v}");
+        }
+        let d = Directions::effective(Directions::parse(Some("nope")), true);
+        assert!(!d.any(), "an unknown name alone: nothing on");
+        assert_eq!(Directions::effective(Directions::parse(Some("glass")), true), Directions { glass: true, ..Default::default() });
     }
 
     #[test]
     fn all_and_1_turn_every_direction_on() {
-        assert_eq!(Directions::parse(Some("all")), Directions::ALL);
-        assert_eq!(Directions::parse(Some("ALL")), Directions::ALL);
-        assert_eq!(Directions::parse(Some("1")), Directions::ALL);
+        assert_eq!(Directions::parse(Some("all")), Some(Directions::ALL));
+        assert_eq!(Directions::parse(Some("ALL")), Some(Directions::ALL));
+        assert_eq!(Directions::parse(Some("1")), Some(Directions::ALL));
         assert!(Directions::ALL.full());
+    }
+
+    /// Constraint 3: one block kind at most keeps metal; the rest get the quiet edge.
+    #[test]
+    fn only_the_metal_block_kind_keeps_metal() {
+        let kinds = [BlockKind::Code, BlockKind::Callout, BlockKind::Table, BlockKind::Frontmatter, BlockKind::Image];
+        let d = Directions::DEFAULT;
+        for k in kinds {
+            assert_eq!(d.frame(k, None), Some(Frame::Quiet), "{k:?}");
+        }
+        assert_eq!(METAL_BLOCK, None, "the default: no block keeps metal");
+        for metal in kinds {
+            let metals = kinds.iter().filter(|k| matches!(d.frame(**k, Some(metal)), Some(Frame::Metal(_)))).count();
+            assert_eq!(metals, 1, "{metal:?}");
+        }
+        assert_eq!(Directions::default().frame(BlockKind::Code, Some(BlockKind::Code)), None, "off: no frame");
+        assert_eq!(Directions { steel: true, ..Default::default() }.frame(BlockKind::Table, None), None, "tables: Forged only");
+        assert_eq!(metal_block_from(None), METAL_BLOCK);
+        assert_eq!(metal_block_from(Some("code")), Some(BlockKind::Code));
+        assert_eq!(metal_block_from(Some("callouts")), Some(BlockKind::Callout));
+        assert_eq!(metal_block_from(Some("none")), None);
     }
 
     #[test]
     fn each_direction_turns_on_alone() {
         for name in Directions::NAMES {
-            let d = Directions::parse(Some(name));
+            let d = Directions::parse(Some(name)).unwrap();
             assert!(d.any() && !d.full(), "{name}");
             let on = [d.steel, d.forged, d.engraved, d.ember, d.glass, d.tasks, d.electric];
             assert_eq!(on.iter().filter(|x| **x).count(), 1, "{name}");
         }
-        let d = Directions::parse(Some(" Steel , ember,unknown "));
+        let d = Directions::parse(Some(" Steel , ember,unknown ")).unwrap();
         assert!(d.steel && d.ember && !d.forged && !d.glass);
         // Every name listed is every direction: Full forge.
-        assert!(Directions::parse(Some(&Directions::NAMES.join(","))).full());
+        assert!(Directions::parse(Some(&Directions::NAMES.join(","))).unwrap().full());
     }
 
     #[test]

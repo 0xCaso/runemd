@@ -48,7 +48,7 @@ pub struct Signals<S> {
     pub columns: bool,
     /// The space under the last row (`fx::fire::doc_bottom`): the resting fire sits there.
     pub bottom: f32,
-    /// Full forge (`fx::doc_fx`, `RUNEMD_FORGE`): off by default, and then nothing below changes.
+    /// Full forge (`fx::doc_fx`): six directions on by default; off (`RUNEMD_FORGE=off`), nothing below changes.
     pub forge: Forge,
     /// The picture for an image `src` of the document at the path (Forged and Glass only).
     pub image: fn(&S, &std::path::Path, &str) -> Option<rune::Image>,
@@ -61,6 +61,20 @@ pub struct Signals<S> {
 pub struct Forge {
     pub on: crate::fx::doc_fx::Directions,
     pub look: crate::fx::doc_fx::Look,
+    /// The block kind that keeps a metal frame (`doc_fx::METAL_BLOCK`); the rest get a quiet edge.
+    pub metal: Option<crate::fx::doc_fx::BlockKind>,
+}
+
+/// `e` framed as a block of `kind` (constraint 3 of 2026-11-18-full-forge-effects): the still metal
+/// slot for the one metal kind, else a quiet `QUIET_W` outline in `line`, which Rune draws with no
+/// effect layer; unchanged when no direction frames that kind.
+fn framed(e: El, kind: crate::fx::doc_fx::BlockKind, forge: Forge) -> El {
+    use crate::fx::doc_fx::{Frame, QUIET_W, slot};
+    match forge.on.frame(kind, forge.metal) {
+        Some(Frame::Metal(p)) => slot(e, p, forge.look),
+        Some(Frame::Quiet) => e.outline(QUIET_W, 0.0, super::theme::Theme::for_mode(forge.look.dark).line),
+        None => e,
+    }
 }
 
 /// A block's pictures, by `src` as written (`Forge`: Forged and Glass load them).
@@ -258,7 +272,7 @@ pub fn view<S: 'static>(s: &S, doc_of: fn(&S) -> &Document, style: &MarkdownStyl
                 })
             },
         )
-        .virtual_rows_version((rows_version(doc), signals.forge.on.any().then_some(signals.images_ready)))
+        .virtual_rows_version((rows_version(doc), signals.forge.on.any().then_some((signals.images_ready, signals.forge.on.electric))))
         .on_visible_rows(move |s: &mut S, rows| on_rows(s, generation, rows));
     let bottom = col().w_full().h(signals.bottom);
     let edge = signals.edge;
@@ -392,10 +406,7 @@ fn frontmatter_row(source: &str, meta: Meta, forge: Forge) -> El {
     let body = body.rsplit_once('\n').map_or("", |(yaml, _)| yaml);
     let text = rune::text(body.to_owned()).font(TextStyle::new(UI_SMALL, UI_WEIGHT).family(Family::Mono)).color(meta.text).wrap().w_full().selectable(true);
     let block = col().key("frontmatter").w_full().fill(meta.fill).radius(R_ROW).px(FRONTMATTER_PAD_X).py(FRONTMATTER_PAD_Y).child(text);
-    let block = match forge.on.edge() {
-        Some(p) => crate::fx::doc_fx::slot(block, p, forge.look),
-        None => block,
-    };
+    let block = framed(block, crate::fx::doc_fx::BlockKind::Frontmatter, forge);
     col().w_full().px(ROW_PAD_X).py(ROW_PAD_Y).child(block)
 }
 
@@ -479,7 +490,7 @@ const LABEL_GAP: f32 = 16.0;
 #[allow(clippy::too_many_arguments)]
 fn block_body<S: 'static>(source: &str, style: &MarkdownStyle, notes: &crate::doc::footnotes::Notes, places: &crate::doc::paths::Places, progress: Option<(u32, u32)>, open: fn(&mut S, &str, &mut rune::Tx), fonts: super::markdown_style::Fonts, meta: Meta, dress: &Dress, hits: super::find::Marks) -> El {
     let forge = dress.forge;
-    let table = forge.on.wide_edge().filter(|_| crate::fx::doc_fx::is_table(source));
+    let table = forge.on.forged && crate::fx::doc_fx::is_table(source);
     // A `Task N` heading: the number outside the Markdown, in `fg3`, and the progress on the right.
     let task = crate::doc::labels::task_head(source);
     let untasked = task.as_ref().map(|t| crate::doc::footnotes::Edited::new(source, vec![(t.hashes.end + 1..t.prefix.end, String::new())]));
@@ -538,20 +549,23 @@ fn block_body<S: 'static>(source: &str, style: &MarkdownStyle, notes: &crate::do
     let style = if forge.on.ember { Cow::Owned(style.into_owned().link_underline(crate::fx::doc_fx::ember(forge.look.dark))) } else { style };
     // Engraved: H1 and H2 in letterpress, from a copy of the heading drawn under it.
     let press = (forge.on.engraved && matches!(level, Some(1 | 2))).then(|| letterpress(&shown, &style, forge.look));
+    // ...and chrome inside their letters (mockup 3), drawn over the heading.
+    let chrome = match level {
+        Some(n @ 1..=2) if forge.on.engraved && CHROME_LETTERS => Some(chrome_letters(&shown, &style, fonts.headings[n as usize - 1], forge.look)),
+        _ => None,
+    };
     let md = rune_kit::Markdown::new(shown).highlights(hits).selectable(true);
     let md = if linked.is_some() { path_links(md, &meta, fonts) } else { md };
     let md = if forge.on.any() { forge_markdown(md, dress, callout.is_some()) } else { md };
     // Every link opens (`App::open_link`): paths, URLs and `#heading`.
     let md = md.on_link_tx(move |s: &mut S, url, tx| open(s, url, tx));
     let body = md.render(&style).selection_group(false);
-    let body = match press {
-        Some(copy) => el().w_full().child(copy).child(body),
-        None => body,
-    };
-    let body = match (table, callout.as_ref()) {
-        (Some(p), None) => crate::fx::doc_fx::slot(el().w_full().radius(CARD_RADIUS).child(body), p, forge.look),
+    let body = match (press, chrome) {
+        (Some(copy), Some(chrome)) => el().w_full().child(copy).child(body).child(chrome),
+        (Some(copy), None) => el().w_full().child(copy).child(body),
         _ => body,
     };
+    let body = if table && callout.is_none() { framed(el().w_full().radius(CARD_RADIUS).child(body), crate::fx::doc_fx::BlockKind::Table, forge) } else { body };
     let body = match callout {
         Some(c) if forge.on.any() => forged_callout(callout_head(c.kind, &meta), body, c.kind, forge),
         Some(c) => col().w_full().child(callout_head(c.kind, &meta)).child(body),
@@ -584,19 +598,16 @@ const DITHER_W: f32 = 4.0;
 /// The kit's hooks for the forge directions that are on: code cards with an edge, quotes in
 /// fluted glass (not callouts: they have their own band), pictures with an edge and a glass caption.
 fn forge_markdown(md: rune_kit::Markdown, dress: &Dress, callout: bool) -> rune_kit::Markdown {
-    use crate::fx::doc_fx::{Piece, slot};
-    let (on, look) = (dress.forge.on, dress.forge.look);
-    let md = match on.edge() {
-        Some(p) => md.code_frame(move |card, _| slot(el().w_full().radius(CARD_RADIUS).child(card), p, look)),
-        None => md,
-    };
+    use crate::fx::doc_fx::{BlockKind, Piece, slot};
+    let forge = dress.forge;
+    let (on, look) = (forge.on, forge.look);
+    let md = if on.edge().is_some() { md.code_frame(move |card, _| framed(el().w_full().radius(CARD_RADIUS).child(card), BlockKind::Code, forge)) } else { md };
     let md = if on.glass && !callout { md.quote_frame(move |quote, _| slot(el().w_full().radius(IMAGE_RADIUS).child(quote), Piece::Fluted, look)) } else { md };
     if dress.pictures.is_empty() {
         return md;
     }
     let pictures = dress.pictures.clone();
     let md = md.images(move |src| pictures.get(src).cloned());
-    let edge = on.wide_edge();
     let glass = on.glass;
     md.image_frame(move |picture, f| {
         let mut wrap = el().w_full().radius(IMAGE_RADIUS).child(picture);
@@ -608,10 +619,7 @@ fn forge_markdown(md: rune_kit::Markdown, dress: &Dress, callout: bool) -> rune_
             let band = rune::row().key("caption").pin(Some(0.0), None, Some(0.0), Some(0.0)).h(CAPTION_H).radius(IMAGE_RADIUS).px(CALLOUT_PAD_X).center_y().child(caption);
             wrap = wrap.child(slot(band, Piece::Caption, look));
         }
-        match edge {
-            Some(p) => slot(wrap, p, look),
-            None => wrap,
-        }
+        framed(wrap, BlockKind::Image, forge)
     })
 }
 
@@ -638,10 +646,7 @@ fn forged_callout(head: El, body: El, kind: crate::doc::callout::Kind, forge: Fo
     if edged {
         c = c.radius(CARD_RADIUS).px(CALLOUT_PAD_X).py(CALLOUT_PAD_Y);
     }
-    let c = match on.edge() {
-        Some(p) => slot(c, p, look),
-        None => c,
-    };
+    let c = framed(c, crate::fx::doc_fx::BlockKind::Callout, forge);
     if charged { slot(el().w_full().radius(CARD_RADIUS).child(c), Piece::Electric { red: kind == Kind::Caution }, look) } else { c }
 }
 
@@ -671,6 +676,66 @@ fn letterpress(shown: &str, style: &MarkdownStyle, look: crate::fx::doc_fx::Look
     let (ink, dy) = if look.dark { (Color { r: 0.0, g: 0.0, b: 0.0, a: 0.85 }, -1.0) } else { (Color { r: 1.0, g: 1.0, b: 1.0, a: 1.0 }, 1.0) };
     let copy = rune_kit::Markdown::new(shown.to_owned()).render(&style.clone().text(ink));
     el().key("press").pin(Some(0.0), Some(dy), Some(0.0), None).child(copy).a11y_hidden()
+}
+
+/// Engraved: H1 and H2 get chrome inside the letters (decision 2026-11-18-full-forge-effects,
+/// constraint 4). rune-fx has no glyph mask, so the chrome is a few copies of the heading in the
+/// chrome's colours ([`CHROME_STOPS`]), stacked: per line, the first stop's copy whole, then each
+/// next stop's copy clipped from the stop before it down to the line's end, its top faded in
+/// linearly over the gap between the two (`clip_fade_linear`). The stack is the chrome's vertical
+/// gradient inside the letters. Rune's own text and clips: still, no effect layer, nothing to wake.
+const CHROME_LETTERS: bool = true;
+/// Lines of a heading the chrome covers (a longer H1 keeps its plain colour below).
+const CHROME_LINES: usize = 2;
+/// Where the capitals sit in a line box, in em: the content box (ascent + descent) and from its top
+/// the ascent (to the baseline) and the capital height (Inter and SF: 0.97 + 0.24, caps 0.73).
+const CONTENT_EM: f32 = 1.21;
+const ASCENT_EM: f32 = 0.97;
+const CAP_EM: f32 = 0.73;
+
+/// The chrome inside the letters, from the top of the capitals (0) to the baseline (1), dark and
+/// light theme: a bright sky, a dark horizon a little under the middle, a bright line right under
+/// it, a darker ground (the mockup's `background-clip: text` over the still liquid metal).
+pub const CHROME_STOPS: [(f32, u32, u32); 6] = [
+    (0.0, 0xf4f6f9, 0x6d7581),
+    (0.42, 0xb3bac4, 0x3d444e),
+    (0.54, 0x434a55, 0x101419),
+    (0.60, 0xeef1f5, 0x8f98a3),
+    (0.80, 0xb8bfc8, 0x4f5761),
+    (1.0, 0x8a939f, 0x2c323a),
+];
+
+/// The copies of one heading line of `font`: (top of the clip from the line's top, fade-in height,
+/// colour), the first one unfaded from the line's top.
+pub fn chrome_layers(font: TextStyle, dark: bool) -> Vec<(f32, f32, Color)> {
+    let size = font.size;
+    let lh = if font.line_height > 0.0 { font.line_height } else { size * 1.25 };
+    let base = (lh - CONTENT_EM * size) / 2.0 + ASCENT_EM * size;
+    let cap = base - CAP_EM * size;
+    let y = |u: f32| cap + u * (base - cap);
+    let ink = |c: u32| rune::color::hex(&format!("#{c:06x}")).unwrap_or(Color { r: 0.5, g: 0.5, b: 0.5, a: 1.0 });
+    let pick = |s: &(f32, u32, u32)| ink(if dark { s.1 } else { s.2 });
+    let mut out = vec![(0.0, 0.0, pick(&CHROME_STOPS[0]))];
+    out.extend(CHROME_STOPS.windows(2).map(|w| (y(w[0].0), y(w[1].0) - y(w[0].0), pick(&w[1]))));
+    out
+}
+
+/// The chrome over a heading `shown` of `font`: out of the flow, clipped to the heading, not
+/// selectable and hidden from VoiceOver.
+fn chrome_letters(shown: &str, style: &MarkdownStyle, font: TextStyle, look: crate::fx::doc_fx::Look) -> El {
+    let lh = if font.line_height > 0.0 { font.line_height } else { font.size * 1.25 };
+    let mut layer = el().key("chrome").pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0)).clip_soft(0.0).a11y_hidden();
+    for line in 0..CHROME_LINES {
+        let line_top = line as f32 * lh;
+        for (top, fade, ink) in chrome_layers(font, look.dark) {
+            let y = line_top + top;
+            let copy = rune_kit::Markdown::new(shown.to_owned()).render(&style.clone().text(ink));
+            let inner = el().pin(Some(0.0), Some(-y), Some(0.0), None).child(copy);
+            let clip = el().pin(Some(0.0), Some(y), Some(0.0), None).h(lh - top).clip_fade_linear(0.0, fade, 0.0, 0.0);
+            layer = layer.child(clip.child(inner));
+        }
+    }
+    layer
 }
 
 /// A flat task list, forged (Tasks): each item's checkbox a chrome bead (a gunmetal ring when
@@ -1928,13 +1993,35 @@ mod tests {
         }
     }
 
-    /// Task list checkboxes are the ones from Settings: off is empty (`fg3` border),
-    /// lit, full in `fg2`.
+    /// Constraint 4 of 2026-11-18-full-forge-effects: by default H1 and H2 carry chrome inside the
+    /// letters (an overlay of Rune text, no effect layer); H3 and body text do not.
+    #[test]
+    fn h1_and_h2_get_chrome_letters_without_an_effect_layer() {
+        let rt = open_themed("# Title\n\n## Part\n\n### Small\n\nText.\n", true);
+        let chromes = rt.elements().iter().filter(|e| e.key.as_deref() == Some("chrome")).count();
+        assert_eq!(chromes, 2, "H1 and H2");
+        let effects = rt.instances.iter().filter(|i| i.params[1] == rune::render::KIND_EFFECT).filter_map(|i| crate::fx::doc_fx::read(i.uv)).count();
+        assert_eq!(effects, 0, "chrome letters are Rune text, not rune-fx slots");
+        let font = crate::ui::markdown_style::fonts(crate::fonts::Typeface::of("Inter", crate::ui::theme::BODY_TEXT)).headings[0];
+        let layers = super::chrome_layers(font, true);
+        assert_eq!(layers.len(), super::CHROME_STOPS.len());
+        assert!(layers.windows(2).all(|w| w[1].0 >= w[0].0), "stacked top down: {layers:?}");
+        assert!(layers.last().is_some_and(|l| l.0 + l.1 < font.line_height), "inside the line box");
+    }
+
+    /// With Full forge off (`RUNEMD_FORGE=off`; on by default Tasks draws chrome beads), task list
+    /// checkboxes are the ones from Settings: off is empty (`fg3` border), lit, full in `fg2`.
     #[test]
     fn task_checkboxes_look_like_the_settings_one() {
         for dark in [true, false] {
             let t = crate::ui::theme::Theme::for_mode(dark);
-            let rt = open_themed("- [ ] to do\n- [x] done\n", dark);
+            let mut state = Doc::bare(crate::index::Library::load(Vec::new(), None));
+            state.forge_lab = Some(crate::fx::doc_fx::Directions::default());
+            state.set_style(crate::ui::markdown_style::style(&t, crate::ui::theme::BODY_TEXT));
+            state.push_tab(Document::from_source(Path::new("t.md"), "- [ ] to do\n- [x] done\n"));
+            let mut rt = Runtime::new(state, crate::view, VIEWPORT, Env::new(dark, 2.0));
+            rt.frame(0.0);
+            settle(&mut rt);
             let els = rt.elements();
             let control = |label: &str| {
                 let row = els.iter().position(|e| e.role == "checkbox" && e.label.as_deref() == Some(label)).unwrap_or_else(|| panic!("missing {label}"));

@@ -135,7 +135,7 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
             // Labelled blocks in two columns if the text column is wide (from the last
             // layout; Rune runs the view again when the threshold is crossed).
             let columns = cx.layout_with("rows", |r| r[2] - 2.0 * ui::theme::ROW_PAD_X >= ui::doc_view::TWO_COLUMNS).unwrap_or(false);
-            let signals = ui::doc_view::Signals { marked: App::is_marked, mark: theme.mark, caret, hits: App::find_hits, edge: App::doc_edge, meta: theme.meta(), fonts: ui::markdown_style::fonts(fonts::Typeface::of(&s.settings.font, s.settings.size)), open: App::open_link, columns, bottom: fx::fire::doc_bottom(s.settings.fire.shows(), s.settings.fire_height), forge: ui::doc_view::Forge { on: s.forge, look: fx::doc_fx::Look { dark, reduced } }, image: App::doc_image, images_ready: if s.forge.any() { s.doc_images_ready() } else { 0 } };
+            let signals = ui::doc_view::Signals { marked: App::is_marked, mark: theme.mark, caret, hits: App::find_hits, edge: App::doc_edge, meta: theme.meta(), fonts: ui::markdown_style::fonts(fonts::Typeface::of(&s.settings.font, s.settings.size)), open: App::open_link, columns, bottom: fx::fire::doc_bottom(s.settings.fire.shows(), s.settings.fire_height), forge: ui::doc_view::Forge { on: s.forge(), look: fx::doc_fx::Look { dark, reduced }, metal: s.metal_block }, image: App::doc_image, images_ready: if s.forge().any() { s.doc_images_ready() } else { 0 } };
             let doc = ui::doc_view::view(s, App::active_document, s.style(dark), s.settings.column, App::visible_rows, signals);
             // The heading outline on the right, only if the window is at least sidebar + column
             // + 200 wide (before the first layout it is not known: no outline). The view reads it from Rune,
@@ -558,8 +558,14 @@ mod tests {
 
     /// The forge pieces drawn for `fixtures/forge.md` with `forge` on: (piece, still).
     fn forge_pieces(forge: crate::fx::doc_fx::Directions) -> Vec<crate::fx::doc_fx::Piece> {
+        forge_pieces_with(forge, None)
+    }
+
+    /// [`forge_pieces`] with `metal` the block kind that keeps a metal frame.
+    fn forge_pieces_with(forge: crate::fx::doc_fx::Directions, metal: Option<crate::fx::doc_fx::BlockKind>) -> Vec<crate::fx::doc_fx::Piece> {
         let mut app = crate::App::bare(crate::index::Library::load(Vec::new(), None));
-        app.forge = forge;
+        app.forge_lab = Some(forge);
+        app.metal_block = metal;
         app.images = Some(rune::ImageCache::new(std::sync::Arc::new(|| {})));
         app.open_paths(vec![PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("fixtures/forge.md")]);
         let mut rt = rune::Runtime::new(app, crate::view, (1280.0, 2400.0), rune::Env::new(true, 2.0));
@@ -584,12 +590,19 @@ mod tests {
     #[test]
     fn each_forge_direction_dresses_its_blocks() {
         use crate::fx::doc_fx::{Directions, Piece};
-        let alone = |name: &str| forge_pieces(Directions::parse(Some(name)));
+        use crate::fx::doc_fx::BlockKind;
+        let alone = |name: &str| forge_pieces(Directions::parse(Some(name)).unwrap());
+        let metal = |name: &str, kind| forge_pieces_with(Directions::parse(Some(name)).unwrap(), Some(kind));
         let edges = |v: &[Piece]| v.iter().filter(|p| matches!(p, Piece::Edge { .. })).count();
-        // Steel: code, frontmatter, the five callouts.
-        assert_eq!(edges(&alone("steel")), 7, "{:?}", alone("steel"));
-        // Forged: those and the table (images decode on the worker: not in a headless frame).
-        assert!(edges(&alone("forged")) >= 8, "{:?}", alone("forged"));
+        // By default no block keeps metal: Steel and Forged draw quiet edges, no effect layer.
+        assert_eq!(edges(&alone("steel")), 0, "{:?}", alone("steel"));
+        assert_eq!(edges(&alone("forged")), 0, "{:?}", alone("forged"));
+        // The one metal kind: code (one card), the five callouts, the frontmatter, the table.
+        assert_eq!(edges(&metal("steel", BlockKind::Code)), 1);
+        assert_eq!(edges(&metal("steel", BlockKind::Callout)), 5);
+        assert_eq!(edges(&metal("steel", BlockKind::Frontmatter)), 1);
+        assert_eq!(edges(&metal("steel", BlockKind::Table)), 0, "tables: Forged only");
+        assert_eq!(edges(&metal("forged", BlockKind::Table)), 1);
         assert!(alone("engraved").iter().all(|p| *p == Piece::Rod) && alone("engraved").len() == 2);
         assert!(alone("ember").iter().all(|p| *p == Piece::Fire) && alone("ember").len() == 2);
         let glass = alone("glass");
@@ -599,7 +612,7 @@ mod tests {
         assert_eq!(tasks.iter().filter(|p| matches!(p, Piece::Bead { .. })).count(), 4, "{tasks:?}");
         assert!(tasks.contains(&Piece::Tube) && tasks.contains(&Piece::TubeFill));
         assert_eq!(alone("electric"), vec![Piece::Electric { red: false }, Piece::Electric { red: true }]);
-        let all = forge_pieces(Directions::ALL);
+        let all = forge_pieces_with(Directions::ALL, Some(BlockKind::Callout));
         assert!(all.iter().any(|p| matches!(p, Piece::Edge { chrome: true, .. })), "Full forge edges are chrome");
         assert!(all.iter().all(|p| !matches!(p, Piece::Edge { chrome: false, .. })));
     }

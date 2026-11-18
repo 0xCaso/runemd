@@ -166,6 +166,9 @@ pub struct Settings {
     pub saved: Vec<PathBuf>,
     /// Recent is collapsed in the sidebar (a click on its title, feedback group 3, item 7).
     pub recent_collapsed: bool,
+    /// Full forge's charged edge on Warning and Caution callouts (decision
+    /// `2026-11-18-full-forge-effects`, constraint 2): off by default, it costs CPU at rest.
+    pub electric: bool,
 }
 
 impl Default for Settings {
@@ -185,6 +188,7 @@ impl Default for Settings {
             outline: Pane::new(panes::OUTLINE),
             saved: Vec::new(),
             recent_collapsed: false,
+            electric: false,
         }
     }
 }
@@ -216,6 +220,8 @@ const SIDEBAR: &str = "sidebar";
 const OUTLINE: &str = "outline";
 const SAVED: &str = "saved_folders";
 const RECENT_COLLAPSED: &str = "recent_collapsed";
+/// A new key: older prefs files have none (off), and older builds ignore it.
+const ELECTRIC: &str = "electric_edge";
 
 impl Settings {
     /// The settings saved in `prefs`; missing or invalid values take the default.
@@ -248,6 +254,7 @@ impl Settings {
             outline: prefs.get::<Pane>(OUTLINE).map_or(d.outline, |p| p.sanitized(panes::OUTLINE)),
             saved: prefs.get(SAVED).unwrap_or(d.saved),
             recent_collapsed: prefs.get(RECENT_COLLAPSED).unwrap_or(d.recent_collapsed),
+            electric: prefs.get(ELECTRIC).unwrap_or(d.electric),
         }
     }
 
@@ -267,7 +274,8 @@ impl Settings {
         prefs.set(SIDEBAR, &self.sidebar)?;
         prefs.set(OUTLINE, &self.outline)?;
         prefs.set(SAVED, &self.saved)?;
-        prefs.set(RECENT_COLLAPSED, &self.recent_collapsed)
+        prefs.set(RECENT_COLLAPSED, &self.recent_collapsed)?;
+        prefs.set(ELECTRIC, &self.electric)
     }
 
     /// The next width of `COLUMNS` in the direction `step` (−1 or +1) from the current one, which may
@@ -455,6 +463,7 @@ mod tests {
             outline: Pane { width: 240.0, learned: vec![240.0] },
             saved: vec![PathBuf::from("/a/runemd")],
             recent_collapsed: true,
+            electric: true,
         };
         s.save(&mut prefs).unwrap();
         assert_eq!(Settings::load(&prefs), s);
@@ -489,6 +498,23 @@ mod tests {
             (s.size, s.font.as_str(), s.theme, s.fire),
             (15.5, "Inter", ThemePref::System, FireMode::Off)
         );
+    }
+
+    /// Decision 2026-11-18-full-forge-effects, constraint 2: the charged edge switch is off by
+    /// default and in prefs files that predate it, and a save keeps it (and the other keys).
+    #[test]
+    fn the_electric_switch_is_off_by_default_and_saved() {
+        assert!(!Settings::default().electric);
+        let mut prefs = Prefs::memory();
+        prefs.set(FIRE_MODE, &FireMode::Always).unwrap();
+        let old = Settings::load(&prefs);
+        assert!(!old.electric, "an older prefs file: off");
+        assert_eq!(old.fire, FireMode::Always, "the rest reads as before");
+        Settings { electric: true, ..old }.save(&mut prefs).unwrap();
+        assert_eq!(prefs.get::<bool>(ELECTRIC), Some(true));
+        assert!(Settings::load(&prefs).electric);
+        prefs.set(ELECTRIC, &"yes").unwrap();
+        assert!(!Settings::load(&prefs).electric, "unreadable: the default");
     }
 
     /// Decision 2026-11-17-doc-fire-at-rest, constraint 1: the old on/off switch (`fire`) reads as

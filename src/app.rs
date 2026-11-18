@@ -403,8 +403,11 @@ pub struct App {
     /// `RUNEMD_GLASS` (glass opacity in percent, `glass_env`), read once at startup:
     /// only for photos, the default stays the one of `Theme`.
     pub(crate) glass_env: Option<f32>,
-    /// `RUNEMD_FORGE` (Full forge, `fx::doc_fx`), read once at startup: off by default.
-    pub(crate) forge: crate::fx::doc_fx::Directions,
+    /// `RUNEMD_FORGE` (Full forge, `fx::doc_fx`), read once at startup: a lab override of the
+    /// defaults (six on, electric from Settings), `None` when unset. `App::forge` is what is on.
+    pub(crate) forge_lab: Option<crate::fx::doc_fx::Directions>,
+    /// The block kind that keeps a metal frame (`doc_fx::METAL_BLOCK`, or `RUNEMD_METAL_BLOCK`).
+    pub(crate) metal_block: Option<crate::fx::doc_fx::BlockKind>,
     /// The document pictures Full forge shows (Forged, Glass), by path: held so they decode once.
     pub(crate) doc_images: std::cell::RefCell<std::collections::HashMap<PathBuf, rune::Image>>,
     /// "Reduce motion" as the last view saw it (`poll` has no `Cx`): the fire at rest
@@ -478,7 +481,8 @@ impl App {
                 _ => None,
             },
             reduced_seen: std::cell::Cell::new(false),
-            forge: crate::fx::doc_fx::Directions::from_env(),
+            forge_lab: crate::fx::doc_fx::Directions::from_env(),
+            metal_block: crate::fx::doc_fx::metal_block(),
             doc_images: Default::default(),
             motion_env: crate::fx::reduce_motion_env(std::env::var("RUNEMD_REDUCE_MOTION").ok().as_deref()),
             glass_env: glass_env(std::env::var("RUNEMD_GLASS").ok().as_deref()),
@@ -613,6 +617,21 @@ impl App {
 
     /// Brief, Always or Off for the fire at the bottom of the pane; the new-text label stays. Brief
     /// shows at once, so the choice is seen.
+    /// The Full forge directions on now: the defaults with the Settings electric switch, or the lab
+    /// override (`RUNEMD_FORGE`).
+    pub fn forge(&self) -> crate::fx::doc_fx::Directions {
+        crate::fx::doc_fx::Directions::effective(self.forge_lab, self.settings.electric)
+    }
+
+    /// The Settings switch for the charged edge on Warning and Caution (off by default): saved.
+    pub fn set_electric(&mut self, on: bool) {
+        self.settings_panel.clear_notice();
+        if self.settings.electric != on {
+            self.settings.electric = on;
+            self.save_settings();
+        }
+    }
+
     pub fn set_fire_mode(&mut self, mode: FireMode) {
         self.settings_panel.clear_notice();
         if self.settings.fire != mode {
