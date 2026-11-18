@@ -293,6 +293,23 @@ the fix of 2026-11-14 (`docs/decisions/2026-11-14-find-dark-contrast.md`).
   `docs/proof/thicker-metal/`.
 - 2026-11-18, moving metal: every metal edge is one width, 2 pt (`RING_W`), calm and writing alike; it replaces
   3.25 (ring, ⌘P panel) and 2.3 (`CALM_W`, removed). Proof: `docs/proof/moving-metal/`.
+  Contrast re-measured 2026-11-18 at 2 pt (`bench/metal_tab.sh`, `bench/ring_contrast.py PHOTO 368 16 240 28 4`:
+  tab rect read off the pixels, a 4 px band = 2 pt at scale 2, one frame per shot). The metal moves, so each
+  frame differs; four frames per theme of the calm edge (0.1, 0.6, 1.3, 2.1 s after ready) and one of the
+  writing ring:
+
+  | 2 pt edge, frame | Dark: min on bar / on `sel` (median) | Light: min on bar / on `sel` (median) |
+  |---|---|---|
+  | Writing ring | 5.38 / 4.00 (9.58 / 7.13) | 3.42 / 3.00 (17.03 / 14.93) |
+  | Calm, 0.1 s | 1.53 / 1.14 (11.42 / 8.50) | 3.26 / 2.86 (11.26 / 9.87) |
+  | Calm, 0.6 s | 5.94 / 4.42 (9.02 / 6.71) | 5.49 / 4.81 (16.58 / 14.54) |
+  | Calm, 1.3 s | 5.14 / 3.83 (18.58 / 13.82) | 5.28 / 4.63 (13.74 / 12.04) |
+  | Calm, 2.1 s | 5.45 / 4.06 (8.70 / 6.48) | 5.74 / 5.04 (16.98 / 14.89) |
+
+  6 of 8 calm frames and the writing ring keep ≥ 3:1 on the whole perimeter on `sel`. Two frames dip: dark at
+  0.1 s, 5 px of the left side (99 % of the perimeter ≥ 3; the studio's dark floor passes there, pixels
+  `26 26 26`–`38 38 38` on `sel` `28 29 2b`) and light at 0.1 s (min 2.86 on `sel`, a few points; over 99.5 % ≥ 3). The dip moves on within a turn (`TURN`, 3 s); the 3.25 pt values above it no
+  longer apply. Photos: not committed (scratch), regenerate with the commands above.
 - The duplicate name (repo or folder) is in `fg-2` on the selected ⌘P row: in `fg-3` on `sel` it went down to
   3.2:1.
 - Each small text inside a row that takes `sel` on hover on glass (the second line of Recent, that is folder or
