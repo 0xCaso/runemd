@@ -451,3 +451,41 @@ MDLight: no build found on this Mac (`_vendor/md-light-bench/build/MDLight.app` 
 
 The window on the virtual display is never key. With a document open the 1–5 s rest frames are unchanged: 47 frames in 4 s, all running the view, CPU
 p50 1.55 → 1.50 ms.
+
+## Moving metal 2026-11-18
+
+Every metal edge (calm tab, ⌘P panel, writing rings) is the moving chrome (docs/decisions/2026-11-18-moving-metal-edges.md, on
+main). Method: `after` = branch `feat/moving-metal-edges`, `before` = `release/2026-11-18` plus the same probes, both
+`--profile perf`, ad-hoc signed bundles, on a private 120 Hz virtual display (1920×1200 pt, 2×), `fixtures/big.md`, dark
+theme, empty `RUNEMD_ROOTS`, fresh `RUNE_DIRS_ROOT` (fire mode Brief, the default), `MDSPIKE_ACTIVE=1` (the window counts
+as active: virtual-screen windows are never key). Idle: the app's PID only, 10–70 s after launch (the Brief fire has
+gone), `cpu_time` = `ps -o time` delta / 60 s, `ps_mean` = 60 samples of `ps -o %cpu`, frames/s from `MDSPIKE_FRAMES`
+(`drawn=1`). Scroll: `MDSPIKE_SCROLL=4 MDSPIKE_SPEED=3000`, the `scroll frames` line. Run only while `pgrep -x cargo` and
+`pgrep rustc` were empty; another agent's app was open, so the load average (column) varies.
+
+| Idle, 60 s | cpu_time | ps_mean | frames/s | load |
+|---|---|---|---|---|
+| before r1 / r2 / r3 | 0.50 / 0.07 / 0.08 % | 0.40 / 0.02 / 0.03 % | 1.2 / 0 / 0 | 38 / 11 / 15 |
+| after r1 / r2 / r3 | 2.37 / 2.18 / 1.93 % | 1.98 / 1.85 / 1.62 % | 16.1 / 16.1 / 16.0 | 17 / 22 / 15 |
+
+| Scroll, ~4 s at 120 Hz | frames | dt p50 / p95 / p99 ms | missed refreshes | frame CPU p50 / p95 / p99 ms |
+|---|---|---|---|---|
+| before r1 / r2 / r3 | 348 / 464 / 473 | 8.34 / 9.28 / 12.99 · 8.34 / 11.37 / 13.75 · 8.33 / 9.40 / 13.34 | 115 / 15 / 6 | 0.71 / 1.09 / 3.84 · 0.71 / 1.77 / 3.98 · 0.65 / 0.87 / 3.61 |
+| after r1 / r2 / r3 | 444 / 470 / 466 | 8.38 / 13.78 / 16.24 · 8.33 / 9.97 / 13.56 · 8.32 / 9.39 / 12.18 | 34 / 9 / 5 | 0.91 / 3.58 / 7.34 · 0.68 / 1.11 / 3.54 · 0.65 / 0.98 / 3.58 |
+
+Scrolling is the same (r1 of both ran under load 17–38); the moving metal costs ~2 % at rest.
+
+How it moves without the display link and without running the view:
+- First version: the calm edge as an animating layer holds the display link: 120 frames/s, **14.5 %** idle. Dropped.
+- Now: the compositor draws calm edges, and writing rings past their 220 ms entrance, as paced layers, and stamps
+  `App::metal_drawn` when it draws moving metal. `poll`, when nothing else changed and the metal moves
+  (`App::metal_moves`: window active, no Reduce Motion, a tab, ⌘P or a ring), asks `wake_after(ZERO)` once
+  `ring::METAL_FRAME` (125 ms) has passed since the stamp, or `wake_at` the step otherwise (`App::metal_due`). A zero wake
+  on a resting window draws a frame without a commit (Rune `resting_wake`), so the view does not run.
+- Rune draws a second frame ~8 ms after each such frame: the zero wake is scheduled again from the poll after the frame
+  it asked for (`frame_polled`), so 8 steps/s are 16 frames/s. The app cannot ask for exactly one frame (only a commit
+  does, and a commit runs the view). Measured idle by step rate (one run each): 12/s (`fire::REST_FRAME`) 2.85–4.0 %,
+  8/s 2.2 %, 6/s 1.9 %. 8/s is the slowest that does not look choppy, at the ~2 % mark.
+- Reduce Motion or an inactive window: every edge is the still pose and `metal_moves` is false, so no wake-ups
+  (test `an_inactive_window_and_reduce_motion_keep_the_metal_still`). The fire at rest is unchanged ("Release pass
+  2026-11-17").
