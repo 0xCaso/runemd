@@ -30,8 +30,8 @@ pub const KBD_WEIGHT: f32 = 400.0;
 /// on the `tab_bar` tint, 10 margin on the right, 8 before the first tab. Tabs sit edge to edge (VS Code,
 /// record 2026-11-18-vscode-tabs; c6b02b5 had 8 between them, "troppo spazio"), from `TAB_TOP` below the
 /// bar's top down to the document, with `TAB_PAD_X` before the name and a `TAB_DIVIDER` line in `line`
-/// between back tabs. The front tab has the page's `panel` fill and rounded top corners (`R_ROW`) and runs
-/// into the document: the bar's bottom line stops under it.
+/// between back tabs. The front tab is a `sel` pill inside the bar with a closed metal ring
+/// (`ui::tabs::PILL_H`, record 2026-11-18-tab-bar-style).
 pub const TAB_BAR_H: f32 = 44.0;
 pub const TAB_BAR_PAD_X: f32 = 10.0;
 pub const TAB_BAR_LEAD: f32 = 8.0;

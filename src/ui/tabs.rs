@@ -1,7 +1,7 @@
 //! The tab bar at the top of the panel (DESIGN.md, "Tab"; record 2026-11-18-vscode-tabs): the names of
 //! the open files in VS Code's shape, edge to edge, each tab as wide as its name with `TAB_PAD_X` before
-//! it (at most 240, the name cut in the middle), the front one in the page's `panel` fill and joined to
-//! the document, the "is writing" ring around the file's tab, "⌘E source" on the right and, to its left,
+//! it (at most 240, the name cut in the middle), the front one a `sel` pill inside the bar with a closed
+//! metal ring round it (record 2026-11-18-tab-bar-style), the "is writing" ring around the file's tab, "⌘E source" on the right and, to its left,
 //! the gear (settings, `ui::shortcuts`) and the text width ↔ button: it opens a popover with the
 //! settings slider (same `settings.column`, continuous); ⌘⌥+ and ⌘⌥- take one step.
 //!
@@ -149,7 +149,7 @@ const END_ROOM: f32 = FADE_W + RING_W + 4.0;
 const FADE_TINT: f32 = 0.78;
 
 /// The scroll bar under the tabs (Matteo: "con uno slider anche visibile"): `SCROLL_BAR` tall, at the
-/// strip's bottom, behind the tabs (the front tab hides it), drawn only while the tabs overflow. Rune's own bars
+/// strip's bottom, behind the tabs and below the front tab's ring, drawn only while the tabs overflow. Rune's own bars
 /// follow the system setting and hide at rest, so the strip draws its own.
 pub const SCROLL_BAR: f32 = 3.0;
 const SCROLL_BAR_MIN: f32 = 24.0;
@@ -166,8 +166,7 @@ pub fn thumb(offset: f32, max: f32, viewport: f32) -> [f32; 4] {
     [x, 0.0, w, SCROLL_BAR]
 }
 
-/// The bar: `TAB_BAR_H` tall on the `tab_bar` tint, with a 0.5 line at the bottom that the front tab
-/// covers. The tabs scroll sideways under the buttons on the right. `hover`: the pointer is a fine one
+/// The bar: `TAB_BAR_H` tall on the `tab_bar` tint, with a 0.5 line at the bottom. The tabs scroll sideways under the buttons on the right. `hover`: the pointer is a fine one
 /// and can hover.
 pub fn view(s: &App, hooks: Hooks<App>, theme: &Theme, reduced: bool, hover: bool) -> El {
     let motion = Motion { reduced, hover };
@@ -182,8 +181,8 @@ pub fn view(s: &App, hooks: Hooks<App>, theme: &Theme, reduced: bool, hover: boo
         .child(list);
     let track = el().key("tabs-scroll-bar").pin(Some(0.0), None, Some(0.0), Some(HAIRLINE)).h(SCROLL_BAR).a11y_hidden()
         .child(el().key("tabs-scroll-thumb").pin(Some(0.0), Some(0.0), None, None).h(SCROLL_BAR).radius(SCROLL_BAR / 2.0).fill(theme.fg3.alpha(0.45)).live_rect(&at));
-    // The track is drawn before the strip: the front tab's opaque fill covers the thumb, so the tab stays
-    // joined to the page; the back tabs (no fill) let it show.
+    // The track is drawn before the strip, under the tabs (no fill below the pill) and the front tab's
+    // ring, which ends above it (`_RING_FITS`).
     let strip_box = el().key("tabs-strip").grow(1.0).shrink().min_w(0.0).h_full().child(track).child(strip);
     let key = el().key("source-key").border(HAIRLINE, theme.line).radius(R_KBD).px(KBD_PAD_X).py(KBD_PAD_Y)
         .child(text(SOURCE_KEY).font(TextStyle::new(KBD_TEXT, KBD_WEIGHT)).color(theme.fg3));
@@ -209,14 +208,23 @@ pub const CLOSE_PAD: f32 = ROW_GAP;
 pub const CLOSE_GAP: f32 = 6.0;
 const R_CLOSE: f32 = 4.0;
 
-/// How far the front tab's ring host runs below the tab: the compositor cuts the ring at the tab's
-/// bottom (`fx::compositor::slot_clip`), so the metal's bottom side and its lower corners fall out of
-/// sight and the ring reads as an arc open into the document.
-const RING_TAIL: f32 = R_ROW + RING_W + 1.0;
+/// The front tab's pill (record 2026-11-18-tab-bar-style, constraint 2, as in the installed app): the
+/// tab's full width, `PILL_H` tall in the middle of the tab, all four corners `R_ROW`, in `sel`. The
+/// metal ring runs closed `RING_W` outside it, inside the bar: never on the page. 24.5 puts the pill 6
+/// from the tab's top and bottom, on whole device pixels.
+pub const PILL_H: f32 = 24.5;
+const PILL_Y: f32 = (TAB_H - PILL_H) / 2.0;
 
-/// The front tab's metal edge, `RING_W` outside the tab: inside the bar above it, clear of the first
-/// tab's lead, and only over the neighbours' padding, never their names or ×.
-const _RING_FITS: () = assert!(TAB_TOP > RING_W && TAB_BAR_LEAD > RING_W && TAB_PAD_X > RING_W && CLOSE_PAD > RING_W);
+/// The front tab's ring, `RING_W` outside the pill: inside the bar above it, clear of the first tab's
+/// lead, only over the neighbours' padding (never their names or ×), and above the scroll bar and the
+/// bar's bottom line, so it never touches the page.
+const _RING_FITS: () = assert!(
+    TAB_TOP + PILL_Y > RING_W
+        && TAB_BAR_LEAD > RING_W
+        && TAB_PAD_X > RING_W
+        && CLOSE_PAD > RING_W
+        && TAB_TOP + PILL_Y + PILL_H + RING_W < TAB_BAR_H - SCROLL_BAR
+);
 
 /// Closes tab `id` (middle click, ×): with unsaved changes it brings it to the front with the
 /// question, like Cmd+W (`App::close`).
@@ -258,8 +266,8 @@ fn close_button(key: &str, id: u64, title: &str, front: bool, theme: &Theme, mot
 const CLOSE_GLYPH: f32 = 14.0;
 
 /// A tab (record 2026-11-18-vscode-tabs): `TAB_H` tall, edge to edge with the others, `TAB_PAD_X` before
-/// the name and the × after it. Front: the page's `panel` fill, rounded top corners, text `fg`, no
-/// divider. The others: no fill (the bar's tint), text `fg2`, hover `sel`, a `TAB_DIVIDER` line in
+/// the name and the × after it. Front: a `sel` pill (`PILL_H`, four corners `R_ROW`) with the metal
+/// ring round it, text `fg`, no divider. The others: no fill (the bar's tint), text `fg2`, hover `sel`, a `TAB_DIVIDER` line in
 /// `line` on the right unless the next tab is the front one.
 fn tab_row(s: &App, hooks: Hooks<App>, i: usize, n: usize, tab: &crate::app::Tab, theme: &Theme, motion: Motion) -> El {
     let front = i == s.active;
@@ -272,7 +280,14 @@ fn tab_row(s: &App, hooks: Hooks<App>, i: usize, n: usize, tab: &crate::app::Tab
     let close = close_button(&key, id, &title, front, theme, motion);
     // At most `TAB_MAX_W`, the name cut in the middle: a long tab does not push the others
     // out.
-    let mut e = row()
+    // The pill behind the name, and the ring's host: always present, so the structure does not change
+    // when the tab comes to the front or the ring lights up.
+    let mut pill = el().key(format!("{key}-pill")).pin(Some(0.0), Some(PILL_Y), Some(0.0), Some(PILL_Y)).radius(R_ROW).a11y_hidden();
+    if front {
+        pill = pill.fill(theme.sel);
+    }
+    let pill = fx::ring::slot(pill, Mark::TabRing(i as u32), fx::ring::edge(s.ring_of(tab.path()), front), motion.reduced, theme.dark);
+    let e = row()
         .max_w(TAB_MAX_W)
         .h(TAB_H)
         .pl(TAB_PAD_X)
@@ -283,6 +298,7 @@ fn tab_row(s: &App, hooks: Hooks<App>, i: usize, n: usize, tab: &crate::app::Tab
         .label(title)
         .focus_selected(front)
         .hover_group()
+        .child(pill)
         .child(label)
         .child(close)
         .on_press_tx(move |s: &mut App, tx: &mut Tx| {
@@ -294,9 +310,6 @@ fn tab_row(s: &App, hooks: Hooks<App>, i: usize, n: usize, tab: &crate::app::Tab
         })
         .on_double_press(move |s: &mut App| s.pin(id))
         .on_middle_press(move |s: &mut App, tx: &mut Tx| close_tab(s, id, tx));
-    if front {
-        e = e.fill(theme.panel);
-    }
     let divider = !front && i + 1 != s.active && i + 1 < n;
     let e = sidebar::pressable(e, key.clone(), &s.sidebar, hooks, theme, motion, !front).corners([R_ROW, R_ROW, 0.0, 0.0]).key(key.clone());
     // The front tab comes out from under the bar's buttons and the strip's ends, however it got to the
@@ -314,16 +327,11 @@ fn tab_row(s: &App, hooks: Hooks<App>, i: usize, n: usize, tab: &crate::app::Tab
     } else {
         e
     };
-    let e = if divider {
+    if divider {
         e.child(el().key("tab-divider").pin(None, Some(TAB_DIVIDER_INSET), Some(0.0), Some(TAB_DIVIDER_INSET)).w(TAB_DIVIDER).fill(theme.line).a11y_hidden())
     } else {
         e
-    };
-    // The ring's host: always present, so the structure does not change when it lights up; it runs
-    // `RING_TAIL` below the tab, where the compositor cuts it (`RING_TAIL`).
-    let host = el().radius(R_ROW).h(TAB_H + RING_TAIL).child(e);
-    let edge = fx::ring::edge(s.ring_of(tab.path()), front);
-    fx::ring::slot(host, Mark::TabRing(i as u32), edge, motion.reduced, theme.dark)
+    }
 }
 
 /// The divider between back tabs stops this far from the tab's top and bottom, so it reads as a light
@@ -560,33 +568,41 @@ mod tests {
         rt
     }
 
-    /// Record 2026-11-18-tab-bar-style, constraint 2: the front tab's metal is an open arc. The slot is
-    /// cut on a whole device pixel at the tab's bottom, the page's top edge; the ring's bottom side and
-    /// its lower corners lie wholly below the cut, so no metal pixel is on the tab's bottom edge, while
-    /// the top and both sides are wholly inside it and run down to the page. The tab still covers the
-    /// bar's line, joined to the page.
+    /// Record 2026-11-18-tab-bar-style, constraint 2 (the installed app): the front tab is a pill inside
+    /// the bar with a closed metal ring round it. The ring's shape is `RING_W` outside the pill, all of it
+    /// inside the slot's clip (no side cut), inside the bar and above the page's top edge, and above the
+    /// scroll bar, which shows whole below it when the tabs overflow (a1420a2 cut into the page, faa020c
+    /// cut the bottom side off).
     #[test]
-    fn the_front_tab_metal_is_an_arc_open_at_the_bottom() {
-        let mut rt = tabs(&["alfa.md", "beta.md", "gamma.md"]);
-        rt.track_marks = true;
-        rt.frame(1.0 / 60.0);
-        let k = 2.0;
-        let slots = crate::fx::tab_ring_slots(&rt);
-        assert_eq!(slots.len(), 1, "only the front tab has metal: {slots:?}");
-        let (_, clip, layer) = slots[0];
-        let front = rt.state.tabs[rt.state.active].doc.id;
-        let tab = find(&rt, &tab_key(front)).expect("front tab").rect;
-        let bottom = tab[1] + tab[3];
-        let bar = find(&rt, "tab-bar").expect("bar").rect;
-        assert!((bottom - (bar[1] + bar[3])).abs() < 0.01, "the tab runs to the page, over the bar's line: {tab:?} {bar:?}");
-        assert_eq!(clip[3], (bottom * k).round(), "cut at the tab's bottom on a whole pixel");
-        let shape = layer.shape.rect;
-        let (x0, y0, x1, y1) = (shape.x * k, shape.y * k, (shape.x + shape.w) * k, (shape.y + shape.h) * k);
-        // The bottom band and its rounded corners start `RING_W + radius` above the shape's bottom.
-        let lower = y1 - (RING_W + layer.shape.radius) * k;
-        assert!(lower >= clip[3], "the bottom side and its corners are cut: from {lower} px, cut at {}", clip[3]);
-        assert!(clip[0] <= x0 && x1 <= clip[2] && clip[1] <= y0, "the top and both sides show whole: {clip:?} vs {:?}", (x0, y0, x1, y1));
-        assert!((x0 / k - (tab[0] - RING_W)).abs() < 0.01 && (y0 / k - (tab[1] - RING_W)).abs() < 0.01, "RING_W outside the tab: {shape:?} {tab:?}");
+    fn the_front_tab_is_a_pill_with_a_closed_ring_inside_the_bar() {
+        for n in [3, 16] {
+            let names: Vec<String> = (0..n).map(|i| format!("a-long-file-name-{i:02}.md")).collect();
+            let mut rt = tabs(&names.iter().map(String::as_str).collect::<Vec<_>>());
+            rt.track_marks = true;
+            rt.frame(1.0 / 60.0);
+            let k = 2.0;
+            let slots = crate::fx::tab_ring_slots(&rt);
+            assert_eq!(slots.len(), 1, "only the front tab has metal: {slots:?}");
+            let (_, clip, layer) = slots[0];
+            let front = tab_key(rt.state.tabs[rt.state.active].doc.id);
+            let pill = find(&rt, &format!("{front}-pill")).expect("pill").rect;
+            let tab = find(&rt, &front).expect("front tab").rect;
+            assert!((pill[3] - PILL_H).abs() < 0.01 && (pill[0] - tab[0]).abs() < 0.01 && (pill[2] - tab[2]).abs() < 0.01, "the pill spans the tab, {PILL_H} tall: {pill:?} {tab:?}");
+            assert!(((pill[1] - tab[1]) - (tab[1] + tab[3] - pill[1] - pill[3])).abs() < 0.01, "in the middle of the tab: {pill:?} {tab:?}");
+            assert_eq!(layer.shape.radius, R_ROW + RING_W, "all four corners round");
+            let r = layer.shape.rect;
+            let (x0, y0, x1, y1) = (r.x, r.y, r.x + r.w, r.y + r.h);
+            assert!((x0 - (pill[0] - RING_W)).abs() < 0.01 && (y0 - (pill[1] - RING_W)).abs() < 0.01 && (x1 - (pill[0] + pill[2] + RING_W)).abs() < 0.01 && (y1 - (pill[1] + pill[3] + RING_W)).abs() < 0.01, "RING_W outside the pill: {r:?} {pill:?}");
+            assert!(clip[0] <= x0 * k && clip[1] <= y0 * k && x1 * k <= clip[2] && y1 * k <= clip[3], "{n} tabs: closed on all four sides, nothing cut: {clip:?} vs {r:?}");
+            let bar = find(&rt, "tab-bar").expect("bar").rect;
+            let page = bar[1] + bar[3];
+            assert!(y0 > bar[1] && y1 < page, "{n} tabs: the ring is inside the bar, its bottom {y1} above the page's top {page}");
+            let track = find(&rt, "tabs-scroll-bar").expect("scroll bar").rect;
+            assert!(y1 <= track[1], "{n} tabs: the ring ends at {y1}, above the scroll bar at {}", track[1]);
+            if n == 16 {
+                assert!(find(&rt, "tabs-scroll-thumb").expect("thumb").rect[2] >= SCROLL_BAR_MIN, "the thumb shows");
+            }
+        }
     }
 
     fn close_of(rt: &Runtime<App>, i: usize) -> rune::ElementInfo {
@@ -621,8 +637,7 @@ mod tests {
     }
 
     /// Record 2026-11-18-vscode-tabs: tabs sit edge to edge from `TAB_TOP` to the bar's bottom, `TAB_PAD_X`
-    /// before the name, 6 between name and ×, 8 after it; a divider between back tabs only; the front
-    /// tab has the page's fill and covers the bar's bottom line.
+    /// before the name, 6 between name and ×, 8 after it; a divider between back tabs only.
     #[test]
     fn the_tabs_sit_edge_to_edge_like_vs_code() {
         let rt = tabs(&["alpha.md", "beta.md", "gamma.md", "delta.md"]);
@@ -644,9 +659,7 @@ mod tests {
         // Front is the last (3): dividers after 0 and 1, none after 2 (next to the front) or on the front.
         let dividers = rt.elements().iter().filter(|e| e.key.as_deref() == Some("tab-divider")).count();
         assert_eq!(dividers, 2);
-        let line = find(&rt, "tab-bar-line").expect("line").rect;
-        let front = tab(3);
-        assert!(front[1] + front[3] >= line[1] + line[3] - 0.01, "the front tab runs over the bar's line into the page");
+        assert!(find(&rt, "tab-bar-line").is_some(), "the bar's line runs under every tab");
     }
 
     /// Hovering a back tab shows its × in the slot it always had: no tab moves or changes width.

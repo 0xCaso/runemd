@@ -144,9 +144,9 @@ pub fn rows(t: &Theme, rings: &Rings, glass: Color) -> Vec<Row> {
         row("settings: \"Already watched\" (fg2) on panel", t.fg2, panel, 4.5),
         row("fire-off label (fg2) on panel", t.fg2, panel, 4.5),
         row("frontmatter: text (fg2) on panel + half sel", t.meta().text, over(t.meta().fill, panel), 4.5),
-        // Tab names (`ui::tabs::tab_row`, record 2026-11-18-vscode-tabs): front in `fg` on the page's
-        // `panel`, the others in `fg2` on the bar's `tab_bar` tint, hover `sel` over it.
-        row("tab name, front (fg) on panel", t.fg, panel, 4.5),
+        // Tab names (`ui::tabs::tab_row`, record 2026-11-18-tab-bar-style): front in `fg` on its `sel`
+        // pill over the bar's tint, the others in `fg2` on the bar's `tab_bar` tint, hover `sel` over it.
+        row("tab name, front (fg) on panel + tab bar + sel (pill)", t.fg, bar_sel, 4.5),
         row("tab name, back (fg2) on panel + tab bar", t.fg2, bar, 4.5),
         row("tab name, back on hover (fg2) on panel + tab bar + sel", t.fg2, bar_sel, 4.5),
         row("\"⌘E source\" key (fg3) on panel + tab bar", t.fg3, bar, 4.5),
@@ -154,7 +154,7 @@ pub fn rows(t: &Theme, rings: &Rings, glass: Color) -> Vec<Row> {
         row("Open file field: placeholder (fg2) on field over glass", t.fg2, over(t.field, glass), 4.5),
         row("Open file field: ⌘P key (fg2) on field over glass", t.fg2, over(t.field, glass), 4.5),
         row("Open file field: search icon (fg2) on field over glass", t.fg2, over(t.field, glass), mark),
-        row("tab × (fg2) on panel (front tab)", t.fg2, panel, mark),
+        row("tab × (fg2) on panel + tab bar + sel (front tab pill)", t.fg2, bar_sel, mark),
         row("tab × (fg2) on panel + tab bar + sel (back tab on hover)", t.fg2, bar_sel, mark),
         row("tab × (fg2) on hover on panel + tab bar + sel + sel", t.fg2, over(t.sel, bar_sel), mark),
         row("width ↔ button (fg2) on panel + tab bar", t.fg2, bar, mark),

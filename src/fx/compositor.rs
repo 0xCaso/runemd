@@ -69,22 +69,8 @@ fn ring_layer_paced(i: &Instance, mark: u32, clock: f64, active: bool) -> (FxLay
     (ring::layer_rounded(rect_pt(i), radius, t, (reduced || !active) && lab.is_none(), dark), ring::entered(t))
 }
 
-/// The device-pixel clip a slot paints through: its own, and for a tab's ring also cut at the tab's
-/// bottom, on a whole pixel, where the tab meets the page. The ring's host runs on below the tab
-/// (`ui::tabs::RING_TAIL`), so the cut leaves the top and the sides and drops the bottom side and its
-/// corners: an open arc, the tab joined to the page (docs/decisions/2026-11-18-tab-bar-style.md,
-/// constraint 2).
-fn slot_clip(i: &Instance, mark: u32) -> [f32; 4] {
-    let mut clip = i.clip;
-    if Mark::is_tab(mark) {
-        let k = i.params[3].max(f32::EPSILON);
-        clip[3] = clip[3].min((i.rect[1] + crate::ui::theme::TAB_H * k).round());
-    }
-    clip
-}
-
 /// Each tab ring in the last frame of `rt` as the compositor paints it: (slot id, device-pixel clip,
-/// layer). Only for tests of the open arc.
+/// layer). Only for tests of the front tab's closed ring.
 #[cfg(test)]
 pub fn tab_ring_slots(rt: &rune::Runtime<App>) -> Vec<(u32, [f32; 4], FxLayer)> {
     rt.instances
@@ -92,7 +78,7 @@ pub fn tab_ring_slots(rt: &rune::Runtime<App>) -> Vec<(u32, [f32; 4], FxLayer)> 
         .enumerate()
         .filter(|(_, i)| i.params[1] == KIND_EFFECT)
         .filter_map(|(n, i)| rt.marks.get(n).copied().filter(|m| Mark::is_tab(*m)).map(|m| (m, i)))
-        .map(|(m, i)| (m, slot_clip(i, m), ring_layer(i, m, rt.clock, rt.state.window_active)))
+        .map(|(m, i)| (m, i.clip, ring_layer(i, m, rt.clock, rt.state.window_active)))
         .collect()
 }
 
@@ -282,7 +268,7 @@ impl Compositor<App> for FxCompositor {
             };
             at.push(n as u32);
             layers.push(layer);
-            let slot = FxSlot::default().scale(i.params[3]).clip(slot_clip(i, mark), i.fade);
+            let slot = FxSlot::default().scale(i.params[3]).clip(i.clip, i.fade);
             slots.push(slot);
             if let Some(tips) = tip_layer.take() {
                 at.push(n as u32);
