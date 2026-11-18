@@ -606,3 +606,34 @@ chrome rides the tab metal's 8 wake-ups a second (16 frames/s, as off), and the 
 rest. forge.md at 120 Hz with the defaults missed 7 / 6 / 1 refreshes in 4 s (off: 2 / 5 / 6); frame CPU p50 is
 ~0.15–0.2 ms higher (mask pass + chrome layers). The span of some runs is under 4 s (scroll started late under load).
 Not re-run on a quiet machine (none was available).
+
+## Release integration 2026-11-18
+
+`release/2026-11-18` after the merge 3598d04 (Full forge round 2 + release small choices: pill tab bar, light fire tips).
+Same method as "Full forge round 2 2026-11-18": `FULL_FORGE_IDLE_DOC=headings bench/full_forge.py WORKDIR 3 defaults off`,
+bundle `make app`, private 120 Hz virtual display, dark, idle 10–70 s after launch on `fixtures/headings.md`. The machine
+was busy (other agents): load average (1 min) 9–30 during the runs.
+
+| Idle, 60 s, headings.md | cpu_time per run | median | ps_mean | frames/s | frame CPU p50/p95 ms | load |
+|---|---|---|---|---|---|---|
+| defaults, 3598d04 (merge as is) | 2.68 / 2.63 / 2.45 % | 2.63 % | 2.39 / 2.42 / 2.19 % | 15.7 / 15.8 / 15.9 | 0.44/1.63 · 0.44/1.63 · 0.43/1.60 | 13 / 15 / 12 |
+| off, 3598d04 | 2.72 / 2.55 % (r1 drew no frames after 3 s, dropped) | 2.64 % | 2.50 / 2.29 % | 15.8 / 15.9 | 0.37/1.48 · 0.36/1.40 | 15 / 9 |
+| defaults, 3598d04, bar blur off (scratch knob) | 2.23 / 2.08 / 2.08 % | 2.08 % | 1.96 / 1.77 / 1.73 % | 15.9 | 0.44/0.57 · 0.42/0.54 · 0.42/0.54 | 11 / 17 / 15 |
+| defaults, e70280b (fix) | 2.33 / 3.06* / 2.20 / 2.22 / 2.18 % | 2.22 % | 1.95 / 2.72 / 1.89 / 1.87 / 1.87 % | 15.7 / 20.5 / 15.9 / 15.9 / 15.9 | 0.45/0.70 · 0.46/0.66 · 0.45/0.60 · 0.45/0.58 · 0.44/0.72 | 17 / 23 / 26 / 21 / 23 |
+| off, e70280b | 2.00 / 2.00 / 2.05 % | 2.00 % | 1.69 / 1.68 / 1.80 % | 15.8 / 15.9 / 15.9 | 0.36/0.48 · 0.36/0.49 · 0.35/0.57 | 21 / 30 / 18 |
+
+\* The window opened late under load and the Brief fire was still burning until ~20 s after launch (40 frames/s in
+the first 10 s of the sample); the other runs reach the 16 frames/s rest by 10 s.
+
+| Scroll, 4 s, e70280b | frames | dt p50/p95/p99 ms | missed | frame CPU p50/p95/p99 ms | load |
+|---|---|---|---|---|---|
+| defaults, forge.md 600 pt/s | 468 / 373 / 478 | 8.30/9.34/11.34 · 8.31/9.32/10.28 · 8.31/9.31/9.43 | 5 / 5 / 0 | 0.61/0.98/1.35 · 0.61/0.90/1.49 · 0.57/0.70/0.94 | 19 / 24 / 20 |
+| off, forge.md 600 pt/s | 478 / 476 / 480 | 8.32/9.31/9.41 · 8.30/9.32/9.41 · 8.29/9.33/9.43 | 1 / 5 / 0 | 0.42/0.54/0.66 · 0.43/0.52/0.58 · 0.40/0.50/0.75 | 22 / 26 / 18 |
+| defaults, big.md 3000 pt/s | 465 / 448 / 407 | 8.33/11.09/14.17 · 8.37/12.83/20.09 · 8.31/10.72/13.21 | 15 / 31 / 60 | 0.81/1.71/3.95 · 0.87/2.10/5.36 · 0.76/1.05/4.06 | 22 / 25 / 19 |
+| off, big.md 3000 pt/s | 471 / 469 / 472 | 8.32/9.64/13.00 · 8.34/10.32/13.87 · 8.32/10.23/12.82 | 9 / 11 / 6 | 0.74/0.95/3.68 · 0.75/1.60/3.69 · 0.74/1.55/3.75 | 24 / 25 / 18 |
+
+The merge itself costs nothing at rest (defaults = off at 3598d04). Both were ~0.4 points above round 2 (2.22 %)
+because of the release branch's tab bar: the buttons' backdrop blur (`backdrop_blur(6)`) split the frame's pass and
+blurred on every moving-metal frame (16/s), even with 3 tabs, where only the flat bar is under it; frame CPU p95 went
+from ~0.55 to ~1.6 ms. e70280b blurs only while the tabs overflow: idle with the defaults is 2.22 % median (target
+≤ ~2.5 %), off 2.00 %. Scroll is unchanged by the fix (the blur still runs when the tabs overflow).
