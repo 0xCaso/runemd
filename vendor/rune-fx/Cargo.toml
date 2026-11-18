@@ -1,0 +1,19 @@
+# Vendored from github.com/anomalyco/rune, crates/rune-fx at rev 384c2991e582418ba529835279c5876ac3915e02
+# (MIT, LICENSE beside this file). Local change: `FillParams::masked`, a fill clipped to the
+# alpha of the layer's source texture (glyph mask for the chrome headings). See VENDOR.md.
+[package]
+name = "rune-fx"
+version = "0.0.1"
+edition = "2024"
+license = "MIT"
+description = "Rune's special-effects layers: glow, pulses, electricity, fire, motion blur, distortion."
+publish = false
+
+[dependencies]
+rune-motion = { git = "https://github.com/anomalyco/rune", rev = "384c2991e582418ba529835279c5876ac3915e02" }
+rune-staging = { git = "https://github.com/anomalyco/rune", rev = "384c2991e582418ba529835279c5876ac3915e02" }
+wgpu = { version = "30", default-features = false, features = ["std", "parking_lot", "metal", "wgsl"] }
+bytemuck = { version = "1.25", features = ["derive"] }
+
+[target.'cfg(all(not(target_os = "macos"), not(target_arch = "wasm32")))'.dependencies]
+wgpu = { version = "30", default-features = false, features = ["vulkan", "dx12"] }

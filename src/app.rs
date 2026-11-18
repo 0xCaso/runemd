@@ -377,6 +377,10 @@ pub enum CloseAnswer {
     Cancel,
 }
 
+/// The size SVG pictures in a document rasterize at (Full forge): the text column at 2×.
+const DOC_IMAGE_PT: f32 = 720.0;
+const DOC_IMAGE_SCALE: f32 = 2.0;
+
 pub struct App {
     pub tabs: Vec<Tab>,
     /// The index of the front tab; valid only if `tabs` is not empty.
@@ -402,6 +406,13 @@ pub struct App {
     /// `RUNEMD_GLASS` (glass opacity in percent, `glass_env`), read once at startup:
     /// only for photos, the default stays the one of `Theme`.
     pub(crate) glass_env: Option<f32>,
+    /// `RUNEMD_FORGE` (Full forge, `fx::doc_fx`), read once at startup: a lab override of the
+    /// defaults (six on, electric from Settings), `None` when unset. `App::forge` is what is on.
+    pub(crate) forge_lab: Option<crate::fx::doc_fx::Directions>,
+    /// The block kind that keeps a metal frame (`doc_fx::METAL_BLOCK`, or `RUNEMD_METAL_BLOCK`).
+    pub(crate) metal_block: Option<crate::fx::doc_fx::BlockKind>,
+    /// The document pictures Full forge shows (Forged, Glass), by path: held so they decode once.
+    pub(crate) doc_images: std::cell::RefCell<std::collections::HashMap<PathBuf, rune::Image>>,
     /// "Reduce motion" as the last view saw it (`poll` has no `Cx`): the fire at rest
     /// requests its wakeups only if it moves.
     pub(crate) reduced_seen: std::cell::Cell<bool>,
@@ -474,6 +485,9 @@ impl App {
                 _ => None,
             },
             reduced_seen: std::cell::Cell::new(false),
+            forge_lab: crate::fx::doc_fx::Directions::from_env(),
+            metal_block: crate::fx::doc_fx::metal_block(),
+            doc_images: Default::default(),
             motion_env: crate::fx::reduce_motion_env(std::env::var("RUNEMD_REDUCE_MOTION").ok().as_deref()),
             glass_env: glass_env(std::env::var("RUNEMD_GLASS").ok().as_deref()),
             scroll: None,
@@ -607,6 +621,21 @@ impl App {
 
     /// Brief, Always or Off for the fire at the bottom of the pane; the new-text label stays. Brief
     /// shows at once, so the choice is seen.
+    /// The Full forge directions on now: the defaults with the Settings electric switch, or the lab
+    /// override (`RUNEMD_FORGE`).
+    pub fn forge(&self) -> crate::fx::doc_fx::Directions {
+        crate::fx::doc_fx::Directions::effective(self.forge_lab, self.settings.electric)
+    }
+
+    /// The Settings switch for the charged edge on Warning and Caution (off by default): saved.
+    pub fn set_electric(&mut self, on: bool) {
+        self.settings_panel.clear_notice();
+        if self.settings.electric != on {
+            self.settings.electric = on;
+            self.save_settings();
+        }
+    }
+
     pub fn set_fire_mode(&mut self, mode: FireMode) {
         self.settings_panel.clear_notice();
         if self.settings.fire != mode {
@@ -1400,6 +1429,19 @@ impl App {
     /// Whether block `id` of the front tab has the "what changed" mark.
     pub fn is_marked(&self, id: u64) -> bool {
         self.tab().is_some_and(|t| t.is_marked(id))
+    }
+
+    /// The picture for an image `src` of the document at `doc` (Full forge): from the image cache,
+    /// held until the app quits. `None` without a cache (tests) or for a URL.
+    pub fn doc_image(&self, doc: &std::path::Path, src: &str) -> Option<rune::Image> {
+        let path = crate::fx::doc_fx::image_path(doc, src)?;
+        let cache = self.images.as_ref()?;
+        Some(self.doc_images.borrow_mut().entry(path.clone()).or_insert_with(|| cache.file(&path, DOC_IMAGE_PT, DOC_IMAGE_SCALE)).clone())
+    }
+
+    /// How many document pictures have decoded (the rows build again when it changes).
+    pub fn doc_images_ready(&self) -> usize {
+        self.doc_images.borrow().values().filter(|i| i.is_ready()).count()
     }
 
     /// A "writing" ring is lit: only then does the compositor walk the instances.

@@ -21,7 +21,8 @@
 //! `RUNEMD_THEME=light|dark` wins over the chosen theme; `RUNEMD_REDUCE_MOTION=1|0` wins over the system
 //! "reduce motion" (headless Rune does not read it); `RUNEMD_GLASS=40` gives the glass tint
 //! 40 % opacity instead of 60 % and opens the window at (200, 120) (photos); `RUNEMD_SIDEBAR=180` gives
-//! the sidebar that width for the session, with no snap and no save (photos); `RUNE_DIRS_ROOT` moves the index cache
+//! the sidebar that width for the session, with no snap and no save (photos); `RUNEMD_SETTINGS=1` opens
+//! the settings panel at launch (photos); `RUNE_DIRS_ROOT` moves the index cache
 //! and the settings.
 
 mod app;
@@ -73,6 +74,8 @@ fn init() -> App {
     let session = session::Session::load(&prefs);
     let mut app = App::new(library, settings, prefs);
     app.scroll = probe::ScrollRun::from_env();
+    // `RUNEMD_SETTINGS=1` (photos): the settings panel open from the first frame.
+    app.settings_panel.open = std::env::var_os("RUNEMD_SETTINGS").is_some();
     // Recent from the cache: the sidebar is full from the first frame.
     app.sidebar.refresh(&app.library.index, &[], SystemTime::now());
     // The tabs of the last launch, then the files from Finder or the terminal (in front).
@@ -135,7 +138,7 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
             // Labelled blocks in two columns if the text column is wide (from the last
             // layout; Rune runs the view again when the threshold is crossed).
             let columns = cx.layout_with("rows", |r| r[2] - 2.0 * ui::theme::ROW_PAD_X >= ui::doc_view::TWO_COLUMNS).unwrap_or(false);
-            let signals = ui::doc_view::Signals { marked: App::is_marked, mark: theme.mark, caret, hits: App::find_hits, edge: App::doc_edge, meta: theme.meta(), fonts: ui::markdown_style::fonts(fonts::Typeface::of(&s.settings.font, s.settings.size)), open: App::open_link, columns, bottom: fx::fire::doc_bottom(s.settings.fire.shows(), s.settings.fire_height) };
+            let signals = ui::doc_view::Signals { marked: App::is_marked, mark: theme.mark, caret, hits: App::find_hits, edge: App::doc_edge, meta: theme.meta(), fonts: ui::markdown_style::fonts(fonts::Typeface::of(&s.settings.font, s.settings.size)), open: App::open_link, columns, bottom: fx::fire::doc_bottom(s.settings.fire.shows(), s.settings.fire_height), forge: ui::doc_view::Forge { on: s.forge(), look: fx::doc_fx::Look { dark, reduced }, metal: s.metal_block }, image: App::doc_image, images_ready: if s.forge().any() { s.doc_images_ready() } else { 0 } };
             let doc = ui::doc_view::view(s, App::active_document, s.style(dark), s.settings.column, App::visible_rows, signals);
             // The heading outline on the right, only if the window is at least sidebar + column
             // + 200 wide (before the first layout it is not known: no outline). The view reads it from Rune,
@@ -556,6 +559,71 @@ mod tests {
         rt.invalidate();
         rt.frame(1.0 / 120.0);
         assert!(!rt.state.forge_images.borrow().holds(), "no handle left with a file open");
+    }
+
+    /// The forge pieces drawn for `fixtures/forge.md` with `forge` on: (piece, still).
+    fn forge_pieces(forge: crate::fx::doc_fx::Directions) -> Vec<crate::fx::doc_fx::Piece> {
+        forge_pieces_with(forge, None)
+    }
+
+    /// [`forge_pieces`] with `metal` the block kind that keeps a metal frame.
+    fn forge_pieces_with(forge: crate::fx::doc_fx::Directions, metal: Option<crate::fx::doc_fx::BlockKind>) -> Vec<crate::fx::doc_fx::Piece> {
+        let mut app = crate::App::bare(crate::index::Library::load(Vec::new(), None));
+        app.forge_lab = Some(forge);
+        app.metal_block = metal;
+        app.images = Some(rune::ImageCache::new(std::sync::Arc::new(|| {})));
+        app.open_paths(vec![PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("fixtures/forge.md")]);
+        let mut rt = rune::Runtime::new(app, crate::view, (1280.0, 2400.0), rune::Env::new(true, 2.0));
+        rt.track_marks = true;
+        rt.frame(0.0);
+        rt.frame(1.0 / 60.0);
+        rt.instances
+            .iter()
+            .enumerate()
+            .filter(|(n, i)| i.params[1] == rune::render::KIND_EFFECT && rt.marks.get(*n).copied() == Some(crate::fx::Mark::DocFx.id()))
+            .filter_map(|(_, i)| crate::fx::doc_fx::read(i.uv).map(|(p, _)| p))
+            .collect()
+    }
+
+    /// Full forge off: no forge slot in the document, so nothing is drawn differently.
+    #[test]
+    fn full_forge_off_draws_no_forge_piece() {
+        assert!(forge_pieces(crate::fx::doc_fx::Directions::default()).is_empty());
+    }
+
+    /// Each direction alone puts only its own pieces in the document; all together put every kind.
+    #[test]
+    fn each_forge_direction_dresses_its_blocks() {
+        use crate::fx::doc_fx::{Directions, Piece};
+        use crate::fx::doc_fx::BlockKind;
+        let alone = |name: &str| forge_pieces(Directions::parse(Some(name)).unwrap());
+        let metal = |name: &str, kind| forge_pieces_with(Directions::parse(Some(name)).unwrap(), Some(kind));
+        let edges = |v: &[Piece]| v.iter().filter(|p| matches!(p, Piece::Edge { .. })).count();
+        // By default no block keeps metal: Steel and Forged draw quiet edges, no effect layer.
+        assert_eq!(edges(&alone("steel")), 0, "{:?}", alone("steel"));
+        assert_eq!(edges(&alone("forged")), 0, "{:?}", alone("forged"));
+        // The one metal kind: code (one card), the five callouts, the frontmatter, the table.
+        assert_eq!(edges(&metal("steel", BlockKind::Code)), 1);
+        assert_eq!(edges(&metal("steel", BlockKind::Callout)), 5);
+        assert_eq!(edges(&metal("steel", BlockKind::Frontmatter)), 1);
+        assert_eq!(edges(&metal("steel", BlockKind::Table)), 0, "tables: Forged only");
+        assert_eq!(edges(&metal("forged", BlockKind::Table)), 1);
+        // Engraved: the two rules' rods and one chrome per heading in view.
+        let engraved = alone("engraved");
+        assert_eq!(engraved.iter().filter(|p| **p == Piece::Rod).count(), 2, "{engraved:?}");
+        assert!(engraved.contains(&Piece::Chrome), "{engraved:?}");
+        assert!(engraved.iter().all(|p| matches!(p, Piece::Rod | Piece::Chrome)), "{engraved:?}");
+        assert!(alone("ember").iter().all(|p| *p == Piece::Fire) && alone("ember").len() == 2);
+        let glass = alone("glass");
+        assert_eq!(glass.iter().filter(|p| matches!(p, Piece::Dither { .. })).count(), 5, "{glass:?}");
+        assert!(glass.contains(&Piece::Fluted));
+        let tasks = alone("tasks");
+        assert_eq!(tasks.iter().filter(|p| matches!(p, Piece::Bead { .. })).count(), 4, "{tasks:?}");
+        assert!(tasks.contains(&Piece::Tube) && tasks.contains(&Piece::TubeFill));
+        assert_eq!(alone("electric"), vec![Piece::Electric { red: false }, Piece::Electric { red: true }]);
+        let all = forge_pieces_with(Directions::ALL, Some(BlockKind::Callout));
+        assert!(all.iter().any(|p| matches!(p, Piece::Edge { chrome: true, .. })), "Full forge edges are chrome");
+        assert!(all.iter().all(|p| !matches!(p, Piece::Edge { chrome: false, .. })));
     }
 
     /// A poll after a `REST_FRAME` of quiet is a resting wake-up; polls a frame apart are a

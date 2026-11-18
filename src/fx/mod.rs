@@ -2,6 +2,7 @@
 
 mod compositor;
 pub mod caret;
+pub mod doc_fx;
 pub mod fire;
 pub mod forge;
 mod marks;

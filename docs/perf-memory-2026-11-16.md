@@ -489,3 +489,120 @@ How it moves without the display link and without running the view:
 - Reduce Motion or an inactive window: every edge is the still pose and `metal_moves` is false, so no wake-ups
   (test `an_inactive_window_and_reduce_motion_keep_the_metal_still`). The fire at rest is unchanged ("Release pass
   2026-11-17").
+
+## Full forge 2026-11-18
+
+The seven Full forge directions behind `RUNEMD_FORGE` (off by default; one name, a comma list, or `all`): steel,
+forged, engraved, ember, glass, tasks, electric. Method: bundle `make app` from `d3a9d81` (`--profile perf`, signed
+"RuneMD Local"), on a private 120 Hz virtual display (1920×1200 pt, 2×), window 900×1000 pt, `fixtures/forge.md`
+(every block the directions dress), dark theme, empty `RUNEMD_ROOTS`, fresh `RUNE_DIRS_ROOT`, `MDSPIKE_ACTIVE=1`.
+At rest the viewport shows code, table, the five callouts (Warning and Caution carry the electric edge) and the ember
+rule; images, glass captions and tasks are below the fold. Idle: the app's PID only, 10–70 s after launch,
+`cpu_time` = `ps -o time` delta / 60 s, `ps_mean` = 60 samples of `ps -o %cpu`, frames/s and frame CPU from
+`MDSPIKE_FRAMES`. Scroll: `MDSPIKE_SCROLL=4`, the `scroll frames` line; `forge.md` at 600 pt/s (a short page) for every
+row, `big.md` at 3000 pt/s for off and all. Driver: `bench/full_forge.py WORKDIR RUNS [CONFIG...]` (one app at a time;
+`vscreen launch` exits 5 when its 500×500 helper window falls off the display although the app runs, so the driver
+reads the launch JSON and kills strays by PID). Other agents were building and measuring: load average 5–125
+(column), so differences under ~0.5 points are noise. Off, electric and all have 5 runs (all r1 ran at 5.4 % with 19.7
+frames/s, an outlier), the others 3; forged r2 was taken again (the first had 0 frames/s, the window never drew).
+
+| Idle, 60 s | cpu_time r1 … r5 | median | ps_mean | frames/s | frame CPU p50/p95 ms | load |
+|---|---|---|---|---|---|---|
+| off | 2.72 / 2.12 / 2.32 / 2.75 / 2.20 % | 2.32 % | 2.45 / 1.74 / 1.94 / 2.53 / 1.87 % | 15.8 / 15.7 / 15.6 / 15.8 / 15.9 | 0.37/1.57 · 0.36/0.57 · 0.37/1.19 · 0.37/1.72 · 0.36/1.20 | 17 / 29 / 24 / 8 / 23 |
+| steel | 2.75 / 2.22 / 2.37 % | 2.37 % | 2.43 / 1.85 / 2.06 % | 15.4 / 15.8 / 15.8 | 0.40/1.50 · 0.38/1.07 · 0.40/1.52 | 13 / 22 / 20 |
+| forged | 2.73 / 2.60 / 2.22 % | 2.60 % | 2.30 / 2.27 / 1.86 % | 15.9 / 15.8 / 15.8 | 0.42/1.64 · 0.39/1.77 · 0.39/1.19 | 22 / 9 / 17 |
+| engraved | 3.05 / 2.23 / 2.58 % | 2.58 % | 2.77 / 1.92 / 2.30 % | 15.8 / 15.9 / 15.8 | 0.45/1.77 · 0.38/1.10 · 0.38/1.64 | 15 / 30 / 12 |
+| ember | 2.13 / 2.13 / 2.83 % | 2.13 % | 1.83 / 1.87 / 2.51 % | 15.9 / 15.4 / 15.8 | 0.36/1.11 · 0.37/0.62 · 0.38/1.75 | 11 / 47 / 7 |
+| glass | 2.48 / 2.40 / 2.68 % | 2.48 % | 2.19 / 2.11 / 2.29 % | 15.7 / 15.5 / 15.9 | 0.43/1.38 · 0.45/0.88 · 0.44/1.90 | 28 / 36 / 8 |
+| tasks | 2.13 / 2.13 / 2.50 % | 2.13 % | 1.80 / 1.81 / 2.23 % | 15.8 / 15.3 / 15.7 | 0.36/1.05 · 0.37/0.64 · 0.36/1.36 | 20 / 30 / 6 |
+| electric | 2.63 / 2.72 / 3.28 / 3.10 / 2.68 % | 2.72 % | 2.31 / 2.40 / 2.84 / 2.76 / 2.41 % | 15.9 / 15.6 / 15.7 / 15.9 / 15.8 | 0.71/1.95 · 0.74/1.29 · 0.74/2.86 · 0.73/2.98 · 0.75/1.24 | 18 / 54 / 24 / 5 / 29 |
+| all | 5.40 / 2.88 / 3.63 / 2.97 / 2.90 % | 2.97 % | 5.16 / 2.57 / 3.27 / 2.53 / 2.55 % | 19.7 / 15.8 / 15.9 / 15.9 / 15.8 | 0.79/1.04 · 0.80/1.58 · 0.78/3.54 · 0.77/2.59 · 0.80/1.39 | 21 / 37 / 16 / 12 / 69 |
+
+| Scroll forge.md, 4 s at 600 pt/s | frames | dt p50/p95/p99 ms | missed | frame CPU p50/p95/p99 ms | load |
+|---|---|---|---|---|---|
+| off | 474 / 466 / 476 / 473 / 428 | 8.32/9.50/12.64 · 8.31/9.24/9.76 · 8.31/9.50/10.19 · 8.33/9.88/12.60 · 8.32/9.25/10.14 | 6 / 4 / 4 / 6 / 4 | 0.40/1.31/1.81 · 0.40/0.57/1.00 · 0.45/1.03/1.71 · 0.46/1.69/2.37 · 0.40/0.83/1.58 | 13 / 26 / 20 / 5 / 21 |
+| steel | 445 / 294 / 477 | 8.32/9.59/17.16 · 12.34/24.03/28.05 · 8.32/9.30/10.29 | 10 / 178 / 3 | 0.43/1.35/2.98 · 0.41/0.63/1.58 · 0.41/1.12/2.05 | 21 / 31 / 18 |
+| forged | 471 / 264 / 479 | 8.32/10.11/13.67 · 12.51/27.32/31.52 · 8.32/9.27/9.78 | 8 / 202 / 0 | 0.41/1.48/2.45 · 0.42/0.74/1.68 · 0.39/0.99/1.59 | 17 / 30 / 12 |
+| engraved | 475 / 452 / 476 | 8.33/9.70/12.68 · 8.31/9.29/13.45 · 8.33/9.58/11.32 | 6 / 6 / 4 | 0.43/1.47/1.93 · 0.40/0.54/1.14 · 0.41/1.48/2.70 | 11 / 48 / 6 |
+| ember | 460 / 441 / 472 | 8.33/9.29/10.93 · 8.31/9.31/11.36 · 8.33/10.39/12.56 | 4 / 4 / 7 | 0.40/0.69/1.95 · 0.42/0.74/1.56 · 0.42/1.49/2.37 | 20 / 39 / 7 |
+| glass | 442 / 267 / 466 | 8.33/9.29/16.51 · 8.33/9.30/39.81 · 8.34/10.43/14.55 | 38 / 74 / 12 | 0.54/0.82/1.96 · 0.52/0.64/1.18 · 0.60/2.10/2.85 | 21 / 35 / 7 |
+| tasks | 474 / 475 / 440 | 8.33/9.69/14.04 · 8.32/9.14/9.37 · 8.33/10.12/14.72 | 6 / 4 / 13 | 0.40/1.44/2.35 · 0.40/0.54/0.88 · 0.41/1.13/1.83 | 18 / 58 / 25 |
+| electric | 414 / 404 / 469 / 464 / 471 | 8.32/9.20/9.47 · 8.32/9.24/12.93 · 8.32/10.71/13.98 · 8.32/9.26/9.41 · 8.34/9.42/14.27 | 2 / 6 / 11 / 1 / 8 | 0.75/0.83/0.93 · 0.79/1.39/2.20 · 0.76/2.77/3.56 · 0.77/0.94/1.29 · 0.82/1.44/2.44 | 21 / 37 / 16 / 10 / 66 |
+| all | 439 / 441 / 476 / 473 / 451 | 8.34/9.92/15.14 · 8.32/9.17/9.81 · 8.31/9.19/9.77 · 8.32/9.38/12.76 · 8.32/10.22/14.50 | 14 / 3 / 4 / 7 / 11 | 0.65/1.25/2.41 · 0.57/1.03/1.42 · 0.59/1.08/1.47 · 0.66/1.38/2.55 · 0.62/1.83/2.96 | 33 / 26 / 12 / 25 / 125 |
+
+| Scroll big.md, 4 s at 3000 pt/s | frames | dt p50/p95/p99 ms | missed | frame CPU p50/p95/p99 ms | load |
+|---|---|---|---|---|---|
+| off | 447 / 447 / 469 / 456 / 467 | 8.37/13.13/16.14 · 8.35/12.89/23.08 · 8.33/10.66/14.93 · 8.34/12.21/15.51 · 8.33/10.88/14.11 | 33 / 32 / 13 / 20 / 14 | 0.72/3.04/6.55 · 0.75/1.87/3.86 · 0.75/1.80/3.90 · 0.77/3.13/4.75 · 0.75/1.98/4.05 | 14 / 24 / 21 / 5 / 27 |
+| all | 453 / 445 / 465 / 460 / 470 | 8.34/11.94/16.79 · 8.37/13.45/17.32 · 8.33/11.19/14.00 · 8.33/12.03/14.16 · 8.33/10.17/13.62 | 21 / 34 / 12 / 17 / 11 | 0.72/2.32/3.79 · 0.81/3.40/5.29 · 0.72/2.69/4.23 · 0.81/2.75/4.57 · 0.76/1.45/3.85 | 30 / 26 / 12 / 24 / 125 |
+
+- Every row draws ~15.8 frames/s at rest: the tab's moving metal (8 steps/s, "Moving metal 2026-11-18"). The electric
+  edge moves on those same frames (`ring::METAL_FRAME`, paced layer), so it adds no wake-up.
+- The six still directions (steel, forged, engraved, ember, glass, tasks) cost what off costs: frame CPU p50 0.36–0.45
+  ms against 0.37, idle medians 2.13–2.60 % against 2.32 %, inside the noise.
+- Electric doubles the frame: p50 0.71–0.75 ms, +0.36 ms × 15.8 frames/s ≈ **+0.6 points** (median 2.72 %). All on:
+  0.77–0.80 ms, median **2.97 %**, over the ~2.5 % idle budget. Electric is the only costly direction.
+- Electric is still when the window is inactive or with Reduce Motion (test `only_the_charged_edge_moves_and_it_is_paced`), so
+  the cost is only while the window is in front.
+- Scroll: dt p50 8.32 ms in every row (120 Hz). Frame CPU p50 grows with glass (0.52–0.60 ms, the backdrop slabs) and
+  electric (0.75–0.79 ms); all 0.57–0.65 ms. The steel, forged and glass r2 runs (load 30–35) missed 74–202 refreshes;
+  their other runs and the 5 off runs missed 0–13. `big.md` at 3000 pt/s: off and all are the same (p50 0.72–0.81 ms,
+  11–34 missed).
+- Proof (shots dark/light, video): docs/proof/full-forge/.
+
+## Full forge defaults 2026-11-18
+
+Six directions on by default (steel, forged, engraved, ember, glass, tasks), electric off (a Settings switch), quiet
+1 pt Rune outlines instead of metal frames on every block (`doc_fx::METAL_BLOCK = None`), chrome H1/H2 made of stacked
+text copies. Same method as "Full forge 2026-11-18", bundle `make app` from this branch; the driver's new config
+`defaults` sets no `RUNEMD_FORGE`, and `off` now passes `RUNEMD_FORGE=off` (without a switch the page is no longer off).
+3 runs each, `bench/full_forge.py WORKDIR 3 defaults off`; load average 13–77 (other agents), so differences under
+~0.5 points are noise.
+
+| Idle, 60 s | cpu_time r1 / r2 / r3 | median | ps_mean | frames/s | frame CPU p50/p95 ms | load |
+|---|---|---|---|---|---|---|
+| defaults | 2.37 / 2.42 / 2.57 % | 2.42 % | 1.96 / 2.08 / 2.19 % | 15.9 / 15.8 / 15.7 | 0.49/1.47 · 0.53/1.04 · 0.54/1.23 | 20 / 29 / 43 |
+| off | 2.22 / 2.24 / 2.28 % | 2.24 % | 1.86 / 1.83 / 1.98 % | 15.7 / 15.7 / 15.9 | 0.38/0.88 · 0.38/0.92 · 0.39/0.86 | 13 / 40 / 77 |
+
+| Scroll, 4 s | frames | dt p50/p95/p99 ms | missed | frame CPU p50/p95/p99 ms | load |
+|---|---|---|---|---|---|
+| defaults, forge.md 600 pt/s | 470 / 402 / 302 | 8.33/9.34/14.07 · 8.97/14.14/15.94 · 8.32/10.19/23.00 | 9 / 68 / 114 | 0.65/1.10/2.18 · 0.83/1.18/2.23 · 0.72/1.49/2.96 | 14 / 43 / 55 |
+| off, forge.md 600 pt/s | 468 / 466 / 480 | 8.33/9.78/16.07 · 8.32/9.38/15.79 · 8.32/9.11/9.31 | 11 / 8 / 0 | 0.44/1.00/2.01 · 0.44/0.91/1.45 · 0.37/0.51/1.08 | 29 / 42 / 47 |
+| defaults, big.md 3000 pt/s | 462 / 463 / 461 | 8.33/11.99/13.97 · 8.32/11.57/14.02 · 8.39/11.61/14.48 | 18 / 17 / 19 | 0.85/1.90/4.37 · 0.87/1.86/4.22 · 0.94/2.45/4.43 | 13 / 42 / 65 |
+| off, big.md 3000 pt/s | 456 / 459 / 475 | 8.35/12.39/16.01 · 8.39/11.95/15.97 · 8.30/9.44/11.79 | 23 / 19 / 5 | 0.78/2.39/4.52 · 0.80/1.92/4.34 · 0.71/0.96/3.75 | 29 / 44 / 44 |
+
+Idle with the defaults is 2.42 % (target ≤ ~2.5 %), +0.2 points over off: the quiet edges and the chrome letters are
+Rune drawing, and at rest only the tab's metal wakes the window (16 frames/s, as off). Frame CPU at rest and in scroll
+is ~0.1–0.3 ms higher (the glass and the chrome copies). The forge.md scroll runs 2 and 3 missed 68 and 114 refreshes
+at load 43–55 (r3 had an 819 ms stall); big.md at the same load did not, so it is read as load, not the defaults
+(assumed: not re-run on a quiet machine).
+
+
+## Full forge round 2 2026-11-18
+
+Round 2 (brief `docs/decisions/2026-11-18-full-forge-round-2.md` on `main`): the metal frame back on code blocks only
+(`doc_fx::METAL_BLOCK = Some(Code)`), the quiet 1 pt edge elsewhere, and real liquid chrome inside the letters of every
+heading H1–H6: one paced rune-fx layer per heading, masked by an offscreen pass of that heading's glyphs (vendored
+rune-fx, `FillParams::masked`), in place of the 6 stacked text copies. The chrome steps at 8/s with the metal
+(`METAL_FRAME`), never reruns the view, and is still with Reduce Motion or an inactive window.
+Same method as "Full forge 2026-11-18", bundle `make app` from this branch at e70d6b2. Idle now runs on the
+heading-rich `fixtures/headings.md` (31 headings, 13 on screen): `FULL_FORGE_IDLE_DOC=headings bench/full_forge.py
+WORKDIR 3 defaults off`. The machine was not idle: load average 17–79 (other agents), so differences under ~0.5
+points are noise.
+
+| Idle, 60 s, headings.md | cpu_time r1 / r2 / r3 | median | ps_mean | frames/s | frame CPU p50/p95 ms | load |
+|---|---|---|---|---|---|---|
+| defaults | 2.12 / 2.30 / 2.22 % | 2.22 % | 1.80 / 1.97 / 1.89 % | 15.9 / 15.8 / 15.4 | 0.42/0.55 · 0.45/0.72 · 0.43/0.52 | 17 / 44 / 75 |
+| off | 2.13 / 2.40 / 2.62 % | 2.40 % | 1.82 / 2.12 / 2.24 % | 15.8 / 15.7 / 15.6 | 0.36/0.61 · 0.38/0.88 · 0.38/0.55 | 22 / 51 / 57 |
+
+| Scroll, 4 s | frames | dt p50/p95/p99 ms | missed | frame CPU p50/p95/p99 ms | load |
+|---|---|---|---|---|---|
+| defaults, forge.md 600 pt/s | 473 / 434 / 479 | 8.32/9.21/14.63 · 8.32/9.24/15.78 · 8.32/9.21/9.67 | 7 / 6 / 1 | 0.56/0.82/1.57 · 0.60/1.03/1.82 · 0.61/0.77/1.14 | 21 / 48 / 57 |
+| off, forge.md 600 pt/s | 463 / 395 / 389 | 8.32/9.20/9.53 · 8.31/9.23/9.51 · 8.31/9.34/13.61 | 2 / 5 / 6 | 0.41/0.59/1.22 · 0.42/0.57/0.91 · 0.43/0.76/1.09 | 44 / 79 / 57 |
+| defaults, big.md 3000 pt/s | 450 / 467 / 454 | 8.34/13.22/19.23 · 8.34/10.94/13.85 · 8.32/12.03/14.38 | 31 / 12 / 19 | 0.85/2.64/6.75 · 0.83/1.98/3.99 · 0.81/1.27/3.99 | 21 / 51 / 57 |
+| off, big.md 3000 pt/s | 464 / 409 / 456 | 8.32/11.37/14.38 · 8.36/11.71/14.05 · 8.36/12.64/14.72 | 16 / 15 / 25 | 0.82/2.31/4.57 · 0.82/1.46/5.14 · 0.82/2.13/4.60 | 43 / 72 / 73 |
+
+Idle with the defaults on the heading-rich page is 2.22 % (target ≤ ~2.5 %), the same as off within noise: the
+chrome rides the tab metal's 8 wake-ups a second (16 frames/s, as off), and the mask pass adds ~0.05 ms frame CPU at
+rest. forge.md at 120 Hz with the defaults missed 7 / 6 / 1 refreshes in 4 s (off: 2 / 5 / 6); frame CPU p50 is
+~0.15–0.2 ms higher (mask pass + chrome layers). The span of some runs is under 4 s (scroll started late under load).
+Not re-run on a quiet machine (none was available).

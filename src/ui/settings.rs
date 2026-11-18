@@ -53,6 +53,13 @@ pub const FIRE_MODES: [(FireMode, &str); 3] = [
 ];
 /// The note under Always (measured: 8.2–9.9 % CPU, `docs/perf-memory-2026-11-16.md`).
 pub const FIRE_ALWAYS_NOTE: &str = "Uses about 8–10 % CPU while the window is active.";
+/// Full forge's charged edge (decision `2026-11-18-full-forge-effects`, constraint 2): a switch, off by
+/// default, in its own section, with the CPU note under it like the fire's Always.
+pub const EFFECTS_SECTION: &str = "Effects";
+pub const ELECTRIC: &str = "Charged edge on warnings";
+/// Measured idle with a document open: electric 2.72 % vs 2.13–2.60 % for the six still directions
+/// (`docs/perf-memory-2026-11-16.md`, "Full forge 2026-11-18").
+pub const ELECTRIC_NOTE: &str = "Moves on Warning and Caution callouts. Uses about 0.5 % more CPU while the window is active.";
 /// The fire's own section (it used to sit under Theme without a title).
 pub const FIRE_SECTION: &str = "Fire";
 /// The font search field's placeholder and label.
@@ -454,6 +461,8 @@ pub fn view(s: &App, hooks: Hooks<App>, theme: &Theme, reduced: bool, hover: boo
     }
     body = body.child(themes);
 
+    body = body.child(section(EFFECTS_SECTION, theme)).child(electric_switch(s, hooks, theme, motion));
+
     body = body
         .child(section(FIRE_SECTION, theme))
         .child(sub_label(FIRE, theme))
@@ -803,6 +812,23 @@ fn still_option(key: String, label: &str, chosen: bool, theme: &Theme) -> El {
         )
 }
 
+/// The charged edge switch: a row like an option (check mark when on), a checkbox for VoiceOver, with
+/// its CPU note in `fg3` under it, aligned with the label.
+fn electric_switch(s: &App, hooks: Hooks<App>, theme: &Theme, motion: Motion) -> El {
+    let on = s.settings.electric;
+    let row = option(s, hooks, "set-electric".to_owned(), ELECTRIC, on, theme, motion, move |s: &mut App| s.set_electric(!on)).role("checkbox");
+    let note = text(ELECTRIC_NOTE)
+        .key("set-electric-note")
+        .font(TextStyle::new(UI_SMALL, UI_WEIGHT))
+        .color(theme.fg3)
+        .wrap()
+        .w_full()
+        .pl(ROW_PAD + ICON + ROW_GAP)
+        .pr(ROW_PAD)
+        .pb(ROW_GAP);
+    col().key("set-electric-group").w_full().child(row).child(note)
+}
+
 /// The fire choices (Brief, Always, Off) like the theme ones, with the CPU note in `fg3` right under
 /// Always, aligned with the option text.
 fn fire_modes(s: &App, hooks: Hooks<App>, theme: &Theme, motion: Motion) -> El {
@@ -1000,6 +1026,39 @@ mod tests {
         }
     }
 
+    /// Decision 2026-11-18-full-forge-effects, constraint 2: the charged edge is a switch, off by
+    /// default, with its CPU note under it; a click turns it on (saved) and puts the edge on the
+    /// Warning callout, a second click turns it off.
+    #[test]
+    fn the_charged_edge_is_a_switch_off_by_default_with_a_note() {
+        let mut rt = open("> [!WARNING]\n> Careful.\n", true);
+        cmd(&mut rt, ',');
+        let find = |rt: &Runtime<App>, k: &str| rt.elements().into_iter().find(|e| e.key.as_deref() == Some(k)).unwrap_or_else(|| panic!("missing {k}"));
+        let theme = crate::ui::theme::Theme::for_mode(true);
+        let e = find(&rt, "set-electric");
+        assert_eq!(e.role, "checkbox");
+        assert!(!rt.state.settings.electric && e.fill != theme.sel, "off by default");
+        assert!(!rt.state.forge().electric);
+        let note = find(&rt, "set-electric-note").rect;
+        assert!(note[1] >= e.rect[1] + e.rect[3] - 0.5, "the note under the switch: {note:?}");
+        assert!(texts(&rt).iter().any(|t| t == ELECTRIC_NOTE));
+        let charged = |rt: &Runtime<App>| rt.instances.iter().filter(|i| i.params[1] == rune::render::KIND_EFFECT).filter_map(|i| crate::fx::doc_fx::read(i.uv)).any(|(p, _)| matches!(p, crate::fx::doc_fx::Piece::Electric { .. }));
+        assert!(!charged(&rt));
+        for want in [true, false] {
+            rt.update(|_, tx| tx.scroll_into_view_in("settings-scroll", "set-electric"));
+            settle(&mut rt);
+            let r = find(&rt, "set-electric").rect;
+            let (x, y) = (r[0] + r[2] / 2.0, r[1] + r[3] / 2.0);
+            rt.pointer_move(x, y);
+            rt.pointer_down(x, y);
+            rt.pointer_up(x, y);
+            settle(&mut rt);
+            assert_eq!(rt.state.settings.electric, want);
+            assert_eq!(rt.state.forge().electric, want);
+            assert_eq!(charged(&rt), want, "the Warning callout's charged edge");
+        }
+    }
+
     /// Cmd+, opens the panel (in place of the outline), Cmd+, and Esc close it.
     #[test]
     fn cmd_comma_opens_and_esc_or_cmd_comma_closes() {
@@ -1175,8 +1234,10 @@ mod tests {
         // The compositor still walks the instances, for the calm edge of the tab (metal-tab), not for the fire.
         let theme = crate::ui::theme::Theme::for_mode(true);
         assert!(crate::ui::contrast::ratio(theme.fg2, theme.panel) >= 4.5);
-        // From the panel: a click on Brief turns it back on.
+        // From the panel: a click on Brief turns it back on (scrolled to it: Effects sits above).
         cmd(&mut rt, ',');
+        rt.update(|_, tx| tx.scroll_into_view_in("settings-scroll", "set-fire-Brief"));
+        settle_some(&mut rt);
         let r = rt
             .elements()
             .into_iter()
