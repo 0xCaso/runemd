@@ -683,8 +683,8 @@ fn task_list<S: 'static>(items: Vec<(bool, &str)>, style: &MarkdownStyle, notes:
     let top = ((fonts.body.line_height - ICON) * 0.5).max(0.0);
     let n = items.len();
     col().key("tasks").w_full().gap(TASK_ROW_GAP).children(items.into_iter().enumerate().map(|(k, (checked, text))| {
-        let mark = rune::icon(&CHECK_ICON, ICON * 0.625).color(Color { r: 0.07, g: 0.08, b: 0.1, a: 1.0 }).opacity(if checked { 1.0 } else { 0.0 });
-        let bead = el().key("control").size(ICON, ICON).ml(TASK_LEFT).mr(TASK_INDENT - TASK_LEFT - ICON).mt(top).radius(R_KBD).center().child(mark).a11y_hidden();
+        let mark = rune::icon(&CHECK_ICON, ICON * 0.75).color(BEAD_CHECK).opacity(if checked { 1.0 } else { 0.0 });
+        let bead = el().key("control").size(ICON, ICON).fill(if checked { BEAD_FILL } else { Color { a: 0.0, ..BEAD_FILL } }).ml(TASK_LEFT).mr(TASK_INDENT - TASK_LEFT - ICON).mt(top).radius(R_KBD).center().child(mark).a11y_hidden();
         let body = block_body(text, style, notes, places, None, open, fonts, meta, dress, Vec::new());
         rune::row().key(format!("i{k}")).role("checkbox").checked(checked).read_only(true).position_in_set(k + 1, n).w_full().child(slot(bead, Piece::Bead { checked }, look)).child(el().grow(1.0).min_w(0.0).child(body))
     }))
@@ -694,6 +694,10 @@ fn task_list<S: 'static>(items: Vec<(bool, &str)>, style: &MarkdownStyle, notes:
 const TASK_LEFT: f32 = 8.0;
 const TASK_INDENT: f32 = 32.0;
 const TASK_ROW_GAP: f32 = 4.0;
+/// A checked bead: a chrome ring on a dark gunmetal face, the check light on it (both themes, like a
+/// filled checkbox): the chrome's bands under a dark check hid it.
+const BEAD_FILL: Color = Color { r: 0.16, g: 0.17, b: 0.2, a: 1.0 };
+const BEAD_CHECK: Color = Color { r: 0.93, g: 0.94, b: 0.96, a: 1.0 };
 
 /// A check mark for the chrome bead (viewBox 16, stroke 1.6).
 static CHECK_ICON: rune::Icon = rune::Icon {

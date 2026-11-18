@@ -10,7 +10,7 @@
 //! charged edge moves with the metal's `ring::METAL_FRAME` wake-ups (paced, no view run).
 
 use rune::{Color, El};
-use rune_fx::{DitherParams, DitherPattern, ElectricParams, FillInput, FireParams, FireStyle, FlutedGlassParams, Fx, FxLayer, LiquidMetalParams, Rect, Rgb, Shape, Stops};
+use rune_fx::{DitherParams, DitherPattern, ElectricParams, FillInput, FireParams, FireStyle, FlutedGlassParams, Fx, FxBlend, FxLayer, LiquidMetalParams, Rect, Rgb, Shape, Stops};
 
 use super::Mark;
 use crate::ui::theme::Theme;
@@ -222,7 +222,21 @@ pub fn read(data: [f32; 4]) -> Option<(Piece, Look)> {
 pub fn slot(el: El, piece: Piece, look: Look) -> El {
     let el = el.effect(Mark::DocFx.id()).effect_data(data(piece, look));
     let el = if piece.bleed() > 0.0 { el.effect_bleed(piece.bleed()) } else { el };
-    if piece.backdrop() { el.effect_backdrop(true) } else { el }
+    if piece.backdrop() || blend(piece, look).needs_backdrop() { el.effect_backdrop(true) } else { el }
+}
+
+/// How a piece composites: the charged edge multiplies on the light theme, where its additive
+/// glow is light on light and vanishes; everything else is plain source-over.
+pub fn blend(piece: Piece, look: Look) -> FxBlend {
+    match piece {
+        Piece::Electric { .. } if !look.dark => FxBlend::Multiply,
+        _ => FxBlend::Normal,
+    }
+}
+
+/// [`blend`] from a slot's `effect_data`.
+pub fn blend_of(data: [f32; 4]) -> FxBlend {
+    read(data).map_or(FxBlend::Normal, |(piece, look)| blend(piece, look))
 }
 
 /// Gunmetal: the chrome, darker, with no flow (mockups 1 and 2).
@@ -278,13 +292,21 @@ pub fn layer(rect: Rect, radius: f32, data: [f32; 4], clock: f64, active: bool) 
             let glass = FlutedGlassParams { rib: 6.0, refraction: 5.0, frost: 0.4, highlight: 0.4, tint: rune_fx::rgb(0x0b0d12), tint_amount: 0.45, ..FlutedGlassParams::reeded() };
             still(Fx::fill(glass).on(Shape::rounded(rect.x, rect.y, rect.w, rect.h, radius)))
         }
-        Piece::Bead { checked: true } => still(Fx::fill(chrome(look.dark)).on(Shape::rounded(rect.x, rect.y, rect.w, rect.h, radius))),
+        Piece::Bead { checked: true } => still(Fx::fill(chrome(look.dark).border(BEAD_RING)).on(Shape::rounded(rect.x, rect.y, rect.w, rect.h, radius))),
         Piece::Bead { checked: false } => still(Fx::fill(gunmetal(look.dark).border(BEAD_RING)).on(Shape::rounded(rect.x, rect.y, rect.w, rect.h, radius))),
         Piece::Tube => still(Fx::fill(gunmetal(look.dark)).on(Shape::capsule(rect.x, rect.y, rect.w, rect.h))),
         Piece::TubeFill => still(Fx::fill(chrome(look.dark)).on(Shape::capsule(rect.x, rect.y, rect.w, rect.h))),
         Piece::Electric { red } => {
-            let color = if red { rune_fx::rgb(0xff5a4f) } else { rune_fx::rgb(0xffb347) };
-            let p = ElectricParams { color, core: rune_fx::rgb(0xfff4e0), cool: color, ..ElectricParams::charged() };
+            // Light: the dark theme's glow is light on light and vanishes, so a deeper arc with a
+            // dark core (ember's light value for Warning).
+            let (color, core) = match (red, look.dark) {
+                (false, true) => (0xffb347, 0xfff4e0),
+                (true, true) => (0xff5a4f, 0xfff4e0),
+                (false, false) => (0xc2410c, 0x7c2d12),
+                (true, false) => (0xdc2626, 0x7f1d1d),
+            };
+            let color = rune_fx::rgb(color);
+            let p = ElectricParams { color, core: rune_fx::rgb(core), cool: color, ..ElectricParams::charged() };
             let frozen = look.reduced || !active;
             // The clock wraps once an hour, like the calm edge's liquid time (f32 precision).
             let t = if frozen { 0.0 } else { clock.max(0.0).rem_euclid(3600.0) as f32 };
@@ -361,6 +383,15 @@ pub fn image_path(doc: &std::path::Path, src: &str) -> Option<std::path::PathBuf
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_charged_edge_multiplies_on_light_only() {
+        let light = Look { dark: false, reduced: false };
+        let dark = Look { dark: true, reduced: false };
+        assert_eq!(blend_of(data(Piece::Electric { red: true }, light)), FxBlend::Multiply);
+        assert_eq!(blend_of(data(Piece::Electric { red: false }, dark)), FxBlend::Normal);
+        assert_eq!(blend_of(data(Piece::Rod, light)), FxBlend::Normal);
+    }
 
     #[test]
     fn the_switch_is_off_unless_set() {

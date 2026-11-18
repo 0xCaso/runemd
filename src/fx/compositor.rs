@@ -196,6 +196,7 @@ impl Compositor<App> for FxCompositor {
         let mut slots: Vec<FxSlot> = Vec::new();
         let mut pulsing = false;
         let mut paced: Vec<usize> = Vec::new();
+        let mut multiply = false;
         let mut saw_fire = false;
         let mut metal = false;
         for (n, i) in f.rt.instances.iter().enumerate() {
@@ -250,9 +251,11 @@ impl Compositor<App> for FxCompositor {
             } else {
                 continue;
             };
+            let blend = if mark == Mark::DocFx.id() { doc_fx::blend_of(i.uv) } else { rune_fx::FxBlend::Normal };
+            multiply |= blend.needs_backdrop();
             at.push(n as u32);
             layers.push(layer);
-            slots.push(FxSlot::default().scale(i.params[3]).clip(i.clip, i.fade));
+            slots.push(FxSlot::default().scale(i.params[3]).clip(i.clip, i.fade).blend(blend));
         }
         // The frame of the moving metal: `poll` paces the next one from here (`App::metal_due`).
         if metal {
@@ -271,8 +274,8 @@ impl Compositor<App> for FxCompositor {
         fx.prepare_with_slots(device, queue, &FxFrame { viewport: [size.0, size.1], scale: 1.0, layers: &layers, backdrop: None, sources: &[] }, &slots);
         let clear = f.rt.clear_color();
         f.ui.prepare(device, queue, &mut f.rt.text.atlas, &f.rt.instances, size);
-        // Glass (Full forge) reads what is painted before it: the pass splits at its slots.
-        if layers.iter().any(|l| l.fx.needs_backdrop()) {
+        // Glass and the light charged edge (Full forge) read what is painted before it: the pass splits at its slots.
+        if layers.iter().any(|l| l.fx.needs_backdrop()) || multiply {
             f.ui.draw_with_backdrop(f.encoder, f.target, clear, &mut |phase, s: &EffectSite<'_>| {
                 let Some(k) = at.iter().position(|n| *n == s.index) else { return };
                 match phase {
