@@ -21,7 +21,8 @@
 //! `RUNEMD_THEME=light|dark` wins over the chosen theme; `RUNEMD_REDUCE_MOTION=1|0` wins over the system
 //! "reduce motion" (headless Rune does not read it); `RUNEMD_GLASS=40` gives the glass tint
 //! 40 % opacity instead of 60 % and opens the window at (200, 120) (photos); `RUNEMD_SIDEBAR=180` gives
-//! the sidebar that width for the session, with no snap and no save (photos); `RUNE_DIRS_ROOT` moves the index cache
+//! the sidebar that width for the session, with no snap and no save (photos); `RUNEMD_SETTINGS=1` opens
+//! the settings panel at launch (photos); `RUNE_DIRS_ROOT` moves the index cache
 //! and the settings.
 
 mod app;
@@ -73,6 +74,8 @@ fn init() -> App {
     let session = session::Session::load(&prefs);
     let mut app = App::new(library, settings, prefs);
     app.scroll = probe::ScrollRun::from_env();
+    // `RUNEMD_SETTINGS=1` (photos): the settings panel open from the first frame.
+    app.settings_panel.open = std::env::var_os("RUNEMD_SETTINGS").is_some();
     // Recent from the cache: the sidebar is full from the first frame.
     app.sidebar.refresh(&app.library.index, &[], SystemTime::now());
     // The tabs of the last launch, then the files from Finder or the terminal (in front).

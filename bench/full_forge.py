@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Full forge cost (docs/perf-memory-2026-11-16.md, "Full forge 2026-11-18"): RUNEMD_FORGE off, each
-direction alone, all on; idle CPU and scroll frames of the bundled app on a private 120 Hz virtual
+direction alone, all on, defaults (no switch); idle CPU and scroll frames of the bundled app on a private 120 Hz virtual
 display (`~/.claude/bin/vscreen`, display `forge-agent`, created by the caller).
 
 Idle: fixtures/forge.md, dark, empty RUNEMD_ROOTS, fresh RUNE_DIRS_ROOT, MDSPIKE_ACTIVE=1; the app's
@@ -15,7 +15,7 @@ import json, os, subprocess, sys, time
 VS = os.path.expanduser("~/.claude/bin/vscreen")
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 APP = os.path.join(ROOT, "build/RuneMD.app")
-ALL = ["off", "steel", "forged", "engraved", "ember", "glass", "tasks", "electric", "all"]
+ALL = ["off", "defaults", "steel", "forged", "engraved", "ember", "glass", "tasks", "electric", "all"]
 
 
 def ours():
@@ -29,7 +29,7 @@ def launch(w, tag, forge, extra):
     args = extra.pop("_args", [])
     os.makedirs(f"{w}/empty", exist_ok=True)
     env = {"RUNEMD_THEME": "dark", "RUNEMD_ROOTS": f"{w}/empty", "RUNE_DIRS_ROOT": f"{w}/dirs-{tag}-{time.time_ns()}", "MDSPIKE_ACTIVE": "1", **extra}
-    if forge != "off":
+    if forge != "defaults":  # defaults: no switch, the six still directions (2026-11-18)
         env["RUNEMD_FORGE"] = forge
     cmd = [VS, "launch", "--name", "forge-agent", "--log", f"{w}/{tag}.stderr", "--env", ",".join(f"{k}={v}" for k, v in env.items()), "--", APP, *args]
     for attempt in range(3):
@@ -123,7 +123,7 @@ def main():
     for run in range(1, runs + 1):
         for forge in configs:
             jobs = [(("idle", None), lambda: idle(w, forge, run)), (("scroll", "forge"), lambda: scroll(w, forge, run, "forge", 600))]
-            if forge in ("off", "all"):
+            if forge in ("off", "defaults", "all"):
                 jobs.append((("scroll", "big"), lambda: scroll(w, forge, run, "big", 3000)))
             for (kind, fixture), job in jobs:
                 if (kind, fixture, forge, run) in done:

@@ -548,3 +548,31 @@ frames/s, an outlier), the others 3; forged r2 was taken again (the first had 0 
   their other runs and the 5 off runs missed 0–13. `big.md` at 3000 pt/s: off and all are the same (p50 0.72–0.81 ms,
   11–34 missed).
 - Proof (shots dark/light, video): docs/proof/full-forge/.
+
+## Full forge defaults 2026-11-18
+
+Six directions on by default (steel, forged, engraved, ember, glass, tasks), electric off (a Settings switch), quiet
+1 pt Rune outlines instead of metal frames on every block (`doc_fx::METAL_BLOCK = None`), chrome H1/H2 made of stacked
+text copies. Same method as "Full forge 2026-11-18", bundle `make app` from this branch; the driver's new config
+`defaults` sets no `RUNEMD_FORGE`, and `off` now passes `RUNEMD_FORGE=off` (without a switch the page is no longer off).
+3 runs each, `bench/full_forge.py WORKDIR 3 defaults off`; load average 13–77 (other agents), so differences under
+~0.5 points are noise.
+
+| Idle, 60 s | cpu_time r1 / r2 / r3 | median | ps_mean | frames/s | frame CPU p50/p95 ms | load |
+|---|---|---|---|---|---|---|
+| defaults | 2.37 / 2.42 / 2.57 % | 2.42 % | 1.96 / 2.08 / 2.19 % | 15.9 / 15.8 / 15.7 | 0.49/1.47 · 0.53/1.04 · 0.54/1.23 | 20 / 29 / 43 |
+| off | 2.22 / 2.24 / 2.28 % | 2.24 % | 1.86 / 1.83 / 1.98 % | 15.7 / 15.7 / 15.9 | 0.38/0.88 · 0.38/0.92 · 0.39/0.86 | 13 / 40 / 77 |
+
+| Scroll, 4 s | frames | dt p50/p95/p99 ms | missed | frame CPU p50/p95/p99 ms | load |
+|---|---|---|---|---|---|
+| defaults, forge.md 600 pt/s | 470 / 402 / 302 | 8.33/9.34/14.07 · 8.97/14.14/15.94 · 8.32/10.19/23.00 | 9 / 68 / 114 | 0.65/1.10/2.18 · 0.83/1.18/2.23 · 0.72/1.49/2.96 | 14 / 43 / 55 |
+| off, forge.md 600 pt/s | 468 / 466 / 480 | 8.33/9.78/16.07 · 8.32/9.38/15.79 · 8.32/9.11/9.31 | 11 / 8 / 0 | 0.44/1.00/2.01 · 0.44/0.91/1.45 · 0.37/0.51/1.08 | 29 / 42 / 47 |
+| defaults, big.md 3000 pt/s | 462 / 463 / 461 | 8.33/11.99/13.97 · 8.32/11.57/14.02 · 8.39/11.61/14.48 | 18 / 17 / 19 | 0.85/1.90/4.37 · 0.87/1.86/4.22 · 0.94/2.45/4.43 | 13 / 42 / 65 |
+| off, big.md 3000 pt/s | 456 / 459 / 475 | 8.35/12.39/16.01 · 8.39/11.95/15.97 · 8.30/9.44/11.79 | 23 / 19 / 5 | 0.78/2.39/4.52 · 0.80/1.92/4.34 · 0.71/0.96/3.75 | 29 / 44 / 44 |
+
+Idle with the defaults is 2.42 % (target ≤ ~2.5 %), +0.2 points over off: the quiet edges and the chrome letters are
+Rune drawing, and at rest only the tab's metal wakes the window (16 frames/s, as off). Frame CPU at rest and in scroll
+is ~0.1–0.3 ms higher (the glass and the chrome copies). The forge.md scroll runs 2 and 3 missed 68 and 114 refreshes
+at load 43–55 (r3 had an 819 ms stall); big.md at the same load did not, so it is read as load, not the defaults
+(assumed: not re-run on a quiet machine).
+
