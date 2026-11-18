@@ -443,11 +443,13 @@ bottom. Tabs sit edge to edge, as wide as the file name up to 240 (`tab-max`, D5
 middle), from 8 below the bar's top (`tab-top`) down to the document, UI text 13 px with 12 before the name
 (`tab-pad`). Back tabs: no fill, `fg-2` text, hover `sel`, pressed scale 0.98, and a 1 px divider in `line`
 (`tab-divider`, 9 short of the tab's top and bottom) on the right, except next to the front tab. The front tab is a pill
-inside the bar, as in the installed app (record `2026-11-18-tab-bar-style`): the tab's full width, 24.5 tall in the
-middle of the tab (`PILL_H`, 6 from its top and bottom), all four corners radius 6, `sel` fill and `fg` text; the bar's
-line runs on under it. A closed metal ring goes all round the pill (`RING_W` outside it, the moving chrome at 8 steps a
-second, still with Reduce Motion or an inactive window), wholly inside the bar: it ends above the scroll bar and never
-touches the page, and it only crosses the neighbours' padding (const check `_RING_FITS`). No outline round the page.
+inside the bar, as in the installed app (record `2026-11-18-tab-bar-style`): the tab's full width, 24 tall (`PILL_H`),
+ends fully round (radius 12, half its height), `sel` fill and `fg` text; the bar's line runs on under it. A closed metal
+ring goes all round the pill (`RING_W` outside it, the moving chrome at 8 steps a second, still with Reduce Motion or an
+inactive window), wholly inside the bar with the same room above it and below it, 8 (`RING_GAP`) to the bar's top and to
+its line (Matteo, 2026-11-18: it had 12 above and sat on the line). The names, the × and the buttons on the right sit on
+the pill's middle, 22 from the bar's top. The scroll bar runs in the middle of the room under the ring, 2.5 from the
+ring and from the line, so it touches neither; the ring only crosses the neighbours' padding (const check `_RING_FITS`). No outline round the page.
 At the end of each tab a "×" (glyph 14 in `fg-2`, area of 16, radius 4, hover `sel`, 6 after the name and 8 from the
 right edge), always shown on the front tab and on the others only on hover (or with keyboard focus); its space is
 always there, so hover changes no width. Label "Close <name>"; a click closes like ⌘W (the same question with unsaved
@@ -455,7 +457,7 @@ changes); the middle click stays. Preview tab (a single click in the sidebar, li
 italics; at most one, the next single click replaces it in the same place. Too many tabs: the strip scrolls sideways
 and passes under the buttons on the right, whose backdrop (the bar's colour at 78 % over a 6 pt blur) fades in over
 24 pt (`FADE_W`); the strip's own ends fade as well while tabs are hidden there. A 3 pt scroll bar (`fg-3` at 45 %,
-at least 24 wide) sits at the strip's bottom while the tabs overflow, and the front tab scrolls into view whenever it
+at least 24 wide) sits under the front tab's ring while the tabs overflow, and the front tab scrolls into view whenever it
 changes (click, keys, a file opened, launch), clear of the fade. "⌘E source" on the right like the "⌘P" key, in
 `fg-3`.
 

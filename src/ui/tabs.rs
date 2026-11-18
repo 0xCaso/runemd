@@ -179,10 +179,10 @@ pub fn view(s: &App, hooks: Hooks<App>, theme: &Theme, reduced: bool, hover: boo
     let strip = row().key(STRIP).w_full().h_full().scroll_x().scroll_margin(END_ROOM).scroll_edge_fade(FADE_W)
         .on_scroll_offset(move |p: rune::ScrollPos| { set.set(thumb(p.offset[0], p.max[0], p.viewport[0])); })
         .child(list);
-    let track = el().key("tabs-scroll-bar").pin(Some(0.0), None, Some(0.0), Some(HAIRLINE)).h(SCROLL_BAR).a11y_hidden()
+    let track = el().key("tabs-scroll-bar").pin(Some(0.0), Some(SCROLL_BAR_Y), Some(0.0), None).h(SCROLL_BAR).a11y_hidden()
         .child(el().key("tabs-scroll-thumb").pin(Some(0.0), Some(0.0), None, None).h(SCROLL_BAR).radius(SCROLL_BAR / 2.0).fill(theme.fg3.alpha(0.45)).live_rect(&at));
-    // The track is drawn before the strip, under the tabs (no fill below the pill) and the front tab's
-    // ring, which ends above it (`_RING_FITS`).
+    // The track is drawn before the strip, under the tabs, in the room between the front tab's ring
+    // and the bar's line (`_RING_FITS`).
     let strip_box = el().key("tabs-strip").grow(1.0).shrink().min_w(0.0).h_full().child(track).child(strip);
     let key = el().key("source-key").border(HAIRLINE, theme.line).radius(R_KBD).px(KBD_PAD_X).py(KBD_PAD_Y)
         .child(text(SOURCE_KEY).font(TextStyle::new(KBD_TEXT, KBD_WEIGHT)).color(theme.fg3));
@@ -192,7 +192,7 @@ pub fn view(s: &App, hooks: Hooks<App>, theme: &Theme, reduced: bool, hover: boo
     // The buttons' backdrop: the bar's own colour, a little see-through over a blur, fading in over
     // `FADE_W` on the left, laid over the strip's end (`ml(-FADE_W)`).
     let bar_color = super::theme::flatten(theme.tab_bar(), theme.panel);
-    let end = row().key("bar-end").h(TAB_BAR_H).pt(TAB_TOP).ml(-FADE_W).pl(FADE_W + ROW_GAP).pr(TAB_BAR_PAD_X).center_y()
+    let end = row().key("bar-end").h(TAB_BAR_H).pt(TAB_TOP).pb(MID_PAD).ml(-FADE_W).pl(FADE_W + ROW_GAP).pr(TAB_BAR_PAD_X).center_y()
         .backdrop_blur(FADE_BLUR).fill(bar_color.alpha(FADE_TINT)).clip_fade_linear(FADE_W, 0.0, 0.0, 0.0)
         .children(find).child(tools);
     let line = el().key("tab-bar-line").pin(Some(0.0), None, Some(0.0), Some(0.0)).h(HAIRLINE).fill(theme.line);
@@ -209,21 +209,39 @@ pub const CLOSE_GAP: f32 = 6.0;
 const R_CLOSE: f32 = 4.0;
 
 /// The front tab's pill (record 2026-11-18-tab-bar-style, constraint 2, as in the installed app): the
-/// tab's full width, `PILL_H` tall in the middle of the tab, all four corners `R_ROW`, in `sel`. The
-/// metal ring runs closed `RING_W` outside it, inside the bar: never on the page. 24.5 puts the pill 6
-/// from the tab's top and bottom, on whole device pixels.
-pub const PILL_H: f32 = 24.5;
-const PILL_Y: f32 = (TAB_H - PILL_H) / 2.0;
+/// tab's full width, `PILL_H` tall, ends fully round (`PILL_R`, half its height), in `sel`. The metal
+/// ring runs closed `RING_W` outside it, inside the bar: never on the page. Matteo, 2026-11-18 (scrawl
+/// 1795002435465): the ring had 12 above and 3.5 below, on the line; now `RING_GAP` (8) on both sides,
+/// the pill 4 higher and the room under it 4.5 taller, everything on whole device pixels.
+pub const PILL_H: f32 = 24.0;
+pub const PILL_R: f32 = PILL_H / 2.0;
+/// The room above the ring (to the bar's top) and below it (to the bar's line): the same.
+pub const RING_GAP: f32 = (TAB_BAR_H - PILL_H - 2.0 * RING_W) / 2.0;
+/// The pill's top and middle, from the bar's top.
+const PILL_TOP: f32 = RING_GAP + RING_W;
+const PILL_MID: f32 = PILL_TOP + PILL_H / 2.0;
+/// The pill in the tab: from the tab's top, and the tab's bottom room that puts the name and × on the
+/// pill's middle (the buttons on the right share that middle, `MID_PAD`).
+const PILL_Y: f32 = PILL_TOP - TAB_TOP;
+const TAB_PAD_B: f32 = TAB_H - 2.0 * PILL_Y - PILL_H;
+const MID_PAD: f32 = TAB_BAR_H + TAB_TOP - 2.0 * PILL_MID;
+/// The scroll bar's top from the bar's top: in the middle of the room under the ring, so it touches
+/// neither the ring nor the bar's line.
+pub const SCROLL_BAR_Y: f32 = PILL_TOP + PILL_H + RING_W + (RING_GAP - SCROLL_BAR) / 2.0;
 
-/// The front tab's ring, `RING_W` outside the pill: inside the bar above it, clear of the first tab's
-/// lead, only over the neighbours' padding (never their names or ×), and above the scroll bar and the
-/// bar's bottom line, so it never touches the page.
+/// The front tab's ring, `RING_W` outside the pill: inside the bar, the same room above and below,
+/// clear of the first tab's lead, only over the neighbours' padding (never their names or ×), and
+/// clear of the scroll bar, which ends above the bar's line.
 const _RING_FITS: () = assert!(
-    TAB_TOP + PILL_Y > RING_W
+    RING_GAP >= 2.0 * RING_W
+        && TAB_TOP + PILL_Y - RING_W == TAB_BAR_H - (PILL_TOP + PILL_H + RING_W)
+        && PILL_Y >= 0.0
+        && TAB_PAD_B >= 0.0
         && TAB_BAR_LEAD > RING_W
-        && TAB_PAD_X > RING_W
+        && TAB_PAD_X >= PILL_R
         && CLOSE_PAD > RING_W
-        && TAB_TOP + PILL_Y + PILL_H + RING_W < TAB_BAR_H - SCROLL_BAR
+        && PILL_TOP + PILL_H + RING_W < SCROLL_BAR_Y
+        && SCROLL_BAR_Y + SCROLL_BAR < TAB_BAR_H
 );
 
 /// Closes tab `id` (middle click, ×): with unsaved changes it brings it to the front with the
@@ -266,7 +284,7 @@ fn close_button(key: &str, id: u64, title: &str, front: bool, theme: &Theme, mot
 const CLOSE_GLYPH: f32 = 14.0;
 
 /// A tab (record 2026-11-18-vscode-tabs): `TAB_H` tall, edge to edge with the others, `TAB_PAD_X` before
-/// the name and the × after it. Front: a `sel` pill (`PILL_H`, four corners `R_ROW`) with the metal
+/// the name and the × after it. Front: a `sel` pill (`PILL_H`, round ends `PILL_R`) with the metal
 /// ring round it, text `fg`, no divider. The others: no fill (the bar's tint), text `fg2`, hover `sel`, a `TAB_DIVIDER` line in
 /// `line` on the right unless the next tab is the front one.
 fn tab_row(s: &App, hooks: Hooks<App>, i: usize, n: usize, tab: &crate::app::Tab, theme: &Theme, motion: Motion) -> El {
@@ -282,7 +300,7 @@ fn tab_row(s: &App, hooks: Hooks<App>, i: usize, n: usize, tab: &crate::app::Tab
     // out.
     // The pill behind the name, and the ring's host: always present, so the structure does not change
     // when the tab comes to the front or the ring lights up.
-    let mut pill = el().key(format!("{key}-pill")).pin(Some(0.0), Some(PILL_Y), Some(0.0), Some(PILL_Y)).radius(R_ROW).a11y_hidden();
+    let mut pill = el().key(format!("{key}-pill")).pin(Some(0.0), Some(PILL_Y), Some(0.0), None).h(PILL_H).radius(PILL_R).a11y_hidden();
     if front {
         pill = pill.fill(theme.sel);
     }
@@ -290,6 +308,7 @@ fn tab_row(s: &App, hooks: Hooks<App>, i: usize, n: usize, tab: &crate::app::Tab
     let e = row()
         .max_w(TAB_MAX_W)
         .h(TAB_H)
+        .pb(TAB_PAD_B)
         .pl(TAB_PAD_X)
         .pr(CLOSE_PAD)
         .gap(CLOSE_GAP)
@@ -588,8 +607,10 @@ mod tests {
             let pill = find(&rt, &format!("{front}-pill")).expect("pill").rect;
             let tab = find(&rt, &front).expect("front tab").rect;
             assert!((pill[3] - PILL_H).abs() < 0.01 && (pill[0] - tab[0]).abs() < 0.01 && (pill[2] - tab[2]).abs() < 0.01, "the pill spans the tab, {PILL_H} tall: {pill:?} {tab:?}");
-            assert!(((pill[1] - tab[1]) - (tab[1] + tab[3] - pill[1] - pill[3])).abs() < 0.01, "in the middle of the tab: {pill:?} {tab:?}");
-            assert_eq!(layer.shape.radius, R_ROW + RING_W, "all four corners round");
+            assert_eq!(layer.shape.radius, PILL_H / 2.0 + RING_W, "ends fully round: radius half the pill's height");
+            let label = find(&rt, &format!("{front}-label")).expect("label").rect;
+            let mid = pill[1] + pill[3] / 2.0;
+            assert!((label[1] + label[3] / 2.0 - mid).abs() < 0.51, "the name on the pill's middle: {label:?} {pill:?}");
             let r = layer.shape.rect;
             let (x0, y0, x1, y1) = (r.x, r.y, r.x + r.w, r.y + r.h);
             assert!((x0 - (pill[0] - RING_W)).abs() < 0.01 && (y0 - (pill[1] - RING_W)).abs() < 0.01 && (x1 - (pill[0] + pill[2] + RING_W)).abs() < 0.01 && (y1 - (pill[1] + pill[3] + RING_W)).abs() < 0.01, "RING_W outside the pill: {r:?} {pill:?}");
@@ -597,8 +618,13 @@ mod tests {
             let bar = find(&rt, "tab-bar").expect("bar").rect;
             let page = bar[1] + bar[3];
             assert!(y0 > bar[1] && y1 < page, "{n} tabs: the ring is inside the bar, its bottom {y1} above the page's top {page}");
+            // Matteo 2026-11-18: the same room above the ring (to the bar's top) and below it (to the
+            // bar's line), ±0.5 pt.
+            let line = find(&rt, "tab-bar-line").expect("line").rect;
+            let (above, below) = (y0 - bar[1], line[1] - y1);
+            assert!((above - below).abs() <= 0.5 && below >= 2.0 * RING_W, "{n} tabs: {above} above the ring, {below} below");
             let track = find(&rt, "tabs-scroll-bar").expect("scroll bar").rect;
-            assert!(y1 <= track[1], "{n} tabs: the ring ends at {y1}, above the scroll bar at {}", track[1]);
+            assert!(y1 < track[1] && track[1] + track[3] < line[1], "{n} tabs: the scroll bar {track:?} between the ring's bottom {y1} and the line {line:?}, touching neither");
             if n == 16 {
                 assert!(find(&rt, "tabs-scroll-thumb").expect("thumb").rect[2] >= SCROLL_BAR_MIN, "the thumb shows");
             }
