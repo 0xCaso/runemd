@@ -730,11 +730,14 @@ pub struct FillParams {
     pub border: f32,
     /// Opacity of the fill, 0..1.
     pub intensity: f32,
+    /// Paint only where the layer's source texture (`FxLayer::source`) has alpha: its coverage
+    /// times the shape's. A glyph mask makes text out of any fill (RuneMD vendor change).
+    pub mask: bool,
 }
 
 impl FillParams {
     pub fn new(style: FillStyle) -> FillParams {
-        FillParams { style, border: 0.0, intensity: 1.0 }
+        FillParams { style, border: 0.0, intensity: 1.0, mask: false }
     }
     pub fn border(mut self, width: f32) -> FillParams {
         self.border = width;
@@ -742,6 +745,11 @@ impl FillParams {
     }
     pub fn intensity(mut self, k: f32) -> FillParams {
         self.intensity = k;
+        self
+    }
+    /// Clipped to the alpha of the layer's source texture (`FillParams::mask`).
+    pub fn masked(mut self) -> FillParams {
+        self.mask = true;
         self
     }
 
@@ -756,7 +764,7 @@ impl FillParams {
     }
 
     fn needs_source(&self) -> bool {
-        match self.style {
+        self.mask || match self.style {
             FillStyle::Dither(p) => p.input == FillInput::Image,
             FillStyle::Halftone(p) => p.input == FillInput::Image,
             _ => false,
@@ -808,7 +816,7 @@ impl FillParams {
             }
             FillStyle::Plastic(_) => (0, 0),
         };
-        FxCost { passes: 1, samples, alu, backdrop: self.needs_backdrop(), source: self.needs_source() }
+        FxCost { passes: 1, samples: samples + 5 * u32::from(self.mask), alu, backdrop: self.needs_backdrop(), source: self.needs_source() }
     }
 
     /// Whether the fill draws nothing on a shape of this rect, at any time.
@@ -826,7 +834,7 @@ impl FillParams {
         // Looping styles settle on one pose under reduced motion, and fold large times to keep f32 precision.
         i.t[0] = if rm { CALM_T } else { cpu::fold_t(time) };
         i.t[2] = self.style.index() as f32;
-        i.aux = [self.border, self.intensity.min(1.0), 0.0, 0.0];
+        i.aux = [self.border, self.intensity.min(1.0), f32::from(u8::from(self.mask)), 0.0];
         match self.style {
             FillStyle::LiquidMetal(p) => {
                 i.c0 = p.tint.v4();

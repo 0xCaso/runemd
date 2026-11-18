@@ -167,6 +167,11 @@ fn shoulder(c: vec3f) -> vec3f {
     return select(c, k + (1.0 - k) * (1.0 - exp(-(c - k) / (1.0 - k))), c > vec3f(k));
 }
 
+// The source texture's alpha at `p` (pt), over the rect in aux2 (FillParams::mask).
+fn mask_at(i: Inst, p: vec2f) -> f32 {
+    return textureSampleLevel(source, samp, (p - i.aux2.xy) / max(i.aux2.zw, vec2f(1e-3)), 0.0).a;
+}
+
 fn liquid_metal(i: Inst, c: Ctx, m: f32, px: vec2f) -> vec4f {
     let flow = i.p0.x;
     let sc = max(i.p0.y, 1.0);
@@ -174,7 +179,14 @@ fn liquid_metal(i: Inst, c: Ctx, m: f32, px: vec2f) -> vec4f {
     // Tilt of the surface normal (where it leans, as a slope): rim or tube + dome + liquid ripples.
     let slab = slab_tilt(c, i.aux.x, i.p0.w, i.p1.x);
     var tilt = slab.xy;
-    let rim = slab.z;
+    var rim = slab.z;
+    if (i.aux.z > 0.5) {
+        // Masked: each glyph's own rim rolls off over `bevel` pt, from the mask's slope there.
+        let b = max(i.p0.w, 0.5);
+        let g = vec2f(mask_at(i, c.p + vec2f(b, 0.0)) - mask_at(i, c.p - vec2f(b, 0.0)), mask_at(i, c.p + vec2f(0.0, b)) - mask_at(i, c.p - vec2f(0.0, b)));
+        tilt -= g * 1.2;
+        rim = max(rim, min(length(g), 0.92));
+    }
     var hgt = 0.0;
     var bend = 0.0;
     if (flow > 0.0) {
@@ -534,7 +546,9 @@ fn shade(in: VOut) -> vec4f {
     let i = insts[in.id];
     let px = pixel(in);
     let c = ctx(i, px);
-    let m = fill_mask(c, i.aux.x);
+    var m = fill_mask(c, i.aux.x);
+    // aux.z = 1: clipped to the source texture's alpha (FillParams::mask), covering aux2.
+    if (i.aux.z > 0.5) { m *= mask_at(i, c.p); }
     if (m <= 0.0) { return vec4f(0.0); }
     switch c.variant {
         case 0: { return liquid_metal(i, c, m, px); }
