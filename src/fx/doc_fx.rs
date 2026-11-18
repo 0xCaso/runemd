@@ -7,7 +7,7 @@
 //! view builds exactly the tree it built before.
 //!
 //! Metal frames are rare (constraint 3): code, tables, callouts, front matter and images get a quiet
-//! 1 pt edge in `line`, drawn by Rune, not rune-fx; only the block kind in [`METAL_BLOCK`] keeps metal.
+//! 1 pt edge in `line`, drawn by Rune, not rune-fx; only the block kind in [`METAL_BLOCK`] (code) keeps metal.
 //!
 //! The view puts a [`slot`] on the element a [`Piece`] dresses (a code card, a callout, a rule, a
 //! task bead…); the compositor turns each slot into the layer of [`layer`] on its rect. Every piece
@@ -27,7 +27,7 @@ pub struct Directions {
     pub steel: bool,
     /// 2 · Forged: the gunmetal edge, wider, on tables and images too.
     pub forged: bool,
-    /// 3 · Engraved: H1 and H2 in letterpress; the rule a chrome rod.
+    /// 3 · Engraved: liquid chrome inside every heading's letters; the rule a chrome rod.
     pub engraved: bool,
     /// 4 · Ember: links underlined in ember; the rule a still strip of fire.
     pub ember: bool,
@@ -162,9 +162,10 @@ impl BlockKind {
     }
 }
 
-/// The one block kind that keeps a metal frame (constraint 3: at most one): none, so every block
-/// gets the quiet edge. Metal stays on the front tab, the page outline and the writing ring.
-pub const METAL_BLOCK: Option<BlockKind> = None;
+/// The one block kind that keeps a metal frame (constraint 3: at most one): code blocks
+/// (docs/decisions/2026-11-18-full-forge-round-2.md, constraint 1). Tables, callouts, front matter
+/// and images get the quiet edge.
+pub const METAL_BLOCK: Option<BlockKind> = Some(BlockKind::Code);
 
 /// [`METAL_BLOCK`], or `RUNEMD_METAL_BLOCK` (`none`, `code`, `callouts`, `tables`, `frontmatter`,
 /// `images`) in the lab, read once at startup.
@@ -236,6 +237,9 @@ pub enum Piece {
     TubeFill,
     /// A charged edge around the element: amber, or red with `red` (Warning, Caution).
     Electric { red: bool },
+    /// Liquid chrome inside a heading's letters: it fills the element, and the compositor clips it
+    /// to the glyphs drawn before the slot (`FillParams::masked`). It moves on `ring::METAL_FRAME`.
+    Chrome,
 }
 
 impl Piece {
@@ -251,6 +255,7 @@ impl Piece {
             Piece::Tube => (8.0, 0.0),
             Piece::TubeFill => (9.0, 0.0),
             Piece::Electric { red } => (10.0, f32::from(u8::from(red))),
+            Piece::Chrome => (11.0, 0.0),
         }
     }
 
@@ -266,6 +271,7 @@ impl Piece {
             8 => Piece::Tube,
             9 => Piece::TubeFill,
             10 => Piece::Electric { red: p > 0.5 },
+            11 => Piece::Chrome,
             _ => return None,
         })
     }
@@ -337,6 +343,26 @@ pub fn chrome(dark: bool) -> LiquidMetalParams {
     LiquidMetalParams { flow: 0.0, ..super::ring::metal(dark) }
 }
 
+/// The heading chrome (round 2, mockup "Release 0.3 plan"): the moving chrome of the edges in the
+/// dark theme, where the letters read light (text-mode remap `0.38 + 0.62 L`); in the light theme
+/// a dark chrome, so the letters keep their contrast on the light panel (remap `0.6 L`).
+/// Each glyph's rim is `HEADING_BEVEL` pt wide (the mask's slope, `FillParams::masked`).
+pub fn heading_metal(dark: bool) -> LiquidMetalParams {
+    let chrome = LiquidMetalParams { bevel: HEADING_BEVEL, ..LiquidMetalParams::chrome() };
+    if dark {
+        return chrome;
+    }
+    LiquidMetalParams { tint: rune_fx::rgb(0xb4b9c0), light: rune_fx::rgb(0xc8ccd2), contrast: 0.7, ..chrome }
+}
+
+/// The rolled rim of a heading's letters, pt.
+pub const HEADING_BEVEL: f32 = 1.0;
+
+/// A piece is a heading's chrome: the compositor builds its glyph mask.
+pub fn is_chrome(data: [f32; 4]) -> bool {
+    matches!(read(data), Some((Piece::Chrome, _)))
+}
+
 /// The ember of links and the charged edge's amber (mockup 4): ≥ 3:1 on the panel in both themes.
 pub fn ember(dark: bool) -> Color {
     rune::color::hex(if dark { "#ff8a3d" } else { "#c2410c" }).unwrap_or(Color { r: 1.0, g: 0.4, b: 0.1, a: 1.0 })
@@ -396,6 +422,13 @@ pub fn layer(rect: Rect, radius: f32, data: [f32; 4], clock: f64, active: bool) 
             // The clock wraps once an hour, like the calm edge's liquid time (f32 precision).
             let t = if frozen { 0.0 } else { clock.max(0.0).rem_euclid(3600.0) as f32 };
             let l = Fx::electric(p).on(Shape::rounded(rect.x, rect.y, rect.w, rect.h, radius)).at(t).reduced(frozen);
+            return Some((l, true));
+        }
+        Piece::Chrome => {
+            let frozen = look.reduced || !active;
+            let t = if frozen { 0.0 } else { clock.max(0.0).rem_euclid(3600.0) as f32 };
+            let fill = rune_fx::FillParams::from(heading_metal(look.dark)).masked();
+            let l = Fx::fill(fill).on(Shape::rounded(rect.x, rect.y, rect.w, rect.h, 0.0)).at(t).reduced(frozen);
             return Some((l, true));
         }
     };
@@ -516,7 +549,6 @@ mod tests {
         for k in kinds {
             assert_eq!(d.frame(k, None), Some(Frame::Quiet), "{k:?}");
         }
-        assert_eq!(METAL_BLOCK, None, "the default: no block keeps metal");
         for metal in kinds {
             let metals = kinds.iter().filter(|k| matches!(d.frame(**k, Some(metal)), Some(Frame::Metal(_)))).count();
             assert_eq!(metals, 1, "{metal:?}");
@@ -527,6 +559,20 @@ mod tests {
         assert_eq!(metal_block_from(Some("code")), Some(BlockKind::Code));
         assert_eq!(metal_block_from(Some("callouts")), Some(BlockKind::Callout));
         assert_eq!(metal_block_from(Some("none")), None);
+    }
+
+    /// Round 2, constraint 1: by default only code blocks keep the metal frame (the "code" variant of
+    /// docs/proof/full-forge/metal-variants-code-*.png); tables, callouts, front matter and images
+    /// get the quiet edge.
+    #[test]
+    fn only_code_blocks_get_a_metal_frame_by_default() {
+        let d = Directions::DEFAULT;
+        assert_eq!(METAL_BLOCK, Some(BlockKind::Code));
+        assert_eq!(d.frame(BlockKind::Code, METAL_BLOCK), Some(Frame::Metal(Piece::Edge { width: FORGED_W, chrome: false })));
+        for k in [BlockKind::Callout, BlockKind::Table, BlockKind::Frontmatter, BlockKind::Image] {
+            assert_eq!(d.frame(k, METAL_BLOCK), Some(Frame::Quiet), "{k:?}");
+        }
+        assert_eq!(metal_block_from(None), Some(BlockKind::Code), "no lab override: code");
     }
 
     #[test]
@@ -576,6 +622,7 @@ mod tests {
             Piece::TubeFill,
             Piece::Electric { red: true },
             Piece::Electric { red: false },
+            Piece::Chrome,
         ];
         for p in pieces {
             for look in [Look { dark: true, reduced: false }, Look { dark: false, reduced: true }] {
@@ -583,6 +630,20 @@ mod tests {
             }
         }
         assert_eq!(read([0.0; 4]), None, "a slot without a piece");
+    }
+
+    #[test]
+    fn heading_chrome_is_masked_paced_and_still_when_reduced_or_inactive() {
+        let rect = Rect::new(0.0, 40.0, 600.0, 36.0);
+        let moving = Look { dark: true, reduced: false };
+        let (l, paced) = layer(rect, 0.0, data(Piece::Chrome, moving), 12.5, true).unwrap();
+        assert!(l.is_animating() && paced, "it moves on the metal's wake-ups, not the display link");
+        assert!(l.fx.cost().source, "clipped to the glyph mask");
+        assert!(is_chrome(data(Piece::Chrome, moving)) && !is_chrome(data(Piece::Rod, moving)));
+        let (l, _) = layer(rect, 0.0, data(Piece::Chrome, Look { dark: false, reduced: true }), 12.5, true).unwrap();
+        assert!(!l.is_animating(), "still with reduce motion");
+        let (l, _) = layer(rect, 0.0, data(Piece::Chrome, moving), 12.5, false).unwrap();
+        assert!(!l.is_animating(), "still in an inactive window");
     }
 
     #[test]

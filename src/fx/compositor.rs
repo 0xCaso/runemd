@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use rune::compose::{Compositor, Frame};
-use rune::render::{EffectPhase, EffectSite, Instance, KIND_EFFECT};
+use rune::render::{EffectPhase, EffectSite, Instance, KIND_EFFECT, KIND_GLYPH};
 use rune_fx::{FxFrame, FxLayer, FxOptions, FxRenderer, FxSlot, Rect};
 
 use super::marks::Mark;
@@ -28,6 +28,33 @@ pub struct FxCompositor {
     /// The fire's fall state: whether the last frame's fire was lit (new text below the view), and the
     /// clock at which it went out, from where it goes back to rest (`fire::Phase::Falling`).
     fire: FireFall,
+    /// The headings' glyph mask (`doc_fx::Piece::Chrome`): a viewport-sized texture, its view
+    /// and size, made on the first chrome heading and again when the viewport changes.
+    mask: Option<(wgpu::Texture, wgpu::TextureView, (u32, u32))>,
+}
+
+/// How far back from a chrome slot the glyphs of its heading are looked for: the heading's own
+/// instances come right before the slot, and a heading is a few lines of text.
+const MASK_SCAN: usize = 1024;
+
+/// The glyphs a chrome slot at `at` covers, white: the heading's text drawn right before it
+/// (selection and Find marks between them are skipped). The walk ends at the first glyph outside
+/// the slot, which belongs to an earlier block.
+pub fn heading_glyphs(instances: &[Instance], at: usize, out: &mut Vec<Instance>) {
+    let [x, y, w, h] = instances[at].rect;
+    let inside = |i: &Instance| {
+        let (cx, cy) = (i.rect[0] + i.rect[2] / 2.0, i.rect[1] + i.rect[3] / 2.0);
+        cx >= x && cx <= x + w && cy >= y && cy <= y + h
+    };
+    for i in instances[..at].iter().rev().take(MASK_SCAN) {
+        if i.params[1] != KIND_GLYPH {
+            continue;
+        }
+        if !inside(i) {
+            break;
+        }
+        out.push(Instance { fill: [1.0; 4], ..*i });
+    }
 }
 
 /// A slot's rect in pt.
@@ -196,9 +223,9 @@ impl Compositor<App> for FxCompositor {
         let mut slots: Vec<FxSlot> = Vec::new();
         let mut pulsing = false;
         let mut paced: Vec<usize> = Vec::new();
-        let mut multiply = false;
         let mut saw_fire = false;
         let mut metal = false;
+        let mut mask: Vec<Instance> = Vec::new();
         for (n, i) in f.rt.instances.iter().enumerate() {
             if i.params[1] != KIND_EFFECT {
                 continue;
@@ -237,6 +264,14 @@ impl Compositor<App> for FxCompositor {
                 // metal's `ring::METAL_FRAME` wake-ups like a calm edge (no display link, no view run).
                 let radius = i.radii.iter().fold(0.0f32, |a, v| a.max(v.abs())) / i.params[3].max(f32::EPSILON);
                 let Some((layer, rests)) = doc_fx::layer(rect_pt(i), radius, i.uv, clock, f.rt.state.window_active) else { continue };
+                // A heading's chrome samples the glyph mask (source 0), which covers the viewport.
+                let layer = if doc_fx::is_chrome(i.uv) {
+                    heading_glyphs(&f.rt.instances, n, &mut mask);
+                    let k = i.params[3].max(f32::EPSILON);
+                    layer.source(0, Rect::new(0.0, 0.0, size.0 as f32 / k, size.1 as f32 / k))
+                } else {
+                    layer
+                };
                 if rests {
                     paced.push(layers.len());
                 }
@@ -252,7 +287,6 @@ impl Compositor<App> for FxCompositor {
                 continue;
             };
             let blend = if mark == Mark::DocFx.id() { doc_fx::blend_of(i.uv) } else { rune_fx::FxBlend::Normal };
-            multiply |= blend.needs_backdrop();
             at.push(n as u32);
             layers.push(layer);
             slots.push(FxSlot::default().scale(i.params[3]).clip(i.clip, i.fade).blend(blend));
@@ -271,28 +305,85 @@ impl Compositor<App> for FxCompositor {
         self.drew = !layers.is_empty();
         fx.set_srgb_blend(f.srgb_blend());
         fx.add_format(device, wgpu::TextureFormat::Rgba16Float);
-        fx.prepare_with_slots(device, queue, &FxFrame { viewport: [size.0, size.1], scale: 1.0, layers: &layers, backdrop: None, sources: &[] }, &slots);
+        if mask.is_empty() {
+            fx.prepare_with_slots(device, queue, &FxFrame { viewport: [size.0, size.1], scale: 1.0, layers: &layers, backdrop: None, sources: &[] }, &slots);
+        } else {
+            if self.mask.as_ref().is_none_or(|m| m.2 != size) {
+                let texture = device.create_texture(&wgpu::TextureDescriptor {
+                    label: Some("runemd heading mask"),
+                    size: wgpu::Extent3d { width: size.0.max(1), height: size.1.max(1), depth_or_array_layers: 1 },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format: f.format,
+                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+                    view_formats: &[],
+                });
+                let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+                self.mask = Some((texture, view, size));
+            }
+            let view = self.mask.as_ref().map(|m| &m.1).expect("made above");
+            fx.prepare_with_slots(device, queue, &FxFrame { viewport: [size.0, size.1], scale: 1.0, layers: &layers, backdrop: None, sources: &[view] }, &slots);
+        }
         let clear = f.rt.clear_color();
-        f.ui.prepare(device, queue, &mut f.rt.text.atlas, &f.rt.instances, size);
-        // Glass and the light charged edge (Full forge) read what is painted before it: the pass splits at its slots.
-        if layers.iter().any(|l| l.fx.needs_backdrop()) || multiply {
-            f.ui.draw_with_backdrop(f.encoder, f.target, clear, &mut |phase, s: &EffectSite<'_>| {
-                let Some(k) = at.iter().position(|n| *n == s.index) else { return };
-                match phase {
-                    EffectPhase::Backdrop(encoder) => {
-                        if let Some(b) = s.backdrop {
-                            fx.blur_backdrop(device, queue, encoder, b, k);
-                        }
+        let mut hook = |phase: EffectPhase<'_, '_>, s: &EffectSite<'_>| {
+            let Some(k) = at.iter().position(|n| *n == s.index) else { return };
+            match phase {
+                EffectPhase::Backdrop(encoder) => {
+                    if let Some(b) = s.backdrop {
+                        fx.blur_backdrop(device, queue, encoder, b, k);
                     }
-                    EffectPhase::Draw(pass) => fx.draw_layer_in(pass, s.format, s.origin, k),
                 }
-            });
+                EffectPhase::Draw(pass) => fx.draw_layer_in(pass, s.format, s.origin, k),
+            }
+        };
+        // Chrome headings: the frame's instances, then their glyphs in white, drawn into the mask
+        // before the frame (the instance upload is flushed by `encode_layers_with_backdrop`).
+        if let Some((_, view, _)) = self.mask.as_ref().filter(|_| !mask.is_empty()) {
+            let ranges = f.ui.prepare_lists(device, queue, &mut f.rt.text.atlas, &[&f.rt.instances, &mask], size);
+            f.ui.encode_layers_with_backdrop(f.encoder, &mut hook);
+            {
+                let mut pass = f.encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("runemd heading mask"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment { view, depth_slice: None, resolve_target: None, ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT), store: wgpu::StoreOp::Store } })],
+                    depth_stencil_attachment: None,
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                    multiview_mask: None,
+                });
+                f.ui.draw_range(&mut pass, f.format, ranges[1].clone());
+            }
+            let c = wgpu::Color { r: clear[0] as f64, g: clear[1] as f64, b: clear[2] as f64, a: clear[3] as f64 };
+            f.ui.draw_target_range_with(f.encoder, f.target, f.format, wgpu::LoadOp::Clear(c), ranges[0].clone(), &mut hook);
             return;
         }
-        f.ui.draw_with(f.encoder, f.target, clear, &mut |pass, s: &EffectSite<'_>| {
-            if let Some(k) = at.iter().position(|n| *n == s.index) {
-                fx.draw_layer_in(pass, s.format, s.origin, k);
-            }
-        });
+        f.ui.prepare(device, queue, &mut f.rt.text.atlas, &f.rt.instances, size);
+        // `draw_with` is this with no backdrop phase: glass and the light charged edge (Full forge)
+        // read what is painted before them, and the pass splits only at their slots.
+        f.ui.draw_with_backdrop(f.encoder, f.target, clear, &mut hook);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn inst(kind: f32, rect: [f32; 4]) -> Instance {
+        Instance { rect, radii: [0.0; 4], fill: [0.2, 0.3, 0.4, 1.0], border: [0.0; 4], params: [0.0, kind, 0.0, 2.0], uv: [0.0; 4], clip: [0.0; 4], fade: [0; 4] }
+    }
+
+    #[test]
+    fn a_chrome_slot_masks_only_its_own_headings_glyphs() {
+        let list = [
+            inst(KIND_GLYPH, [10.0, 0.0, 8.0, 10.0]),   // the paragraph above
+            inst(0.0, [0.0, 40.0, 400.0, 60.0]),        // a selection mark on the heading
+            inst(KIND_GLYPH, [10.0, 50.0, 12.0, 30.0]), // the heading's letters
+            inst(KIND_GLYPH, [30.0, 50.0, 12.0, 30.0]),
+            inst(KIND_EFFECT, [0.0, 40.0, 400.0, 60.0]), // the chrome slot
+        ];
+        let mut out = Vec::new();
+        heading_glyphs(&list, 4, &mut out);
+        assert_eq!(out.len(), 2, "the two letters, not the paragraph or the mark");
+        assert!(out.iter().all(|i| i.fill == [1.0; 4] && i.params[1] == KIND_GLYPH), "white glyphs");
     }
 }

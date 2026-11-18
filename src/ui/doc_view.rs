@@ -547,23 +547,18 @@ fn block_body<S: 'static>(source: &str, style: &MarkdownStyle, notes: &crate::do
     };
     // Ember: every link underlined in ember (paths keep their own look).
     let style = if forge.on.ember { Cow::Owned(style.into_owned().link_underline(crate::fx::doc_fx::ember(forge.look.dark))) } else { style };
-    // Engraved: H1 and H2 in letterpress, from a copy of the heading drawn under it.
-    let press = (forge.on.engraved && matches!(level, Some(1 | 2))).then(|| letterpress(&shown, &style, forge.look));
-    // ...and chrome inside their letters (mockup 3), drawn over the heading.
-    let chrome = match level {
-        Some(n @ 1..=2) if forge.on.engraved && CHROME_LETTERS => Some(chrome_letters(&shown, &style, fonts.headings[n as usize - 1], forge.look)),
-        _ => None,
-    };
+    // Engraved: liquid chrome inside every heading's letters (round 2, constraint 2), drawn over
+    // the heading and clipped to its glyphs by the compositor (`Piece::Chrome`).
+    let chrome = (forge.on.engraved && level.is_some()).then(|| heading_chrome(forge.look));
     let md = rune_kit::Markdown::new(shown).highlights(hits).selectable(true);
     let md = if linked.is_some() { path_links(md, &meta, fonts) } else { md };
     let md = if forge.on.any() { forge_markdown(md, dress, callout.is_some()) } else { md };
     // Every link opens (`App::open_link`): paths, URLs and `#heading`.
     let md = md.on_link_tx(move |s: &mut S, url, tx| open(s, url, tx));
     let body = md.render(&style).selection_group(false);
-    let body = match (press, chrome) {
-        (Some(copy), Some(chrome)) => el().w_full().child(copy).child(body).child(chrome),
-        (Some(copy), None) => el().w_full().child(copy).child(body),
-        _ => body,
+    let body = match chrome {
+        Some(chrome) => el().w_full().child(body).child(chrome),
+        None => body,
     };
     let body = if table && callout.is_none() { framed(el().w_full().radius(CARD_RADIUS).child(body), crate::fx::doc_fx::BlockKind::Table, forge) } else { body };
     let body = match callout {
@@ -670,72 +665,11 @@ const ROD_H: f32 = 3.0;
 const FIRE_H: f32 = 18.0;
 const RULE_PAD: f32 = 12.0;
 
-/// A heading's letterpress copy: the same text 1 pt off, in shadow (dark) or light (light theme),
-/// out of the flow, not selectable and hidden from VoiceOver.
-fn letterpress(shown: &str, style: &MarkdownStyle, look: crate::fx::doc_fx::Look) -> El {
-    let (ink, dy) = if look.dark { (Color { r: 0.0, g: 0.0, b: 0.0, a: 0.85 }, -1.0) } else { (Color { r: 1.0, g: 1.0, b: 1.0, a: 1.0 }, 1.0) };
-    let copy = rune_kit::Markdown::new(shown.to_owned()).render(&style.clone().text(ink));
-    el().key("press").pin(Some(0.0), Some(dy), Some(0.0), None).child(copy).a11y_hidden()
-}
-
-/// Engraved: H1 and H2 get chrome inside the letters (decision 2026-11-18-full-forge-effects,
-/// constraint 4). rune-fx has no glyph mask, so the chrome is a few copies of the heading in the
-/// chrome's colours ([`CHROME_STOPS`]), stacked: per line, the first stop's copy whole, then each
-/// next stop's copy clipped from the stop before it down to the line's end, its top faded in
-/// linearly over the gap between the two (`clip_fade_linear`). The stack is the chrome's vertical
-/// gradient inside the letters. Rune's own text and clips: still, no effect layer, nothing to wake.
-const CHROME_LETTERS: bool = true;
-/// Lines of a heading the chrome covers (a longer H1 keeps its plain colour below).
-const CHROME_LINES: usize = 2;
-/// Where the capitals sit in a line box, in em: the content box (ascent + descent) and from its top
-/// the ascent (to the baseline) and the capital height (Inter and SF: 0.97 + 0.24, caps 0.73).
-const CONTENT_EM: f32 = 1.21;
-const ASCENT_EM: f32 = 0.97;
-const CAP_EM: f32 = 0.73;
-
-/// The chrome inside the letters, from the top of the capitals (0) to the baseline (1), dark and
-/// light theme: a bright sky, a dark horizon a little under the middle, a bright line right under
-/// it, a darker ground (the mockup's `background-clip: text` over the still liquid metal).
-pub const CHROME_STOPS: [(f32, u32, u32); 6] = [
-    (0.0, 0xf4f6f9, 0x6d7581),
-    (0.42, 0xb3bac4, 0x3d444e),
-    (0.54, 0x434a55, 0x101419),
-    (0.60, 0xeef1f5, 0x8f98a3),
-    (0.80, 0xb8bfc8, 0x4f5761),
-    (1.0, 0x8a939f, 0x2c323a),
-];
-
-/// The copies of one heading line of `font`: (top of the clip from the line's top, fade-in height,
-/// colour), the first one unfaded from the line's top.
-pub fn chrome_layers(font: TextStyle, dark: bool) -> Vec<(f32, f32, Color)> {
-    let size = font.size;
-    let lh = if font.line_height > 0.0 { font.line_height } else { size * 1.25 };
-    let base = (lh - CONTENT_EM * size) / 2.0 + ASCENT_EM * size;
-    let cap = base - CAP_EM * size;
-    let y = |u: f32| cap + u * (base - cap);
-    let ink = |c: u32| rune::color::hex(&format!("#{c:06x}")).unwrap_or(Color { r: 0.5, g: 0.5, b: 0.5, a: 1.0 });
-    let pick = |s: &(f32, u32, u32)| ink(if dark { s.1 } else { s.2 });
-    let mut out = vec![(0.0, 0.0, pick(&CHROME_STOPS[0]))];
-    out.extend(CHROME_STOPS.windows(2).map(|w| (y(w[0].0), y(w[1].0) - y(w[0].0), pick(&w[1]))));
-    out
-}
-
-/// The chrome over a heading `shown` of `font`: out of the flow, clipped to the heading, not
-/// selectable and hidden from VoiceOver.
-fn chrome_letters(shown: &str, style: &MarkdownStyle, font: TextStyle, look: crate::fx::doc_fx::Look) -> El {
-    let lh = if font.line_height > 0.0 { font.line_height } else { font.size * 1.25 };
-    let mut layer = el().key("chrome").pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0)).clip_soft(0.0).a11y_hidden();
-    for line in 0..CHROME_LINES {
-        let line_top = line as f32 * lh;
-        for (top, fade, ink) in chrome_layers(font, look.dark) {
-            let y = line_top + top;
-            let copy = rune_kit::Markdown::new(shown.to_owned()).render(&style.clone().text(ink));
-            let inner = el().pin(Some(0.0), Some(-y), Some(0.0), None).child(copy);
-            let clip = el().pin(Some(0.0), Some(y), Some(0.0), None).h(lh - top).clip_fade_linear(0.0, fade, 0.0, 0.0);
-            layer = layer.child(clip.child(inner));
-        }
-    }
-    layer
+/// The chrome slot over a heading: out of the flow, covering the heading, hidden from VoiceOver.
+/// The compositor draws the moving chrome only where the heading's glyphs are.
+fn heading_chrome(look: crate::fx::doc_fx::Look) -> El {
+    use crate::fx::doc_fx::{Piece, slot};
+    slot(el().key("chrome").pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0)).a11y_hidden(), Piece::Chrome, look)
 }
 
 /// A flat task list, forged (Tasks): each item's checkbox a chrome bead (a gunmetal ring when
@@ -1993,20 +1927,17 @@ mod tests {
         }
     }
 
-    /// Constraint 4 of 2026-11-18-full-forge-effects: by default H1 and H2 carry chrome inside the
-    /// letters (an overlay of Rune text, no effect layer); H3 and body text do not.
+    /// Round 2, constraint 2: every heading H1–H6 carries one chrome slot (`Piece::Chrome`, the
+    /// liquid chrome clipped to its glyphs); body text does not, and the still 6-copy gradient is gone.
     #[test]
-    fn h1_and_h2_get_chrome_letters_without_an_effect_layer() {
-        let rt = open_themed("# Title\n\n## Part\n\n### Small\n\nText.\n", true);
+    fn every_heading_gets_one_liquid_chrome_slot() {
+        let rt = open_themed("# One\n\n## Two\n\n### Three\n\n#### Four\n\n##### Five\n\n###### Six\n\nText.\n", true);
         let chromes = rt.elements().iter().filter(|e| e.key.as_deref() == Some("chrome")).count();
-        assert_eq!(chromes, 2, "H1 and H2");
-        let effects = rt.instances.iter().filter(|i| i.params[1] == rune::render::KIND_EFFECT).filter_map(|i| crate::fx::doc_fx::read(i.uv)).count();
-        assert_eq!(effects, 0, "chrome letters are Rune text, not rune-fx slots");
-        let font = crate::ui::markdown_style::fonts(crate::fonts::Typeface::of("Inter", crate::ui::theme::BODY_TEXT)).headings[0];
-        let layers = super::chrome_layers(font, true);
-        assert_eq!(layers.len(), super::CHROME_STOPS.len());
-        assert!(layers.windows(2).all(|w| w[1].0 >= w[0].0), "stacked top down: {layers:?}");
-        assert!(layers.last().is_some_and(|l| l.0 + l.1 < font.line_height), "inside the line box");
+        assert_eq!(chromes, 6, "H1 to H6, one each");
+        let slots = rt.instances.iter().filter(|i| i.params[1] == rune::render::KIND_EFFECT).filter(|i| crate::fx::doc_fx::is_chrome(i.uv)).count();
+        assert_eq!(slots, 6, "each is a rune-fx slot");
+        let texts = rt.elements().iter().filter(|e| e.text.as_deref() == Some("One")).count();
+        assert_eq!(texts, 1, "no copies of the heading (letterpress, gradient)");
     }
 
     /// With Full forge off (`RUNEMD_FORGE=off`; on by default Tasks draws chrome beads), task list

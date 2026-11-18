@@ -606,7 +606,11 @@ mod tests {
         assert_eq!(edges(&metal("steel", BlockKind::Frontmatter)), 1);
         assert_eq!(edges(&metal("steel", BlockKind::Table)), 0, "tables: Forged only");
         assert_eq!(edges(&metal("forged", BlockKind::Table)), 1);
-        assert!(alone("engraved").iter().all(|p| *p == Piece::Rod) && alone("engraved").len() == 2);
+        // Engraved: the two rules' rods and one chrome per heading in view.
+        let engraved = alone("engraved");
+        assert_eq!(engraved.iter().filter(|p| **p == Piece::Rod).count(), 2, "{engraved:?}");
+        assert!(engraved.contains(&Piece::Chrome), "{engraved:?}");
+        assert!(engraved.iter().all(|p| matches!(p, Piece::Rod | Piece::Chrome)), "{engraved:?}");
         assert!(alone("ember").iter().all(|p| *p == Piece::Fire) && alone("ember").len() == 2);
         let glass = alone("glass");
         assert_eq!(glass.iter().filter(|p| matches!(p, Piece::Dither { .. })).count(), 5, "{glass:?}");
