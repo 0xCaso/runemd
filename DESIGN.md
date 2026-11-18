@@ -444,8 +444,8 @@ middle), from 8 below the bar's top (`tab-top`) down to the document, UI text 13
 (`tab-pad`). Back tabs: no fill, `fg-2` text, hover `sel`, pressed scale 0.98, and a 1 px divider in `line`
 (`tab-divider`, 9 short of the tab's top and bottom) on the right, except next to the front tab. The front tab is a pill
 inside the bar, as in the installed app (record `2026-11-18-tab-bar-style`): the tab's full width, 24 tall (`PILL_H`),
-ends fully round (radius 12, half its height), `sel` fill and `fg` text; the bar's line runs on under it. A closed metal
-ring goes all round the pill (`RING_W` outside it, the moving chrome at 8 steps a second, still with Reduce Motion or an
+corners of 5 (`PILL_R`, half the page panel's `R_PANEL`: Matteo, 2026-11-18, constraint 5), `sel` fill and `fg` text; the bar's line runs on under it. A closed metal
+ring goes all round the pill (`RING_W` outside it, concentric: outer radius 7, the moving chrome at 8 steps a second, still with Reduce Motion or an
 inactive window), wholly inside the bar with the same room above it and below it, 8 (`RING_GAP`) to the bar's top and to
 its line (Matteo, 2026-11-18: it had 12 above and sat on the line). The names, the × and the buttons on the right sit on
 the pill's middle, 22 from the bar's top. The scroll bar runs in the middle of the room under the ring, 2.5 from the

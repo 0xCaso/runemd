@@ -209,12 +209,17 @@ pub const CLOSE_GAP: f32 = 6.0;
 const R_CLOSE: f32 = 4.0;
 
 /// The front tab's pill (record 2026-11-18-tab-bar-style, constraint 2, as in the installed app): the
-/// tab's full width, `PILL_H` tall, ends fully round (`PILL_R`, half its height), in `sel`. The metal
-/// ring runs closed `RING_W` outside it, inside the bar: never on the page. Matteo, 2026-11-18 (scrawl
-/// 1795002435465): the ring had 12 above and 3.5 below, on the line; now `RING_GAP` (8) on both sides,
-/// the pill 4 higher and the room under it 4.5 taller, everything on whole device pixels.
+/// tab's full width, `PILL_H` tall, in `sel`. The metal ring runs closed `RING_W` outside it, inside
+/// the bar: never on the page. Matteo, 2026-11-18 (scrawl 1795002435465): the ring had 12 above and
+/// 3.5 below, on the line; now `RING_GAP` (8) on both sides, the pill 4 higher and the room under it
+/// 4.5 taller, everything on whole device pixels.
 pub const PILL_H: f32 = 24.0;
-pub const PILL_R: f32 = PILL_H / 2.0;
+/// The pill's corner radius: half the dark page panel's (`R_PANEL / 2` = 5 pt), not half circles
+/// (record 2026-11-18-tab-bar-style, constraint 5; Matteo, scrawl 1795009884949: "il border radius
+/// dovrebbe essere la metà del border radius del container piu' scuro"). The ring stays concentric:
+/// its outer radius is `PILL_R + RING_W` (7 pt, `fx::ring::chrome`).
+pub const PILL_R: f32 = R_PANEL / 2.0;
+const _PILL_R_IS_HALF_THE_PANEL: () = assert!(PILL_R == R_PANEL / 2.0 && PILL_R == 5.0 && PILL_R + RING_W == 7.0 && PILL_R < PILL_H / 2.0);
 /// The room above the ring (to the bar's top) and below it (to the bar's line): the same.
 pub const RING_GAP: f32 = (TAB_BAR_H - PILL_H - 2.0 * RING_W) / 2.0;
 /// The pill's top and middle, from the bar's top.
@@ -284,7 +289,7 @@ fn close_button(key: &str, id: u64, title: &str, front: bool, theme: &Theme, mot
 const CLOSE_GLYPH: f32 = 14.0;
 
 /// A tab (record 2026-11-18-vscode-tabs): `TAB_H` tall, edge to edge with the others, `TAB_PAD_X` before
-/// the name and the × after it. Front: a `sel` pill (`PILL_H`, round ends `PILL_R`) with the metal
+/// the name and the × after it. Front: a `sel` pill (`PILL_H`, corners `PILL_R`) with the metal
 /// ring round it, text `fg`, no divider. The others: no fill (the bar's tint), text `fg2`, hover `sel`, a `TAB_DIVIDER` line in
 /// `line` on the right unless the next tab is the front one.
 fn tab_row(s: &App, hooks: Hooks<App>, i: usize, n: usize, tab: &crate::app::Tab, theme: &Theme, motion: Motion) -> El {
@@ -607,7 +612,7 @@ mod tests {
             let pill = find(&rt, &format!("{front}-pill")).expect("pill").rect;
             let tab = find(&rt, &front).expect("front tab").rect;
             assert!((pill[3] - PILL_H).abs() < 0.01 && (pill[0] - tab[0]).abs() < 0.01 && (pill[2] - tab[2]).abs() < 0.01, "the pill spans the tab, {PILL_H} tall: {pill:?} {tab:?}");
-            assert_eq!(layer.shape.radius, PILL_H / 2.0 + RING_W, "ends fully round: radius half the pill's height");
+            assert_eq!(layer.shape.radius, R_PANEL / 2.0 + RING_W, "the ring concentric with the pill (whose radius the compositor reads): outer radius R_PANEL / 2 + RING_W");
             let label = find(&rt, &format!("{front}-label")).expect("label").rect;
             let mid = pill[1] + pill[3] / 2.0;
             assert!((label[1] + label[3] / 2.0 - mid).abs() < 0.51, "the name on the pill's middle: {label:?} {pill:?}");
