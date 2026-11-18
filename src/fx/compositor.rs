@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use rune::compose::{Compositor, Frame};
 use rune::render::{EffectSite, Instance, KIND_EFFECT};
-use rune_fx::{FxFrame, FxLayer, FxOptions, FxRenderer, FxSlot, Rect};
+use rune_fx::{FxBlend, FxFrame, FxLayer, FxOptions, FxRenderer, FxSlot, Rect};
 
 use super::marks::Mark;
 use super::{caret, fire, forge, ring};
@@ -10,7 +10,8 @@ use crate::App;
 
 /// A single compositor for the window. Without effects (no layer, no slot) the frame is
 /// Rune's default one and `animating()` is false: no frames, no cost. The fire at
-/// rest and the calm wordmark fire do not hold the display link: the `fire::REST_FRAME` wake-ups redraw them.
+/// rest, the calm wordmark fire and the moving metal edges (past a ring's entrance) do not hold the
+/// display link: the `fire::REST_FRAME` and `ring::METAL_FRAME` wake-ups redraw them.
 ///
 /// Rings, fire and caret do not go through `set`: the view puts a `ring::slot` slot only while
 /// the file "is writing" or on the calm edge (active tab, ⌘P panel), a `fire::slot` always in reading mode (at rest or lit) and a
@@ -47,14 +48,38 @@ fn lab_clock(mark: u32) -> Option<f64> {
 /// The ring layer (calm edge or writing ring) for a `ring::slot` slot with id `mark`, at Rune's time
 /// `clock`. In the lab's test state it is the frame at the lab's time, "reduce motion" or not: the
 /// scrub always shows it.
-fn ring_layer(i: &Instance, mark: u32, clock: f64) -> FxLayer {
+/// `active`: the window is active; inactive, every edge is still (rune-fx, constraint 2).
+#[cfg(test)]
+fn ring_layer(i: &Instance, mark: u32, clock: f64, active: bool) -> FxLayer {
+    ring_layer_paced(i, mark, clock, active).0
+}
+
+/// [`ring_layer`], and whether it is paced: a calm edge, or a writing ring past its entrance, moves
+/// with the `ring::METAL_FRAME` wake-ups (`App::metal_moves`), not the display link. The entrance
+/// holds the display link, so the fade is smooth.
+fn ring_layer_paced(i: &Instance, mark: u32, clock: f64, active: bool) -> (FxLayer, bool) {
     let radius = i.radii.iter().fold(0.0f32, |a, v| a.max(v.abs())) / i.params[3].max(f32::EPSILON);
-    if ring::slot_calm(i.uv) {
-        return ring::calm_layer(rect_pt(i), radius, ring::slot_dark(i.uv), ring::slot_calm_look(i.uv));
-    }
     let lab = lab_clock(mark);
+    let dark = ring::slot_dark(i.uv);
+    if ring::slot_calm(i.uv) {
+        let still = (ring::slot_calm_reduced(i.uv) || !active) && lab.is_none();
+        return (ring::calm_layer(rect_pt(i), radius, lab.unwrap_or(clock), still, dark), true);
+    }
     let (t, reduced) = ring::slot_time(i.uv, lab.unwrap_or(clock));
-    ring::layer_rounded(rect_pt(i), radius, t, reduced && lab.is_none(), ring::slot_dark(i.uv))
+    (ring::layer_rounded(rect_pt(i), radius, t, (reduced || !active) && lab.is_none(), dark), ring::entered(t))
+}
+
+/// Each tab ring in the last frame of `rt` as the compositor paints it: (slot id, device-pixel clip,
+/// layer). Only for tests of the front tab's closed ring.
+#[cfg(test)]
+pub fn tab_ring_slots(rt: &rune::Runtime<App>) -> Vec<(u32, [f32; 4], FxLayer)> {
+    rt.instances
+        .iter()
+        .enumerate()
+        .filter(|(_, i)| i.params[1] == KIND_EFFECT)
+        .filter_map(|(n, i)| rt.marks.get(n).copied().filter(|m| Mark::is_tab(*m)).map(|m| (m, i)))
+        .map(|(m, i)| (m, i.clip, ring_layer(i, m, rt.clock, rt.state.window_active)))
+        .collect()
 }
 
 /// Each ring layer in the last frame of `rt`, as the compositor paints it: (slot id, layer). Only for
@@ -65,7 +90,7 @@ pub fn ring_layers(rt: &rune::Runtime<App>) -> Vec<(u32, FxLayer)> {
         .iter()
         .enumerate()
         .filter(|(_, i)| i.params[1] == KIND_EFFECT)
-        .filter_map(|(n, i)| rt.marks.get(n).copied().filter(|m| Mark::is_ring(*m)).map(|m| (m, ring_layer(i, m, rt.clock))))
+        .filter_map(|(n, i)| rt.marks.get(n).copied().filter(|m| Mark::is_ring(*m)).map(|m| (m, ring_layer(i, m, rt.clock, rt.state.window_active))))
         .collect()
 }
 
@@ -98,7 +123,7 @@ pub fn edge_fills(rt: &rune::Runtime<App>) -> Vec<(u32, rune_fx::FillParams)> {
         .enumerate()
         .filter(|(_, i)| i.params[1] == KIND_EFFECT)
         .filter_map(|(n, i)| rt.marks.get(n).copied().filter(|m| Mark::is_ring(*m)).map(|m| (m, i)))
-        .map(|(m, i)| match ring_layer(i, m, rt.clock).fx {
+        .map(|(m, i)| match ring_layer(i, m, rt.clock, rt.state.window_active).fx {
             rune_fx::Fx::Fill(p) => (m, p),
             other => panic!("not a fill: {other:?}"),
         })
@@ -133,12 +158,13 @@ impl FireFall {
     /// by the `fire::REST_FRAME` wake-ups, not the display link). In the lab's test state it is the
     /// frame at the lab's time: lit from `lab::REST_MS`, at rest before, with no fall in between (the
     /// scrub may go back), still, and drawn as if the window were active and motion not reduced.
-    fn fire_layer(&mut self, i: &Instance, clock: f64) -> (FxLayer, bool) {
+    fn fire_layer(&mut self, i: &Instance, clock: f64) -> (FxLayer, Option<FxLayer>, bool) {
         if let Some(clock) = lab_clock(Mark::Fire.id()) {
             let s = fire::slot_state(i.uv, clock);
             *self = FireFall::default();
             let phase = if s.lit { fire::Phase::Rising(s.t) } else { fire::Phase::Rest };
-            return (fire::layer(rect_pt(i), phase, clock as f32, s.dark, false, true, s.look), false);
+            let layer = fire::layer(rect_pt(i), phase, clock as f32, s.dark, false, true, s.look);
+            return (layer, fire::tips(layer, s.dark), false);
         }
         // The slot rect touches the bottom of the panel and has its width.
         let s = fire::slot_state(i.uv, clock);
@@ -154,7 +180,7 @@ impl FireFall {
         if paced {
             self.out = None;
         }
-        (layer, paced)
+        (layer, fire::tips(layer, s.dark), paced)
     }
 }
 
@@ -185,6 +211,8 @@ impl Compositor<App> for FxCompositor {
         let mut pulsing = false;
         let mut paced: Vec<usize> = Vec::new();
         let mut saw_fire = false;
+        let mut tip_layer: Option<FxLayer> = None;
+        let mut metal = false;
         for (n, i) in f.rt.instances.iter().enumerate() {
             if i.params[1] != KIND_EFFECT {
                 continue;
@@ -195,15 +223,31 @@ impl Compositor<App> for FxCompositor {
                 on_lab.push(layers.len());
             }
             let layer = if Mark::is_ring(mark) {
-                ring_layer(i, mark, clock)
+                let (layer, rests) = ring_layer_paced(i, mark, clock, f.rt.state.window_active);
+                if rests {
+                    paced.push(layers.len());
+                }
+                metal |= layer.is_animating();
+                layer
             } else if mark == Mark::Fire.id() {
-                let (layer, rests) = self.fire.fire_layer(i, clock);
+                let (layer, tips, rests) = self.fire.fire_layer(i, clock);
                 // At rest the flames move with the `fire::REST_FRAME` wake-ups (`App::fire_rests`),
                 // not with the display link; the Brief fade-out does hold it, so it is smooth.
                 if rests {
                     paced.push(layers.len());
                 }
                 saw_fire = true;
+                // The light theme's warm tips go on top, in the same slot, with Screen.
+                if let Some(tips) = tips {
+                    let k = layers.len() + 1;
+                    if rests {
+                        paced.push(k);
+                    }
+                    if lab_clock(mark).is_some() {
+                        on_lab.push(k);
+                    }
+                    tip_layer = Some(tips);
+                }
                 layer
             } else if mark == Mark::Forge.id() {
                 // The empty screen's wordmark: the slot is the letters' box (`fx::forge`).
@@ -224,7 +268,17 @@ impl Compositor<App> for FxCompositor {
             };
             at.push(n as u32);
             layers.push(layer);
-            slots.push(FxSlot::default().scale(i.params[3]).clip(i.clip, i.fade));
+            let slot = FxSlot::default().scale(i.params[3]).clip(i.clip, i.fade);
+            slots.push(slot);
+            if let Some(tips) = tip_layer.take() {
+                at.push(n as u32);
+                layers.push(tips);
+                slots.push(slot.blend(FxBlend::Screen));
+            }
+        }
+        // The frame of the moving metal: `poll` paces the next one from here (`App::metal_due`).
+        if metal {
+            f.rt.state.metal_drawn.set(Some(clock));
         }
         // Without fire (source, fire off) the next one starts again from rest, without descent.
         if !saw_fire {
@@ -240,7 +294,8 @@ impl Compositor<App> for FxCompositor {
         let clear = f.rt.clear_color();
         f.ui.prepare(device, queue, &mut f.rt.text.atlas, &f.rt.instances, size);
         f.ui.draw_with(f.encoder, f.target, clear, &mut |pass, s: &EffectSite<'_>| {
-            if let Some(k) = at.iter().position(|n| *n == s.index) {
+            // One slot may carry more than one layer (the fire and its light-theme tips), in order.
+            for (k, _) in at.iter().enumerate().filter(|(_, n)| **n == s.index) {
                 fx.draw_layer_in(pass, s.format, s.origin, k);
             }
         });

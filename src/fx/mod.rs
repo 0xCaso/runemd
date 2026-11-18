@@ -9,7 +9,7 @@ pub mod ring;
 
 pub use compositor::FxCompositor;
 #[cfg(test)]
-pub use compositor::{edge_fills, edges, fire_layer, ring_layers};
+pub use compositor::{edge_fills, edges, fire_layer, ring_layers, tab_ring_slots};
 pub use marks::Mark;
 // `FxLayer` is rune-fx's drawable layer, used as it is.
 #[allow(unused_imports)]

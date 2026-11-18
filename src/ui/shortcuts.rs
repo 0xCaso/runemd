@@ -11,7 +11,7 @@ use rune::{El, TextStyle, col, el, icon, row, text, Icon};
 
 use super::sidebar::Motion;
 
-use super::theme::{HAIRLINE, KBD_PAD_X, KBD_PAD_Y, R_KBD, R_ROW, ROW, ROW_PAD, Theme, UI_SMALL, UI_SMALL_WEIGHT, UI_TEXT, UI_WEIGHT};
+use super::theme::{HAIRLINE, KBD_PAD_X, KBD_PAD_Y, R_KBD, R_ROW, ROW, ROW_PAD, SECTION_PAD_BOTTOM, SECTION_PAD_TOP, Theme, UI_SMALL, UI_TEXT, UI_WEIGHT};
 use crate::app::App;
 
 pub const SETTINGS_BUTTON: &str = "settings-button";
@@ -37,7 +37,7 @@ pub static GEAR_ICON: Icon = Icon {
 /// The app's shortcuts, in the mockup's groups (design/mockups/2026-11-15-scorciatoie/scorciatoie.md).
 pub const GROUPS: &[(&str, &[(&str, &str)])] = &[
     ("File", &[("Open file", "⌘P"), ("Open the selected file", "↑↓  ↵"), ("New file", "⌘N"), ("Save (in source)", "⌘S"), ("Close tab", "⌘W")]),
-    ("Tabs", &[("Go to tab", "⌘1 … ⌘8"), ("Last tab", "⌘9"), ("Next tab, previous tab", "⌃⇥  ⌃⇧⇥")]),
+    ("Tabs", &[("Go to tab", "⌘1 … ⌘8"), ("Last tab", "⌘9"), ("Next tab", "⌘⇧]  ⌃⇥"), ("Previous tab", "⌘⇧[  ⌃⇧⇥")]),
     (
         "Reading",
         &[
@@ -76,7 +76,22 @@ pub(super) fn button(s: &App, theme: &Theme, motion: Motion) -> El {
     b
 }
 
-/// The shortcut list for the settings panel: the mockup's groups in `fg3` 500, rows in `fg2` with the
+/// Room above a group heading and below it: the sidebar's section labels (`SECTION_PAD_TOP` 14,
+/// `SECTION_PAD_BOTTOM` 6), so the groups stand apart while rows follow each other without a gap
+/// (record 2026-11-18-small-choices-review, constraint 2; before 8 and 2). The first heading has the
+/// same 14 below the "Shortcuts" title (record 2026-11-18-tab-outline; before 6, "troppo attaccato").
+const GROUP_GAP: f32 = SECTION_PAD_TOP;
+const GROUP_BELOW: f32 = SECTION_PAD_BOTTOM;
+/// Group headings at the regular weight (before 500): with `fg3` they read lighter than the rows.
+const GROUP_WEIGHT: f32 = UI_WEIGHT;
+
+/// The group headings' colour, `fg3`: a step lighter than the rows' `fg2` and still ≥ 4.5:1 on the
+/// panel (`contrast::every_row_meets_its_minimum`).
+pub(crate) fn heading_color(theme: &Theme) -> rune::Color {
+    theme.fg3
+}
+
+/// The shortcut list for the settings panel: the mockup's groups in `fg3` 400, rows in `fg2` with the
 /// keys in `fg2` inside a `line` border.
 pub fn list(theme: &Theme) -> El {
     let mut list = col().key("keys-list").w_full().px(ROW_PAD);
@@ -84,10 +99,11 @@ pub fn list(theme: &Theme) -> El {
         list = list.child(
             text(*group)
                 .key(format!("keys-group-{gi}"))
-                .font(TextStyle::new(UI_SMALL, UI_SMALL_WEIGHT))
-                .color(theme.fg3)
-                .mt(if gi == 0 { 0.0 } else { 8.0 })
-                .mb(2.0),
+                .font(TextStyle::new(UI_SMALL, GROUP_WEIGHT))
+                .color(heading_color(theme))
+                // The first one follows the section title, whose own `SECTION_PAD_BOTTOM` is part of the gap.
+                .mt(if gi == 0 { GROUP_GAP - SECTION_PAD_BOTTOM } else { GROUP_GAP })
+                .mb(GROUP_BELOW),
         );
         for (ki, (what, keys)) in keys.iter().enumerate() {
             let cap = el()
@@ -154,7 +170,7 @@ mod tests {
     fn the_list_is_the_apps_list() {
         let md = include_str!("../../design/mockups/2026-11-15-scorciatoie/scorciatoie.md");
         let caps: Vec<&str> = GROUPS.iter().flat_map(|(_, k)| k.iter().map(|(_, c)| *c)).collect();
-        for want in ["⌘P", "⌘N", "⌘S", "⌘W", "⌘1 … ⌘8", "⌘9", "⌘E", "⌘F", "⌘A", "⌘,", "Esc", "↑↓  ↵", "⌃⇥  ⌃⇧⇥", "↵  ⇧↵", "⌘⌥+  ⌘⌥−"] {
+        for want in ["⌘P", "⌘N", "⌘S", "⌘W", "⌘1 … ⌘8", "⌘9", "⌘E", "⌘F", "⌘A", "⌘,", "Esc", "↑↓  ↵", "⌘⇧]  ⌃⇥", "⌘⇧[  ⌃⇧⇥", "↵  ⇧↵", "⌘⌥+  ⌘⌥−"] {
             assert!(caps.contains(&want), "missing {want}");
         }
         for k in ["⌘P", "⌘N", "⌘S", "⌘W", "⌘9", "⌘E", "⌘F", "⌘A", "⌘,"] {
@@ -162,6 +178,43 @@ mod tests {
         }
         let groups: Vec<&str> = GROUPS.iter().map(|(g, _)| *g).collect();
         assert_eq!(groups, ["File", "Tabs", "Reading", "App"], "mockup groups");
+    }
+
+    /// Record 2026-11-18-small-choices-review, constraint 2: each group heading after the first has more
+    /// room above it (14, like the sidebar's section labels) than there is between rows (0), and the
+    /// headings are a lighter token than the rows (`fg3` against `fg2`) at the regular weight.
+    #[test]
+    fn the_groups_stand_apart_and_their_headings_are_lighter() {
+        let mut rt = open();
+        tap_el(&mut rt, SETTINGS_BUTTON);
+        let rect = |k: String| find(&rt, &k).expect(&k).rect;
+        for (gi, (_, keys)) in GROUPS.iter().enumerate().skip(1) {
+            let last = rect(format!("keys-row-{}-{}", gi - 1, GROUPS[gi - 1].1.len() - 1));
+            let head = rect(format!("keys-group-{gi}"));
+            assert!((head[1] - (last[1] + last[3]) - GROUP_GAP).abs() < 0.01, "group {gi}: {GROUP_GAP} above the heading");
+            let (a, b) = (rect(format!("keys-row-{gi}-0")), rect(format!("keys-row-{gi}-1")));
+            assert_eq!(b[1], a[1] + a[3], "rows follow each other without a gap");
+            assert!(keys.len() > 1);
+        }
+        for dark in [true, false] {
+            let t = Theme::for_mode(dark);
+            assert_eq!(heading_color(&t), t.fg3, "headings in fg3");
+            assert_ne!(heading_color(&t), t.fg2, "rows are fg2");
+        }
+        assert_eq!((GROUP_GAP, GROUP_WEIGHT), (14.0, UI_WEIGHT), "14 above; regular weight, lighter than the 500 of before");
+    }
+
+    /// Record 2026-11-18-tab-outline (Matteo: "il titoletto Shortcuts è troppo attaccato a File"): the
+    /// first group heading sits `GROUP_GAP` below the "Shortcuts" title's text, as far as each later
+    /// heading sits below the row before it.
+    #[test]
+    fn the_first_group_stands_apart_from_the_title() {
+        let mut rt = open();
+        tap_el(&mut rt, SETTINGS_BUTTON);
+        let title = find(&rt, TITLE).expect("title").rect;
+        let head = find(&rt, "keys-group-0").expect("File").rect;
+        let gap = head[1] - (title[1] + title[3] - SECTION_PAD_BOTTOM);
+        assert!((gap - GROUP_GAP).abs() < 0.01, "{gap} between the title and File");
     }
 
     /// Feedback group 3, item 4: a gear left of ↔, same size, with a tooltip; a click opens the

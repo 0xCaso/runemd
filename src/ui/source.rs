@@ -26,7 +26,7 @@ use rune_kit::syntax::{self, Syntax, SyntaxTheme};
 
 use super::doc_view::{BOTTOM, TOP};
 use super::sidebar::{self, Hooks, Motion};
-use super::theme::{CODE_TEXT, HAIRLINE, ROW, ROW_PAD, ROW_PAD_X, TAB_BAR_H, TAB_GAP, Theme, UI_STRONG_WEIGHT};
+use super::theme::{CODE_TEXT, HAIRLINE, ROW, ROW_GAP, ROW_PAD, ROW_PAD_X, TAB_BAR_H, Theme, UI_STRONG_WEIGHT};
 use crate::app::{App, CloseAnswer, Mode, Tab};
 use crate::edit::blocks::{Edge, Pieces};
 use crate::edit::{Notice, SourceEdit};
@@ -289,7 +289,7 @@ fn alert_row(key: &str, message: &str, buttons: Vec<El>, theme: &Theme, column: 
         .h(TAB_BAR_H)
         .pl(ROW_PAD_X)
         .pr(ROW_PAD_X - ROW_PAD)
-        .gap(TAB_GAP)
+        .gap(ROW_GAP)
         .center_y()
         .child(text(message).font(sidebar::ui_font()).color(theme.fg).truncate().grow(1.0).shrink().min_w(0.0).a11y_hidden())
         .children(buttons);

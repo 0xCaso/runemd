@@ -128,6 +128,22 @@ pub fn late_open(clock: f64, tx: &mut rune::Tx) -> Option<std::path::PathBuf> {
     Some(path.into())
 }
 
+/// `MDSPIKE_ACTIVE=1`: the window counts as active even when it is not key (a virtual screen never
+/// makes it key), so effects that stop in an inactive window can be measured and shot.
+pub fn force_active() -> bool {
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("MDSPIKE_ACTIVE").is_some_and(|v| v == "1"))
+}
+
+/// `MDSPIKE_QUICK=1`: the ⌘P panel opens at the first poll (shots and measurements; a virtual
+/// screen gets no keys). True once.
+pub fn quick_at_start() -> bool {
+    thread_local! { static DONE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
+    if DONE.get() || std::env::var_os("MDSPIKE_QUICK").is_none_or(|v| v != "1") { return false; }
+    DONE.set(true);
+    true
+}
+
 /// A constant-speed scroll, step by step from `poll`.
 pub struct ScrollRun {
     secs: f64,

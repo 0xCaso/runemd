@@ -97,7 +97,10 @@ spacing:
   hairline: "0.5px"
   tab-bar: "44px"
   tab-bar-pad: "0 10px"
-  tab-gap: "2px"
+  tab-bar-lead: "8px"
+  tab-top: "8px"
+  tab-pad: "12px"
+  tab-divider: "1px"
   tab-max: "240px"
   recent-gap: "3px"
   recent-row: "44px"
@@ -245,14 +248,19 @@ the fix of 2026-11-14 (`docs/decisions/2026-11-14-find-dark-contrast.md`).
 | Settings: "Already watched" (`fg-2`) on panel | — | 11.19 | — | 10.71 | 4.5 |
 | Label of the fire when off (`fg-2`) on panel | — | 11.19 | — | 10.71 | 4.5 |
 | Frontmatter (`fg-2`) on panel + half `sel` | — | 9.89 | — | 10.03 | 4.5 |
-| Tab × (`fg-2`) on panel + `sel` | — | 8.30 | — | 9.38 | 3 |
-| Tab × (`fg-2`) on hover on panel + `sel` + `sel` | — | 5.67 | — | 8.22 | 3 |
-| Width ↔ button (`fg-2`) on panel | — | 11.19 | — | 10.71 | 3 |
-| Width ↔ button (`fg-2`) on panel + `sel` (hover, popover open) | — | 8.30 | — | 9.38 | 3 |
+| Tab name, front (`fg`) on panel + `tab-bar` + `sel` (pill) | — | 13.24 | — | 13.69 | 4.5 |
+| Tab name, back (`fg-2`) on panel + `tab-bar` | — | 11.52 | — | 9.81 | 4.5 |
+| Tab name, back on hover (`fg-2`) on panel + `tab-bar` + `sel` | — | 8.78 | — | 8.60 | 4.5 |
+| "⌘E source" (`fg-3`) on panel + `tab-bar` | — | 8.10 | — | 6.72 | 4.5 |
+| Tab × (`fg-2`) on panel + `tab-bar` + `sel` (front tab pill) | — | 8.78 | — | 8.60 | 3 |
+| Tab × (`fg-2`) on panel + `tab-bar` + `sel` (back tab on hover) | — | 8.78 | — | 8.60 | 3 |
+| Tab × (`fg-2`) on hover on panel + `tab-bar` + `sel` + `sel` | — | 6.01 | — | 7.54 | 3 |
+| Width ↔ button (`fg-2`) on panel + `tab-bar` | — | 11.52 | — | 9.81 | 3 |
+| Width ↔ button (`fg-2`) on panel + `tab-bar` + `sel` (hover, popover open) | — | 8.78 | — | 8.60 | 3 |
 | Width popover: title (`fg-2`) and value (`fg`) on panel | — | 11.19 / 16.89 | — | 10.71 / 17.07 | 4.5 |
 | Width popover: shortcuts and track (`fg-3`) on panel | — | 7.88 | — | 7.34 | 4.5 |
 | Shortcuts ⌘ button (`fg-2`) on panel / panel + `sel` | — | 11.19 / 8.30 | — | 10.71 / 9.38 | 3 |
-| Shortcuts popover: rows, keys (`fg-2`) and groups (`fg-3`) on panel | — | 11.19 / 7.88 | — | 10.71 / 7.34 | 4.5 |
+| Settings › Shortcuts: rows, keys (`fg-2`) and group headings (`fg-3`) on panel | — | 11.19 / 7.88 | — | 10.71 / 7.34 | 4.5 |
 | ⌘P: name (`fg`) and repo or folder and time (`fg-2`) on panel + `sel` | — | 12.53 / 8.30 | — | 14.94 / 9.38 | 4.5 |
 | `line` on panel (decorative lines) | 1.19 | 1.44 | 1.22 | 1.22 | — |
 | `line` on glass (field border) | 1.28 | 1.52 | 1.21 | 1.19 | — |
@@ -291,6 +299,8 @@ the fix of 2026-11-14 (`docs/decisions/2026-11-14-find-dark-contrast.md`).
   shots, tab at 369.5,16,238×28 pt, one frame): dark minimum 6.16 on the bar and 4.59 on `sel` (medians 14.60 and
   10.86), light 5.99 and 5.25 (medians 17.51 and 15.36); ≥ 3:1 on the whole perimeter in both themes. Proof:
   `docs/proof/thicker-metal/`.
+- 2026-11-18, moving metal: every metal edge is one width, 2 pt (`RING_W`), calm and writing alike; it replaces
+  3.25 (ring, ⌘P panel) and 2.3 (`CALM_W`, removed). Proof: `docs/proof/moving-metal/`.
 - The duplicate name (repo or folder) is in `fg-2` on the selected ⌘P row: in `fg-3` on `sel` it went down to
   3.2:1.
 - Each small text inside a row that takes `sel` on hover on glass (the second line of Recent, that is folder or
@@ -426,17 +436,30 @@ pressed scale 0.98); the row chosen with the arrows has a `sel` fill and `fg` te
 folder in `fg-2`, as in Recent. Return opens, Esc clears and closes, no opening animation (a keyboard action). No
 accent: caret `fg`, selection `sel`. No results: "No files" in `fg-3`.
 
-**Tab.** A row like the sidebar ones, as wide as the file name up to 240 (`tab-max`, D5; beyond that, the name is
-cut in the middle): 28 tall (`row`), radius 6, UI text 13 px with 10 at the sides (`row-pad`), hover `sel`, pressed
-scale 0.98. The active file's tab has a `sel` fill and `fg` text; the others `fg-2` text. Bar 44 tall (`tab-bar`), 10
-margin at the sides (`tab-bar-pad`), 2 between tabs (`tab-gap`), a 0.5 line in `line` below; no separator or icon. At
-the end of the tab a "×" (glyph 14 in `fg-2`, area of 16, radius 4, hover `sel`, 4 after the name and 6 from the right
-edge): always shown on the front tab and on the others only on hover (or with keyboard focus), but its space is
-always there, so the name does not move. Label "Close <name>"; a click closes like ⌘W (the same question with unsaved
-changes); the middle click stays. Glyph contrast: 8.30 / 9.38 on `sel`, 5.67 / 8.22 on hover on the ×. Preview tab
-(a single click in the sidebar, like VS Code): the same look, name in italics; at most one, the next single click
-replaces it in the same place. Too many tabs: the row scrolls sideways. "⌘E source" on the right like the "⌘P" key,
-in `fg-3`.
+**Tab.** VS Code's shape (record `2026-11-18-vscode-tabs`; the `c6b02b5` version with 8 between tabs read as "troppo
+spazio"). The bar is 44 tall (`tab-bar`) on the `tab-bar` tint over `panel` (black 4 % light, 40 % dark: a shade off the
+page), 8 before the first tab (`tab-bar-lead`), 10 margin on the right (`tab-bar-pad`), a 0.5 line in `line` at the
+bottom. Tabs sit edge to edge, as wide as the file name up to 240 (`tab-max`, D5; beyond that, the name is cut in the
+middle), from 8 below the bar's top (`tab-top`) down to the document, UI text 13 px with 12 before the name
+(`tab-pad`). Back tabs: no fill, `fg-2` text, hover `sel`, pressed scale 0.98, and a 1 px divider in `line`
+(`tab-divider`, 9 short of the tab's top and bottom) on the right, except next to the front tab. The front tab is a pill
+inside the bar, as in the installed app (record `2026-11-18-tab-bar-style`): the tab's full width, 24 tall (`PILL_H`),
+corners of 5 (`PILL_R`, half the page panel's `R_PANEL`: Matteo, 2026-11-18, constraint 5), `sel` fill and `fg` text; the bar's line runs on under it. A closed metal
+ring goes all round the pill (`RING_W` outside it, concentric: outer radius 7, the moving chrome at 8 steps a second, still with Reduce Motion or an
+inactive window), wholly inside the bar with the same room above it and below it, 8 (`RING_GAP`) to the bar's top and to
+its line (Matteo, 2026-11-18: it had 12 above and sat on the line). The names, the × and the buttons on the right sit on
+the pill's middle, 22 from the bar's top. The scroll bar runs in the middle of the room under the ring, 2.5 from the
+ring and from the line, so it touches neither; the ring only crosses the neighbours' padding (const check `_RING_FITS`). No outline round the page.
+At the end of each tab a "×" (glyph 14 in `fg-2`, area of 16, radius 4, hover `sel`, 6 after the name and 8 from the
+right edge), always shown on the front tab and on the others only on hover (or with keyboard focus); its space is
+always there, so hover changes no width. Label "Close <name>"; a click closes like ⌘W (the same question with unsaved
+changes); the middle click stays. Preview tab (a single click in the sidebar, like VS Code): the same look, name in
+italics; at most one, the next single click replaces it in the same place. Too many tabs: the strip scrolls sideways
+and passes under the buttons on the right, whose backdrop (the bar's colour at 78 % over a 6 pt blur) fades in over
+24 pt (`FADE_W`); the strip's own ends fade as well while tabs are hidden there. A 3 pt scroll bar (`fg-3` at 45 %,
+at least 24 wide) sits under the front tab's ring while the tabs overflow, and the front tab scrolls into view whenever it
+changes (click, keys, a file opened, launch), clear of the fade. "⌘E source" on the right like the "⌘P" key, in
+`fg-3`.
 
 **Text width (↔ button).** In the tab bar, just left of "⌘E source": 28 × 28 (`row`), radius 6, glyph "↔" 15 in
 `fg-2`, hover `sel`; with the popover open it has the `sel` fill. Label "Text width". A click opens under the button,
@@ -450,7 +473,8 @@ panel and 8.30 / 9.38 on `sel`; shortcuts 7.88 / 7.34.
 **Shortcuts (⌘ button).** Just left of ↔, the same as it: 28 × 28, glyph "⌘" 15 in `fg-2`, hover `sel`, full `sel`
 with the popover open, tooltip and label "Shortcuts" (↔ has its own tooltip too, "Text width"). A click opens under
 the button the width popover with other content: 300 wide, margins 12 / 14, "Shortcuts" (13 in `fg-2`), the groups
-File, Tabs, Reading, App (12 weight 500 in `fg-3`) and 24 rows with the action (13 in `fg-2`) and the keys on the
+File, Tabs, Reading, App (12 weight 400 in `fg-3`, a step lighter than the rows; 14 above each group (the first: 14 below the
+"Shortcuts" title) and 6 below, like the sidebar's section labels; record `2026-11-18-small-choices-review`, constraint 2) and 24 rows with the action (13 in `fg-2`) and the keys on the
 right (11.5 in `fg-2`, border `line` 0.5, radius 4). Esc, a click outside or the button close it; opening ⌘ closes ↔
 and the other way round. The list is `ui::shortcuts::GROUPS` (docs/decisions/2026-11-15-shortcuts-popover.md).
 
@@ -543,12 +567,12 @@ during the drag: as it was. The widths stay after a restart.
 
 | Effect | Meaning | Where | Start | End |
 |---|---|---|---|---|
-| Liquid metal (ring on 4 sides, 3.25 px, a 3 s turn) | An agent is writing this file | The file's tab, the whole ⌘P panel (while any file in its list is written; no ⌘P row has metal), its row in "Recent", its row in the tree | Appears in 220 ms ease-out at the first change | Stops when the file no longer changes (assumption: 3 s without writes) |
-| Frozen gunmetal edge (4 sides, still; 2.3 px on the tab, 3.25 px on the ⌘P panel; in light a mid grey on the tab and a lighter grey on the panel, so both read as light; `fx::ring::calm_layer`) | The tab you are reading, the open ⌘P panel (metal-tab, docs/decisions/2026-11-16-metal-and-rune-effects.md, docs/decisions/2026-11-16-metal-tab-quick-open-panel.md) | The active tab, the whole ⌘P panel (the chosen row keeps only its `sel` fill) | With the tab or the panel, no entrance | When the file is written (for the panel: any listed file) it becomes the liquid ring above |
+| Liquid metal, writing (ring on 4 sides, 2 pt, a 3 s turn) | An agent is writing this file | The file's tab, the whole ⌘P panel (while any file in its list is written; no ⌘P row has metal), its row in "Recent", its row in the tree | Appears in 220 ms ease-out at the first change | Stops when the file no longer changes (assumption: 3 s without writes); it goes back to the calm edge below where there is one |
+| Liquid metal, calm (the same chrome, same colour, same 2 pt, always moving; `fx::ring::calm_layer`, docs/decisions/2026-11-18-moving-metal-edges.md) | The tab you are reading, the open ⌘P panel | The active tab, the whole ⌘P panel (the chosen row keeps only its `sel` fill) | With the tab or the panel, no entrance; every calm edge turns in step on Rune's clock | When the file is written (for the panel: any listed file) it is the writing ring above. Reduce Motion or an inactive window: every metal edge is still. At rest it steps 8 times a second without the display link and without running the view (`ring::METAL_FRAME`) |
 | Rune fire (flames and embers) | At rest, low (26 px): it is the bottom of the panel. 110 px tall: there is new text below the part you are reading | Bottom of the panel, in reading: with "Brief" (default) at rest for 5 s when the window becomes active, when a document comes to the front and after the tall fire calms, then it fades out in 1 s (smoothstep, display link) and is gone, with no wake-ups; with "Always" at rest all the time; tall, with the label "N new paragraphs further down", in Brief and Always | From rest it rises to 110 in 420 ms ease-out | Goes back to rest in 300 ms ease-out when you scroll to the new text |
 | Caret (2 px, `fg`, pulses in 4 steps over 1.6 s: opacity 100/81/62/81 %) | An agent has just written here | At the point of the last change, also in the middle of the file: after the last word changed (or added at the end), as tall as the letter; outside the flow, the text does not move | At the first reload from outside | With the ring (the file no longer changes); if it is out of view the view does not jump |
 
-In the light theme the fire uses luminance as a mask (on white, screen would disappear). The caret at its faintest
+In the light theme the fire uses luminance as a mask (on white, screen would disappear). Its tips stay warm: Rune's flame cools to near black at the tips, grey on white, so over it goes the same flame 1.8× taller at 80 % with Screen (`fx::fire::tips`): where the flame turns dark it lightens it to orange-yellow, white stays white (docs/decisions/2026-11-18-release-small-choices.md). The dark theme draws the flame alone. The caret at its faintest
 step stays ≥ 4.5:1 on the panel and on `sel` (`ui::contrast`): the minimum is 62 % and not the 50 % of the
 `caret-piu-forte` record, because at 50 % it gives 3.32:1 in light (4.30:1 in dark on `sel`); at 62 %, panel and
 `sel`: light 4.83/4.60, dark 6.80/5.78 (minimum). With "Reduce motion" the ring and the caret do not animate (they stay

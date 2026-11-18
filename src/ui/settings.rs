@@ -1336,6 +1336,15 @@ mod tests {
         settle(&mut rt);
         assert!(find(&rt, "set-fire-look").opacity < 0.5, "off: dimmed");
         assert!(!find(&rt, "set-fire-strength").focusable, "off: out of the Tab order");
+        // With the fire off the room at the bottom shrinks and the panel moves: bring the slider into view.
+        for _ in 0..20 {
+            let k = find(&rt, "set-fire-strength").rect;
+            if k[1] >= r[1] {
+                break;
+            }
+            rt.wheel(r[0] + 40.0, r[1] + r[3] - 60.0, 40.0);
+            settle(&mut rt);
+        }
         let k = find(&rt, "set-fire-strength").rect;
         assert!(k[1] >= r[1] && k[1] + k[3] <= r[1] + r[3], "the slider shows: {k:?}");
         click(&mut rt, "set-fire-strength", false);

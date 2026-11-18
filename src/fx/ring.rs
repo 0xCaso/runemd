@@ -4,10 +4,12 @@
 //! `layer` is a pure function of the row rect and of time: the same for the tab, the row
 //! in Recent and the row in the tree.
 //!
-//! metal-tab (docs/decisions/2026-11-16-metal-and-rune-effects.md): when calm, the active tab and
-//! the whole ⌘P panel have a frozen gunmetal edge ([`CALM_W`] on the tab, [`RING_W`] on the panel); while an agent writes the file
-//! (for the panel: any file in its list) the same place gets the moving ring
-//! (docs/decisions/2026-11-16-metal-tab-quick-open-panel.md). [`edge`] picks one of the two.
+//! metal-tab (docs/decisions/2026-11-16-metal-and-rune-effects.md): the active tab and the whole ⌘P
+//! panel have a calm edge; while an agent writes the file (for the panel: any file in its list) the
+//! same place gets the writing ring, which enters with a fade. Since the rune-fx decision
+//! (docs/decisions/2026-11-18-rune-fx-markdown.md, constraint 1) both are the same moving liquid
+//! chrome, [`RING_W`] wide, in the same colour; only the writing ring has an entrance. Reduce Motion
+//! and an inactive window keep both still (constraint 2). [`edge`] picks one of the two.
 
 use std::f32::consts::TAU;
 
@@ -17,19 +19,18 @@ use rune_fx::{Fx, FxLayer, LiquidMetalParams, Rect, Shape};
 use super::Mark;
 use crate::lab::{self, RingTuning, bezier::ease};
 
-/// Ring width, pt (DESIGN.md: 3.25; docs/decisions/2026-11-15-thick-ring.md chose 2.5, and on
-/// 2026-11-17 every metal edge became about 30 % thicker before release).
-pub const RING_W: f32 = 3.25;
-/// Width of the calm edge, pt (metal-tab, constraint 3: about 1.5 to 2; 1.75 until the 2026-11-17
-/// "slightly thicker" pass, which keeps the tab at 0.7 of the ring).
-pub const CALM_W: f32 = 2.3;
+/// Width of every metal edge, pt: calm tab, writing ring, ⌘P panel, Recent and tree rows
+/// (docs/decisions/2026-11-18-rune-fx-markdown.md, constraint 1: 2 pt replaces 3.25 on the ring and
+/// panel and 2.3 on the calm tab).
+pub const RING_W: f32 = 2.0;
 
 /// The metal around a place that shows a file (tab, ⌘P panel, Recent row, tree row).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Edge {
     /// No metal.
     Off,
-    /// Frozen gunmetal: the active tab or the open ⌘P panel, while nobody writes its file(s).
+    /// The active tab or the open ⌘P panel, while nobody writes its file(s): the moving chrome,
+    /// visible at once, turning on Rune's clock.
     Calm,
     /// Moving liquid chrome: an agent writes the file; lit at this Rune clock.
     Writing(f64),
@@ -45,56 +46,31 @@ pub fn edge(writing: Option<f64>, chosen: bool) -> Edge {
     }
 }
 
-/// Which place a calm edge is on: it sets the width and, in light, the metal.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Calm {
-    /// The active tab: [`CALM_W`], the light mid grey.
-    Tab,
-    /// The open ⌘P panel: always [`RING_W`] (docs/decisions/2026-11-16-metal-tab-quick-open-panel.md,
-    /// follow-ups) and, in light, a lighter grey, so the long thick edge reads as light as the tab's.
-    Panel,
-}
-
-impl Calm {
-    pub fn width(self) -> f32 {
-        match self {
-            Calm::Tab => CALM_W,
-            Calm::Panel => RING_W,
-        }
+/// The calm edge around `rect` at Rune's clock `clock` (s): the writing ring's chrome, `RING_W`
+/// outside the place, visible at once (no entrance), one turn every `TURN` counted from the clock,
+/// so every calm edge turns in step. `still` (Reduce Motion, inactive window) holds the pose of a
+/// still writing ring.
+pub fn calm_layer(rect: Rect, radius: f32, clock: f64, still: bool, dark: bool) -> FxLayer {
+    if still {
+        return chrome(rect, radius, 0.0, 0.0, true, 1.0, dark);
     }
+    let tune = lab::tuning().ring;
+    // In f64 first: after days of clock an f32 would step the turn. The liquid's own time wraps
+    // once an hour, a step nobody sees on a 2 pt edge.
+    let clock = clock.max(0.0);
+    let turn = ease(tune.turn_ease, (clock / f64::from(tune.turn)).fract() as f32);
+    chrome(rect, radius, clock.rem_euclid(FLOW_WRAP) as f32, turn, false, 1.0, dark)
 }
 
-/// The calm edge around `rect`: frozen gunmetal, `look.width()` outside the place, visible at once,
-/// never animating (it holds no display link).
-pub fn calm_layer(rect: Rect, radius: f32, dark: bool, look: Calm) -> FxLayer {
-    let width = look.width();
-    let r = rect.inflate(width);
-    let shape = Shape::rounded(r.x, r.y, r.w, r.h, radius + width);
-    Fx::fill(calm_metal(dark, look).border(width)).on(shape).at(0.0).reduced(true).opacity(1.0)
-}
+/// The calm edge's liquid time wraps every `FLOW_WRAP` seconds of clock (f32 precision).
+const FLOW_WRAP: f64 = 3600.0;
 
-/// The calm edge's metal: Rune's gunmetal, still (no flow). In light the gunmetal's deep floor
-/// reads as a black outline, as heavy as the writing ring: there it is a softer mid grey (lower
-/// contrast, lighter studio), still darker than the dark-theme tint so it reads on the light bar.
-/// On the panel the edge is longer and thicker, so the same grey reads darker: there it is lighter
-/// still. Dark is the same gunmetal everywhere.
-pub fn calm_metal(dark: bool, look: Calm) -> LiquidMetalParams {
-    let gun = LiquidMetalParams { flow: 0.0, ..LiquidMetalParams::gunmetal() };
-    if dark {
-        return gun;
-    }
-    let (tint, studio, contrast) = match look {
-        Calm::Tab => (CALM_LIGHT_TINT, CALM_LIGHT_STUDIO, 0.85),
-        Calm::Panel => (CALM_PANEL_LIGHT_TINT, CALM_PANEL_LIGHT_STUDIO, CALM_PANEL_LIGHT_CONTRAST),
-    };
-    LiquidMetalParams { tint: rune_fx::rgb(tint), light: rune_fx::rgb(studio), contrast, ..gun }
-}
-
-const CALM_LIGHT_TINT: u32 = 0x7f868f;
-const CALM_LIGHT_STUDIO: u32 = 0xdde2e8;
-const CALM_PANEL_LIGHT_TINT: u32 = 0xdadee3;
-const CALM_PANEL_LIGHT_STUDIO: u32 = 0xf6f7f9;
-const CALM_PANEL_LIGHT_CONTRAST: f32 = 0.3;
+/// At rest the metal does not hold the display link (at 120 Hz the moving edges cost ~14 % CPU):
+/// it steps 8 times a second on a `wake_after(ZERO)` from `poll`, which draws a frame without
+/// running the view. Rune follows each such frame with a second one (the zero wake is scheduled
+/// again after the frame it asked for), so 8 steps are ~16 frames: ~2 % CPU at rest
+/// (docs/perf-memory-2026-11-16.md, "Moving metal 2026-11-18").
+pub const METAL_FRAME: std::time::Duration = std::time::Duration::from_millis(125);
 /// Entrance: opacity from 0 to 1 in 220 ms, ease-out.
 pub const ENTER: f32 = 0.22;
 /// One turn of the reflected studio every 3 s.
@@ -116,13 +92,25 @@ pub fn layer(rect: Rect, t: f32, reduced: bool) -> FxLayer {
 /// in the `dark` theme or in light ([`metal`]).
 pub fn layer_rounded(rect: Rect, radius: f32, t: f32, reduced: bool, dark: bool) -> FxLayer {
     let t = if reduced { 0.0 } else { t.max(0.0) };
-    let tune = lab::tuning().ring;
+    let (opacity, phase) = lab::ring_at(f64::from(t) * 1000.0, &lab::tuning().ring);
+    chrome(rect, radius, t, phase, reduced, if reduced { 1.0 } else { opacity }, dark)
+}
+
+/// The moving chrome band shared by the calm edge and the writing ring: `width` outside `rect`, the
+/// studio turned by `phase` (0..1), the liquid at time `t`.
+fn chrome(rect: Rect, radius: f32, t: f32, phase: f32, still: bool, opacity: f32, dark: bool) -> FxLayer {
+    let width = lab::tuning().ring.width;
     let base = metal(dark);
-    let (opacity, phase) = lab::ring_at(f64::from(t) * 1000.0, &tune);
     let metal = LiquidMetalParams { angle: base.angle + TAU * phase, ..base };
-    let r = rect.inflate(tune.width);
-    let shape = Shape::rounded(r.x, r.y, r.w, r.h, radius + tune.width);
-    Fx::fill(metal.border(tune.width)).on(shape).at(t).reduced(reduced).opacity(if reduced { 1.0 } else { opacity })
+    let r = rect.inflate(width);
+    let shape = Shape::rounded(r.x, r.y, r.w, r.h, radius + width);
+    Fx::fill(metal.border(width)).on(shape).at(t).reduced(still).opacity(opacity)
+}
+
+/// Whether the ring `t` seconds after it lit is past its entrance: from there it only turns, and the
+/// compositor paces it like a calm edge.
+pub fn entered(t: f32) -> bool {
+    t >= lab::tuning().ring.enter
 }
 
 /// The ring's metal: Rune's chrome in dark. In light the brightest reflections of the
@@ -145,14 +133,9 @@ const LIGHT_STUDIO: u32 = 0xe6e7ea;
 /// clock (`poll` receives it, the compositor reads `Runtime::clock`). The compositor paints it with
 /// [`layer_rounded`] or [`calm_layer`] on the rect and radius of `el`. `Off` leaves `el` as it is.
 pub fn slot(el: El, mark: Mark, edge: Edge, reduced: bool, dark: bool) -> El {
-    slot_as(el, mark, edge, reduced, dark, Calm::Tab)
-}
-
-/// Like [`slot`], with the calm edge of `look`: the open ⌘P panel passes [`Calm::Panel`].
-pub fn slot_as(el: El, mark: Mark, edge: Edge, reduced: bool, dark: bool, look: Calm) -> El {
     let data = match edge {
         Edge::Off => return el,
-        Edge::Calm => calm_data(dark, look),
+        Edge::Calm => calm_data(reduced, dark),
         Edge::Writing(since) => slot_data(since, reduced, dark),
     };
     el.effect(mark.id()).effect_bleed(RING_W.max(lab::tuning().ring.width)).effect_data(data)
@@ -161,14 +144,14 @@ pub fn slot_as(el: El, mark: Mark, edge: Edge, reduced: bool, dark: bool, look: 
 /// `effect_data[1]` of a calm slot (0 and 1 are the writing ring, moving or reduced).
 const CALM_MODE: f32 = 2.0;
 
-/// `effect_data` of a calm [`slot`]: the calm mode, the place (0 tab, 1 panel), the theme.
-pub fn calm_data(dark: bool, look: Calm) -> [f32; 4] {
-    [0.0, CALM_MODE, if look == Calm::Panel { 1.0 } else { 0.0 }, if dark { 0.0 } else { 1.0 }]
+/// `effect_data` of a calm [`slot`]: the calm mode, "reduce motion", the theme.
+pub fn calm_data(reduced: bool, dark: bool) -> [f32; 4] {
+    [0.0, CALM_MODE, if reduced { 1.0 } else { 0.0 }, if dark { 0.0 } else { 1.0 }]
 }
 
-/// From the `effect_data` of a calm [`slot`]: the place.
-pub fn slot_calm_look(data: [f32; 4]) -> Calm {
-    if data[2] > 0.5 { Calm::Panel } else { Calm::Tab }
+/// From the `effect_data` of a calm [`slot`]: "reduce motion".
+pub fn slot_calm_reduced(data: [f32; 4]) -> bool {
+    data[2] > 0.5
 }
 
 /// From the `effect_data` of a [`slot`]: the calm edge.
@@ -230,22 +213,15 @@ mod tests {
         }
     }
 
-    /// docs/decisions/2026-11-15-thick-ring.md (2.5, not 1.5), then the 2026-11-17 pass: 3.25.
+    /// docs/decisions/2026-11-18-rune-fx-markdown.md, constraint 1: one width, 2 pt, for the
+    /// writing ring and the calm edge (3.25 and 2.3 before).
     #[test]
-    fn ring_is_3_25_pt_wide() {
-        assert_eq!(RING_W, 3.25);
-        assert_eq!(fill(&layer(row(), 1.0, false)).border, 3.25);
-    }
-
-    /// The 2026-11-17 pass made every metal edge about 30 % thicker and kept the tab's calm edge
-    /// at 0.7 of the ring, as it was (1.75 / 2.5).
-    #[test]
-    fn every_metal_edge_is_thicker_in_the_same_proportion() {
-        const { assert!(RING_W / 2.5 >= 1.3 && RING_W / 2.5 <= 1.4) };
-        const { assert!(CALM_W / 1.75 >= 1.3 && CALM_W / 1.75 <= 1.4) };
-        assert!((CALM_W / RING_W - 1.75 / 2.5).abs() < 0.01);
-        assert_eq!(Calm::Panel.width(), RING_W);
+    fn every_metal_edge_is_2_pt_wide() {
+        assert_eq!(RING_W, 2.0);
         assert_eq!(lab::LabTuning::DEFAULT.ring.width, RING_W);
+        assert_eq!(fill(&layer(row(), 1.0, false)).border, 2.0);
+        assert_eq!(fill(&calm_layer(row(), 6.0, 1.0, false, true)).border, 2.0);
+        assert_eq!(fill(&calm_layer(row(), 6.0, 1.0, true, false)).border, 2.0);
     }
 
     #[test]
@@ -327,58 +303,56 @@ mod tests {
         assert_eq!(edge(None, false), Edge::Off);
     }
 
-    /// metal-tab, constraint 3: a thin frozen gunmetal edge (1.5 to 2 pt, then 2.3 after the
-    /// 2026-11-17 pass), thinner than the ring, outside the row and rounded like it; it never animates.
+    /// rune-fx, constraint 1: the calm edge is the writing ring's chrome, same colour in both
+    /// themes, outside the row, visible at once and moving.
     #[test]
-    fn calm_edge_is_thin_frozen_gunmetal() {
-        const { assert!(CALM_W < RING_W) };
-        let l = calm_layer(row(), 6.0, true, Calm::Tab);
-        assert_eq!(fill(&l).border, CALM_W);
-        let m = metal_of(&l);
-        assert_eq!(m.tint, LiquidMetalParams::gunmetal().tint);
-        assert_eq!(m.flow, 0.0);
-        let r = l.shape.rect;
-        assert_eq!((r.x, r.w), (10.0 - CALM_W, 200.0 + 2.0 * CALM_W));
-        assert!(!l.is_animating());
-        assert_eq!(l.opacity, 1.0);
+    fn the_calm_edge_is_the_moving_writing_chrome() {
+        for dark in [true, false] {
+            let calm = calm_layer(row(), 6.0, 4.0, false, dark);
+            let ring = layer_rounded(row(), 6.0, 4.0, false, dark);
+            let (c, r) = (metal_of(&calm), metal_of(&ring));
+            assert_eq!((c.tint, c.light, c.contrast, c.flow), (r.tint, r.light, r.contrast, r.flow), "dark {dark}");
+            assert_eq!(c, LiquidMetalParams { angle: c.angle, ..metal(dark) });
+            assert!(calm.is_animating(), "moves");
+            assert_eq!(calm.opacity, 1.0, "no entrance");
+            assert_eq!(calm.shape.rect.x, 10.0 - RING_W);
+        }
     }
 
-    /// In light the calm edge is darker than in dark, so it reads on the light bar.
+    /// The calm edge turns once every `TURN` on Rune's clock, so every calm edge turns in step.
     #[test]
-    fn the_light_calm_edge_is_darker() {
-        let lum = |c: rune_fx::Rgb| 0.2126 * c.0[0] + 0.7152 * c.0[1] + 0.0722 * c.0[2];
-        assert!(lum(calm_metal(false, Calm::Tab).tint) < lum(calm_metal(true, Calm::Tab).tint));
-        assert_eq!(metal_of(&calm_layer(row(), 6.0, false, Calm::Tab)).tint, calm_metal(false, Calm::Tab).tint);
+    fn the_calm_edge_turns_on_the_clock() {
+        let tau = std::f32::consts::TAU;
+        let angle = |rect: Rect, clock| metal_of(&calm_layer(rect, 6.0, clock, false, true)).angle.rem_euclid(tau);
+        assert!((angle(row(), 1.0) - angle(row(), 1.0 + f64::from(TURN) / 2.0)).abs() > 3.0, "half a turn in TURN / 2");
+        assert!((angle(row(), 1.0) - angle(row(), 1.0 + f64::from(TURN))).abs() < 1e-3);
+        assert_eq!(angle(row(), 2.2), angle(Rect::new(400.0, 0.0, 600.0, 400.0), 2.2), "in step");
     }
 
-    /// Follow-up 2026-11-16: in light the panel's calm metal is lighter than the tab's (and still
-    /// darker than the bar, so it reads); in dark both are the same gunmetal.
+    /// rune-fx, constraint 2: still (Reduce Motion, inactive window), the calm edge holds the pose of
+    /// a still writing ring, whatever the clock.
     #[test]
-    fn the_light_panel_calm_edge_is_lighter_than_the_tab() {
-        let lum = |c: rune_fx::Rgb| 0.2126 * c.0[0] + 0.7152 * c.0[1] + 0.0722 * c.0[2];
-        let (panel, tab) = (calm_metal(false, Calm::Panel), calm_metal(false, Calm::Tab));
-        assert!(lum(panel.tint) > lum(tab.tint) && lum(panel.light) >= lum(tab.light));
-        assert!(panel.contrast < tab.contrast);
-        assert_eq!(panel.flow, 0.0);
-        assert_eq!(calm_metal(true, Calm::Panel), calm_metal(true, Calm::Tab));
+    fn a_still_calm_edge_is_a_still_ring() {
+        let (a, b) = (calm_layer(row(), 6.0, 1.0, true, true), calm_layer(row(), 6.0, 9.5, true, true));
+        assert!(!a.is_animating() && a.reduced_motion);
+        assert_eq!((a.time, metal_of(&a)), (b.time, metal_of(&b)));
+        let ring = layer_rounded(row(), 6.0, 7.0, true, true);
+        assert_eq!((a.time, metal_of(&a), a.opacity), (ring.time, metal_of(&ring), ring.opacity));
     }
 
     #[test]
     fn calm_data_is_told_apart_from_writing() {
-        assert!(slot_calm(calm_data(true, Calm::Tab)) && slot_calm(calm_data(false, Calm::Panel)));
+        assert!(slot_calm(calm_data(false, true)) && slot_calm(calm_data(true, false)));
         assert!(!slot_calm(slot_data(3.0, true, true)) && !slot_calm(slot_data(3.0, false, false)));
-        assert!(slot_dark(calm_data(true, Calm::Tab)) && !slot_dark(calm_data(false, Calm::Tab)));
-        assert_eq!(slot_calm_look(calm_data(false, Calm::Panel)), Calm::Panel);
-        assert_eq!(slot_calm_look(calm_data(false, Calm::Tab)), Calm::Tab);
+        assert!(slot_dark(calm_data(false, true)) && !slot_dark(calm_data(false, false)));
+        assert!(slot_calm_reduced(calm_data(true, true)) && !slot_calm_reduced(calm_data(false, true)));
     }
 
-    /// The thick calm edge (open ⌘P panel) is as wide as the writing ring and still frozen gunmetal.
+    /// The ring is paced like a calm edge only once its entrance is over.
     #[test]
-    fn the_thick_calm_edge_is_ring_wide_and_frozen() {
-        let l = calm_layer(row(), 6.0, true, Calm::Panel);
-        assert_eq!(fill(&l).border, RING_W);
-        assert_eq!(metal_of(&l).flow, 0.0);
-        assert!(!l.is_animating());
+    fn the_ring_has_entered_after_its_fade() {
+        assert!(!entered(0.0) && !entered(ENTER / 2.0));
+        assert!(entered(ENTER) && entered(30.0));
     }
 
     #[test]

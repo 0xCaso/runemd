@@ -10,6 +10,8 @@
 //!   constant speed and writes the intervals between presented frames to `MDSPIKE_LOG`, then exits.
 //! - `MDSPIKE_LATENCY=path`: on every reload writes, at the first frame that shows it, the ms from
 //!   the file write (mtime) to the reload and to the frame.
+//! - `MDSPIKE_ACTIVE=1`: the window counts as active though not key (virtual screens);
+//!   `MDSPIKE_QUICK=1`: the ⌘P panel opens at the first poll.
 //! - With `MDSPIKE_LOG` it also writes the cost of the index cache (`index_cache_ms`) and
 //!   when the scan ends (`index_scan_epoch_ms`).
 //!
@@ -263,11 +265,13 @@ fn fire_band(lit: Option<(f64, usize)>, flames: Option<Option<f64>>, look: fx::f
 
 /// Tab keys: Cmd+W closes the front one (with unsaved changes it asks,
 /// `App::close`), Cmd+1…8 go to the tab, Cmd+9 to the last one (like Safari and Finder), Ctrl+Tab
-/// and Ctrl+Shift+Tab to the next and the previous. True if the key belongs to the tabs; Cmd+W with no tabs
+/// and Cmd+Shift+] to the next, Ctrl+Shift+Tab and Cmd+Shift+[ to the previous, wrapping around. True if the key belongs to the tabs; Cmd+W with no tabs
 /// is left to Rune, which closes the window.
 fn tab_key(s: &mut App, key: &rune::KeyEvent, tx: &mut Tx) -> bool {
     let m = key.mods;
+    let step = ui::tabs::step_key(key, tx.key_base());
     let changed = match key.key {
+        _ if step.is_some() => s.cycle(step.unwrap_or(0)),
         rune::Key::Command('w') if m.cmd && !m.shift && !m.alt && !m.ctrl => {
             if s.tabs.is_empty() {
                 return false;
@@ -368,6 +372,11 @@ fn poll(s: &mut App, clock: f64, tx: &mut Tx) -> bool {
     if std::mem::take(&mut s.restore_pending) {
         s.restore_view(tx);
     }
+    let quick = probe::quick_at_start();
+    if quick {
+        s.sidebar.quick.show();
+        s.requery_sidebar();
+    }
     let mut queued = open::queue::drain();
     queued.extend(probe::late_open(clock, tx));
     let opened = !queued.is_empty();
@@ -453,7 +462,7 @@ fn poll(s: &mut App, clock: f64, tx: &mut Tx) -> bool {
     let wordmark = s.forge_images.borrow().next_ready();
     // A new `lab.json` (`--lab`): the view draws the new tuning, or the test state at the new time.
     let lab = lab::take_changed();
-    let changed = opened || tabs || ring || side || blurred || found || wordmark || brief || lab;
+    let changed = opened || quick || tabs || ring || side || blurred || found || wordmark || brief || lab;
     // Only the fire at rest to redraw: the `REST_FRAME` wake-up commits to get a frame (a
     // resting window draws only for a poll that changed something; `Tx::live_only` does not hold
     // for `poll`). Inside a stream of frames (a scroll) the compositor already moves the flames
@@ -461,6 +470,16 @@ fn poll(s: &mut App, clock: f64, tx: &mut Tx) -> bool {
     // file). The empty screen's fire keeps committing on every poll (its CPU is by design).
     let rest_wake = s.rest_wake(clock);
     let changed = changed || (resting && (rest_wake || s.tab().is_none()));
+    // The moving metal edges at rest (`App::metal_moves`): one frame every `METAL_FRAME`. When one
+    // is due, `wake_after(ZERO)` asks Rune for the next frame without committing the view
+    // (`Runtime::resting_wake`); otherwise a wake-up when it is due. In a stream of frames the
+    // compositor draws them on every frame, so none is due.
+    if s.metal_moves() && !changed {
+        match s.metal_due(clock) {
+            Ok(()) => tx.wake_after(Duration::ZERO),
+            Err(at) => tx.wake_at(at),
+        }
+    }
     let Some(run) = s.scroll.as_mut() else { return changed };
     if let Some(y) = run.step(clock) {
         tx.scroll_to_instant("doc", 0.0, y);

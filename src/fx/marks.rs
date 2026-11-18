@@ -44,6 +44,12 @@ impl Mark {
     pub fn is_ring(id: u32) -> bool {
         id >= TAB.0
     }
+
+    /// Whether a slot id is a tab's ring.
+    #[cfg(test)]
+    pub fn is_tab(id: u32) -> bool {
+        (TAB.0..=TAB.1).contains(&id)
+    }
 }
 
 #[cfg(test)]
