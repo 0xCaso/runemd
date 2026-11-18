@@ -192,13 +192,6 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
         let look = s.settings.fire_look(fx::fire::accent_hex(cx.accent()));
         panel = panel.children(fire_band(lit, s.fire_flames(), look, dark, &theme, reduced, s.window_active));
     }
-    // The front tab's metal runs on round the page below the bar (`fx::outline`): the page's part of it,
-    // above the document and the fire. The tab's part is in `ui::tabs`.
-    if let Some(tab) = s.tab() {
-        let edge = fx::ring::edge(s.ring_of(tab.path()), true);
-        let page = el().key("page-outline").pin(Some(0.0), Some(ui::theme::TAB_BAR_H), Some(0.0), Some(0.0)).radius(ui::theme::R_PANEL).a11y_hidden();
-        panel = panel.child(fx::ring::slot(page, fx::Mark::Page, edge, reduced, dark));
-    }
     // The "is writing" ring sits on the file's tab (`ui::tabs`) and on its rows in
     // Recent and in the tree.
     let sidebar_w = s.settings.sidebar.width;

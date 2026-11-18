@@ -489,19 +489,3 @@ How it moves without the display link and without running the view:
 - Reduce Motion or an inactive window: every edge is the still pose and `metal_moves` is false, so no wake-ups
   (test `an_inactive_window_and_reduce_motion_keep_the_metal_still`). The fire at rest is unchanged ("Release pass
   2026-11-17").
-
-## Tab outline 2026-11-18
-
-One metal outline round the front tab and the page (`fx::outline`, branch `feat/release-small-choices`). Method as
-"Moving metal 2026-11-18": `before` = a1420a2 (moving metal, VS Code tabs, ring on the front tab only), `after` =
-be7dea2, both `make app` (`--profile perf`), private 120 Hz virtual display 1920×1200 pt 2×, `fixtures/big.md`, dark,
-empty `RUNEMD_ROOTS`, fresh `RUNE_DIRS_ROOT`, `MDSPIKE_ACTIVE=1`; idle 10–70 s after launch, runs alternated, no
-cargo/rustc running; another agent's virtual display was up, so the load varies.
-
-| Idle, 60 s | cpu_time | ps_mean | frames/s | load |
-|---|---|---|---|---|
-| before r1 / r2 / r3 | 2.87 / 2.67 / 3.28 % | 2.39 / 2.31 / 3.09 % | 15.8 / 15.8 / 15.9 | 19.5 / 11.2 / 7.2 |
-| after r1 / r2 / r3 | 2.92 / 3.22 / 3.07 % | 2.39 / 2.97 / 2.84 % | 15.9 / 15.9 / 15.8 | 16.7 / 7.7 / 6.2 |
-
-Means: before 2.94 % cpu_time, after 3.07 % (+0.13 points, inside the run-to-run spread of 0.6). Frames/s are the same
-(8 steps/s, 16 frames): the outline adds 5 more metal layers to the same paced frames, no extra wake-ups.

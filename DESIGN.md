@@ -439,17 +439,15 @@ accent: caret `fg`, selection `sel`. No results: "No files" in `fg-3`.
 **Tab.** VS Code's shape (record `2026-11-18-vscode-tabs`; the `c6b02b5` version with 8 between tabs read as "troppo
 spazio"). The bar is 44 tall (`tab-bar`) on the `tab-bar` tint over `panel` (black 4 % light, 40 % dark: a shade off the
 page), 8 before the first tab (`tab-bar-lead`), 10 margin on the right (`tab-bar-pad`), a 0.5 line in `line` at the
-bottom while no file is open (with one, the page's metal outline is the bar's bottom edge). Tabs sit edge to edge, as wide as the file name up to 240 (`tab-max`, D5; beyond that, the name is cut in the
+bottom. Tabs sit edge to edge, as wide as the file name up to 240 (`tab-max`, D5; beyond that, the name is cut in the
 middle), from 8 below the bar's top (`tab-top`) down to the document, UI text 13 px with 12 before the name
 (`tab-pad`). Back tabs: no fill, `fg-2` text, hover `sel`, pressed scale 0.98, and a 1 px divider in `line`
 (`tab-divider`, 9 short of the tab's top and bottom) on the right, except next to the front tab. The front tab has the
-page's `panel` fill, rounded top corners (radius 6, square at the bottom) and `fg` text, and runs into the page, so it
-reads as part of the document. One metal outline (record `2026-11-18-tab-outline`, Matteo: "il bordo dovrebbe anche
-propagarsi" round the page, "rotondo qui") goes up and round the front tab (`RING_W` outside it), turns into the page's
-top edge with a concave fillet of radius 6 (`R_ROW`) on each side, and runs round the whole page (`RING_W` inside its
-edge, radius 10): the same moving chrome, calm and writing, 8 steps a second, still with Reduce Motion or an inactive
-window (`fx::outline`). On the tab it only crosses the neighbours' padding (const check `_RING_FITS`). Every tab's name
-sits in the middle of the visible tab, from the outline's top band to the page's top band.
+page's `panel` fill, rounded top corners (radius 6, square at the bottom) and `fg` text, and runs over the bar's line,
+so it reads as part of the document. Its metal edge (`RING_W` outside the tab, the moving chrome at 8 steps a second,
+still with Reduce Motion or an inactive window) goes round the top and the sides and is cut on a whole pixel where the
+tab meets the page, an open arc (record `2026-11-18-tab-bar-style`: no bottom side, no outline round the page); it only
+crosses the neighbours' padding (const check `_RING_FITS`).
 At the end of each tab a "×" (glyph 14 in `fg-2`, area of 16, radius 4, hover `sel`, 6 after the name and 8 from the
 right edge), always shown on the front tab and on the others only on hover (or with keyboard focus); its space is
 always there, so hover changes no width. Label "Close <name>"; a click closes like ⌘W (the same question with unsaved

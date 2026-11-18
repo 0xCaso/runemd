@@ -13,21 +13,15 @@ pub enum Mark {
     Forge,
     /// The empty screen's "An agent is writing <file>" line: one ring.
     ForgeLine,
-    /// The front tab's metal, joined to the page's (`fx::outline`): one ring.
-    FrontTab,
-    /// The page's part of the front tab's outline (`fx::outline`): one slot, not a ring of its own.
-    Page,
 }
 
 const FIRE: u32 = 1;
 const CARET: u32 = 2;
 const FORGE: u32 = 3;
-const PAGE: u32 = 4;
 // Tab rings start at 100: below are the fixed ids (fire 1, caret 2, forge 3).
 const TAB: (u32, u32) = (100, 4_999);
 const QUICK: u32 = 5_000;
 const FORGE_LINE: u32 = 5_001;
-const FRONT_TAB: u32 = 5_002;
 const RECENT: u32 = 10_000;
 const TREE: u32 = 20_000;
 
@@ -43,14 +37,17 @@ impl Mark {
             Mark::Caret => CARET,
             Mark::Forge => FORGE,
             Mark::ForgeLine => FORGE_LINE,
-            Mark::FrontTab => FRONT_TAB,
-            Mark::Page => PAGE,
         }
     }
 
     /// Whether a slot id is a ring (tab, ⌘P panel, row in Recent, row in the tree).
     pub fn is_ring(id: u32) -> bool {
         id >= TAB.0
+    }
+
+    /// Whether a slot id is a tab's ring.
+    pub fn is_tab(id: u32) -> bool {
+        (TAB.0..=TAB.1).contains(&id)
     }
 }
 
@@ -84,8 +81,6 @@ mod tests {
         assert!(!Mark::is_ring(Mark::Fire.id()));
         assert!(!Mark::is_ring(Mark::Caret.id()));
         assert!(!Mark::is_ring(Mark::Forge.id()));
-        assert!(!Mark::is_ring(Mark::Page.id()));
-        assert!(Mark::is_ring(Mark::FrontTab.id()) && Mark::FrontTab.id() > Mark::ForgeLine.id() && Mark::FrontTab.id() < Mark::RecentRing(0).id());
         assert!(!Mark::is_ring(0), "slot without mark");
     }
 }

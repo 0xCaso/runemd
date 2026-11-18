@@ -50,9 +50,16 @@ pub fn edge(writing: Option<f64>, chosen: bool) -> Edge {
 /// outside the place, visible at once (no entrance), one turn every `TURN` counted from the clock,
 /// so every calm edge turns in step. `still` (Reduce Motion, inactive window) holds the pose of a
 /// still writing ring.
-#[cfg(test)]
 pub fn calm_layer(rect: Rect, radius: f32, clock: f64, still: bool, dark: bool) -> FxLayer {
-    band(around(rect, radius), Pose::calm(clock, still), dark, true)
+    if still {
+        return chrome(rect, radius, 0.0, 0.0, true, 1.0, dark);
+    }
+    let tune = lab::tuning().ring;
+    // In f64 first: after days of clock an f32 would step the turn. The liquid's own time wraps
+    // once an hour, a step nobody sees on a 2 pt edge.
+    let clock = clock.max(0.0);
+    let turn = ease(tune.turn_ease, (clock / f64::from(tune.turn)).fract() as f32);
+    chrome(rect, radius, clock.rem_euclid(FLOW_WRAP) as f32, turn, false, 1.0, dark)
 }
 
 /// The calm edge's liquid time wraps every `FLOW_WRAP` seconds of clock (f32 precision).
@@ -83,61 +90,21 @@ pub fn layer(rect: Rect, t: f32, reduced: bool) -> FxLayer {
 
 /// Like [`layer`], for a slot with radius `radius` (the sidebar rows and the tab),
 /// in the `dark` theme or in light ([`metal`]).
-#[cfg(test)]
 pub fn layer_rounded(rect: Rect, radius: f32, t: f32, reduced: bool, dark: bool) -> FxLayer {
-    band(around(rect, radius), Pose::writing(t, reduced), dark, true)
+    let t = if reduced { 0.0 } else { t.max(0.0) };
+    let (opacity, phase) = lab::ring_at(f64::from(t) * 1000.0, &lab::tuning().ring);
+    chrome(rect, radius, t, phase, reduced, if reduced { 1.0 } else { opacity }, dark)
 }
 
-/// Where the metal is at a moment: the liquid's time, the studio's turn (0..1), still or moving, and
-/// the opacity (the writing ring's entrance).
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Pose {
-    pub t: f32,
-    pub phase: f32,
-    pub still: bool,
-    pub opacity: f32,
-}
-
-impl Pose {
-    /// A calm edge at Rune's clock `clock` (s): visible at once, one turn every `TURN` counted from the
-    /// clock, so every calm edge turns in step. `still` (Reduce Motion, inactive window) holds the pose
-    /// of a still writing ring.
-    pub fn calm(clock: f64, still: bool) -> Pose {
-        if still {
-            return Pose { t: 0.0, phase: 0.0, still: true, opacity: 1.0 };
-        }
-        let tune = lab::tuning().ring;
-        // In f64 first: after days of clock an f32 would step the turn. The liquid's own time wraps
-        // once an hour, a step nobody sees on a 2 pt edge.
-        let clock = clock.max(0.0);
-        let phase = ease(tune.turn_ease, (clock / f64::from(tune.turn)).fract() as f32);
-        Pose { t: clock.rem_euclid(FLOW_WRAP) as f32, phase, still: false, opacity: 1.0 }
-    }
-
-    /// A writing ring `t` seconds after it lit: entering, then turning; `reduced` still and visible.
-    pub fn writing(t: f32, reduced: bool) -> Pose {
-        let t = if reduced { 0.0 } else { t.max(0.0) };
-        let (opacity, phase) = lab::ring_at(f64::from(t) * 1000.0, &lab::tuning().ring);
-        Pose { t, phase, still: reduced, opacity: if reduced { 1.0 } else { opacity } }
-    }
-}
-
-/// The shape of the band `width` outside `rect` with corner radius `radius`: `.border` paints inside
-/// the shape, so the shape is the rect widened by the band.
-pub fn around(rect: Rect, radius: f32) -> Shape {
-    let width = lab::tuning().ring.width;
-    let r = rect.inflate(width);
-    Shape::rounded(r.x, r.y, r.w, r.h, radius + width)
-}
-
-/// The moving chrome band, `width` wide inside `shape`, at `pose`. `dome` off keeps the metal's slow
-/// tilt across the shape out, so pieces of one outline cut from different shapes meet without a step
-/// (`fx::outline`).
-pub fn band(shape: Shape, pose: Pose, dark: bool, dome: bool) -> FxLayer {
+/// The moving chrome band shared by the calm edge and the writing ring: `width` outside `rect`, the
+/// studio turned by `phase` (0..1), the liquid at time `t`.
+fn chrome(rect: Rect, radius: f32, t: f32, phase: f32, still: bool, opacity: f32, dark: bool) -> FxLayer {
     let width = lab::tuning().ring.width;
     let base = metal(dark);
-    let metal = LiquidMetalParams { angle: base.angle + TAU * pose.phase, dome: if dome { base.dome } else { 0.0 }, ..base };
-    Fx::fill(metal.border(width)).on(shape).at(pose.t).reduced(pose.still).opacity(pose.opacity)
+    let metal = LiquidMetalParams { angle: base.angle + TAU * phase, ..base };
+    let r = rect.inflate(width);
+    let shape = Shape::rounded(r.x, r.y, r.w, r.h, radius + width);
+    Fx::fill(metal.border(width)).on(shape).at(t).reduced(still).opacity(opacity)
 }
 
 /// Whether the ring `t` seconds after it lit is past its entrance: from there it only turns, and the
