@@ -149,7 +149,7 @@ const END_ROOM: f32 = FADE_W + RING_W + 4.0;
 const FADE_TINT: f32 = 0.78;
 
 /// The scroll bar under the tabs (Matteo: "con uno slider anche visibile"): `SCROLL_BAR` tall, at the
-/// strip's bottom, over the tabs like VS Code's, drawn only while the tabs overflow. Rune's own bars
+/// strip's bottom, behind the tabs (the front tab hides it), drawn only while the tabs overflow. Rune's own bars
 /// follow the system setting and hide at rest, so the strip draws its own.
 pub const SCROLL_BAR: f32 = 3.0;
 const SCROLL_BAR_MIN: f32 = 24.0;
@@ -182,7 +182,9 @@ pub fn view(s: &App, hooks: Hooks<App>, theme: &Theme, reduced: bool, hover: boo
         .child(list);
     let track = el().key("tabs-scroll-bar").pin(Some(0.0), None, Some(0.0), Some(HAIRLINE)).h(SCROLL_BAR).a11y_hidden()
         .child(el().key("tabs-scroll-thumb").pin(Some(0.0), Some(0.0), None, None).h(SCROLL_BAR).radius(SCROLL_BAR / 2.0).fill(theme.fg3.alpha(0.45)).live_rect(&at));
-    let strip_box = el().key("tabs-strip").grow(1.0).shrink().min_w(0.0).h_full().child(strip).child(track);
+    // The track is drawn before the strip: the front tab's opaque fill covers the thumb, so the tab stays
+    // joined to the page; the back tabs (no fill) let it show.
+    let strip_box = el().key("tabs-strip").grow(1.0).shrink().min_w(0.0).h_full().child(track).child(strip);
     let key = el().key("source-key").border(HAIRLINE, theme.line).radius(R_KBD).px(KBD_PAD_X).py(KBD_PAD_Y)
         .child(text(SOURCE_KEY).font(TextStyle::new(KBD_TEXT, KBD_WEIGHT)).color(theme.fg3));
     // Find (Cmd+F): the field sits in the bar, right of the tabs, so the document does not move.
