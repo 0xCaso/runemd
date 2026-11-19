@@ -5,4 +5,4 @@ for f in "$@"; do
   case "$f" in /*) set -- "$@" "$f" ;; *) set -- "$@" "$PWD/$f" ;; esac
   shift
 done
-exec open -a RuneMD "$@"
+exec open -a /Applications/RuneMD.app "$@"
