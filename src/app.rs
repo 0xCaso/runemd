@@ -86,11 +86,13 @@ pub struct Tab {
     /// italics, replaced by the next single click. At most one. It becomes pinned with a double click
     /// (on the row or on the tab), an edit in the source or Cmd+S (`App::pin`).
     pub(crate) preview: bool,
+    /// The block and bytes of the line a `:line` link opened this code file at (`App::open_link`).
+    pub(crate) goto: Option<(u64, std::ops::Range<usize>)>,
 }
 
 impl Tab {
     pub(crate) fn new(doc: Document, follow: Follow) -> Tab {
-        Tab { doc, mode: Mode::Read, below: Below::default(), changed: Changed::default(), follow, visible_last: 0, visible_first: 0, fire_since: None, fire_armed: None, mark_wake: None, caret_since: None, caret_at: None, visible_start: 0, visible_end: 0, outline: ui::outline::Cache::default(), viewport: [0.0; 4], page: [0.0; 4], reading: None, hold: None, at_bottom: false, picked: None, not_utf8: false, preview: false }
+        Tab { doc, mode: Mode::Read, below: Below::default(), changed: Changed::default(), follow, visible_last: 0, visible_first: 0, fire_since: None, fire_armed: None, mark_wake: None, caret_since: None, caret_at: None, visible_start: 0, visible_end: 0, outline: ui::outline::Cache::default(), viewport: [0.0; 4], page: [0.0; 4], reading: None, hold: None, at_bottom: false, picked: None, not_utf8: false, preview: false, goto: None }
     }
 
     /// The file as FSEvents reports it (canonical): the key of the rings.
@@ -324,6 +326,27 @@ const HOLD_TRIES: u8 = 8;
 /// row may not be mounted: `scroll_center_in_instant` mounts it, then `scroll_key_to` puts it
 /// at the top, measuring again after layout; Rune makes the two requests in the same frame, in
 /// this order (`App::restore_view`, `App::go_to_heading`).
+/// The key of the mark on the line a `:line` link opened a code file at.
+fn goto_key(row_key: &str) -> String {
+    format!("{row_key}/goto-line")
+}
+
+/// Room above that line once it is scrolled to: the lines before it show.
+const GOTO_ABOVE: f32 = 60.0;
+
+/// The bytes of code line `line` (from 1) in a code file's fenced block (its first line is the fence).
+fn code_line(block: &str, line: u32) -> Option<std::ops::Range<usize>> {
+    let mut at = 0;
+    for (n, l) in block.split_inclusive('\n').enumerate() {
+        if n == line as usize {
+            let l = l.trim_end_matches('\n');
+            return Some(at..at + l.len().max(1).min(block.len() - at));
+        }
+        at += l.len();
+    }
+    None
+}
+
 fn scroll_block_to_top(tab: &Tab, i: usize, tx: &mut Tx) {
     let key = ui::doc_view::row_key(i, &tab.doc);
     tx.scroll_center_in_instant("doc", key.clone());
@@ -1240,7 +1263,19 @@ impl App {
         if self.tab().map(|t| t.doc.id) != before {
             self.restore_view(tx);
         }
-        let (Some(line), Ok(text)) = (line, std::fs::read_to_string(&path)) else { return };
+        let Some(line) = line else { return };
+        // A code file is one block: the line is marked in it and brought to the top.
+        if let Some(tab) = self.tab_mut().filter(|t| matches!(t.mode, Mode::Read) && matches!(t.doc.kind, crate::open::kind::FileKind::Code(_)))
+            && let Some(b) = tab.doc.blocks.first()
+        {
+            let Some(range) = code_line(&b.source, line) else { return };
+            tab.goto = Some((b.id, range));
+            let key = goto_key(&ui::doc_view::row_key(0, &tab.doc));
+            tx.scroll_center_in_instant("doc", key.clone());
+            tx.scroll_key_to(key, GOTO_ABOVE);
+            return;
+        }
+        let Ok(text) = std::fs::read_to_string(&path) else { return };
         let Some(tab) = self.tab_mut().filter(|t| matches!(t.mode, Mode::Read)) else { return };
         let i = crate::doc::paths::block_of_line(&text, tab.doc.blocks.iter().map(|b| &*b.source), line);
         scroll_block_to_top(tab, i, tx);
@@ -1470,7 +1505,12 @@ impl App {
 
     /// The Find marks of block `block` of the front tab, in row `row_key`.
     pub fn find_hits(&self, block: &crate::doc::document::Block, row_key: &str) -> ui::find::Marks {
-        self.find.highlights(block.id, block.hash, row_key)
+        let mut hits = self.find.highlights(block.id, block.hash, row_key);
+        // The line a `:line` link opened a code file at: an invisible mark to scroll to.
+        if let Some((_, range)) = self.tab().and_then(|t| t.goto.clone()).filter(|(id, r)| *id == block.id && r.end <= block.source.len()) {
+            hits.push((vec![range], rune_kit::markdown::Highlight::new().bg(rune::Color::TRANSPARENT).ring(rune::Color::TRANSPARENT, 1.0).key(goto_key(row_key))));
+        }
+        hits
     }
 
     /// Whether block `id` of the front tab has the "what changed" mark.

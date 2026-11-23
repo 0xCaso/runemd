@@ -237,6 +237,13 @@ pub fn view<S: 'static>(s: &S, doc_of: fn(&S) -> &Document, style: &MarkdownStyl
     let order = blocks.clone();
     let places = paths_of(doc);
     let wraps_version = signals.wraps.iter().fold(0, |acc, k| acc ^ k);
+    // A file that is not Markdown (a code card): its name over the card and in the card's header.
+    let title = (doc.kind != crate::open::kind::FileKind::Markdown).then(|| doc.path.file_name().map(|n| n.to_string_lossy().into_owned())).flatten();
+    let head = title.as_ref().map(|_| {
+        let lines = doc.blocks.first().map_or(0, |b| b.source.lines().count().saturating_sub(2));
+        let head = super::file_view::head(&doc.path, Some(super::file_view::lines(lines)), signals.meta.label, signals.meta.chrome.label);
+        super::theme::column(col().w_full(), column).self_center().px(ROW_PAD_X).child(head)
+    });
     // The column is at most `column` wide ("Text width"; "Full" follows the panel).
     let rows = super::theme::column(col().key("rows").w_full(), column).self_center().selection_group(true)
         .growth(GrowthSpec::default())
@@ -267,7 +274,7 @@ pub fn view<S: 'static>(s: &S, doc_of: fn(&S) -> &Document, style: &MarkdownStyl
                     } else {
                         Pictures::default()
                     };
-                    let dress = Dress { forge, pictures, wraps: signals.wraps.clone() };
+                    let dress = Dress { forge, pictures, wraps: signals.wraps.clone(), title: title.clone() };
                     let row = block_row(&b.source, &style, &doc.notes, &places, progress, signals.columns, signals.open, signals.fonts, signals.meta, &dress, (signals.marked)(s, b.id).then_some(signals.mark), hits);
                     match caret {
                         Some(c) => caret_row(row, c),
@@ -292,7 +299,7 @@ pub fn view<S: 'static>(s: &S, doc_of: fn(&S) -> &Document, style: &MarkdownStyl
     let edge = signals.edge;
     // The `on_layout`s only say where view and page are: the view runs again only if what it
     // shows changes (`live_only` otherwise), not on every scroll frame.
-    let page = col().w_full().child(el().h(TOP)).child(rows).children(notes).child(bottom).on_layout_tx(move |s: &mut S, r, tx: &mut rune::Tx| {
+    let page = col().w_full().child(el().h(TOP)).children(head).child(rows).children(notes).child(bottom).on_layout_tx(move |s: &mut S, r, tx: &mut rune::Tx| {
         if !edge(s, generation, Edge::Page(r), tx) {
             tx.live_only();
         }
@@ -598,7 +605,7 @@ fn block_body<S: 'static>(source: &str, style: &MarkdownStyle, notes: &crate::do
         None => md,
     };
     // Only blocks that may hold code get the hooks: with them the kit does not cache the block.
-    let md = if has_code(source) { code_heads::<S>(md, source, &meta, &dress.wraps, open) } else { md };
+    let md = if has_code(source) { code_heads::<S>(md, source, &meta, &dress.wraps, dress.title.clone(), open) } else { md };
     let md = if forge.on.any() { forge_markdown(md, dress, callout.is_some()) } else { md };
     // Every link opens (`App::open_link`): paths, URLs and `#heading`.
     let md = md.on_link_tx(move |s: &mut S, url, tx| open(s, url, tx));
@@ -629,6 +636,8 @@ pub(crate) struct Dress {
     pub pictures: Pictures,
     /// The code blocks whose lines wrap (`Signals::wraps`).
     pub wraps: Arc<HashSet<u64>>,
+    /// A code file's name: its card's header shows it in place of the language.
+    pub title: Option<String>,
 }
 
 /// The kit's code cards and images radius (`markdown/render.rs`: code 6, images 4).
@@ -847,7 +856,7 @@ pub const WRAP_SCHEME: &str = "runemd-wrap:";
 /// The header on top of each code block (mockup `colori`): the language or file name with its
 /// icon, then the wrap and copy buttons. No run button (decision 2026-11-23-t3-style-paths,
 /// constraint 4). Wrap is off by default: long lines scroll sideways.
-fn code_heads<S: 'static>(md: rune_kit::Markdown, source: &str, meta: &Meta, wraps: &Arc<HashSet<u64>>, open: fn(&mut S, &str, &mut rune::Tx)) -> rune_kit::Markdown {
+fn code_heads<S: 'static>(md: rune_kit::Markdown, source: &str, meta: &Meta, wraps: &Arc<HashSet<u64>>, title: Option<String>, open: fn(&mut S, &str, &mut rune::Tx)) -> rune_kit::Markdown {
     let c = meta.chrome;
     let block = source.to_owned();
     let on = wraps.clone();
@@ -857,7 +866,7 @@ fn code_heads<S: 'static>(md: rune_kit::Markdown, source: &str, meta: &Meta, wra
     md.code_header(move |f| {
         let key = code_key(&block, f.index);
         let wrapped = wraps.contains(&key);
-        let label = f.language.map(crate::doc::paths::code_head);
+        let label = title.as_deref().or(f.language).map(crate::doc::paths::code_head);
         let icon = label.as_ref().map(|(_, kind)| rune::icon(super::path_icons::icon(*kind), CODE_HEAD_ICON).color(c.label));
         let name = label.map(|(name, _)| rune::text(name).font(TextStyle::new(CODE_HEAD_TEXT, CODE_HEAD_WEIGHT)).color(c.label).selectable(false));
         let wrap = head_button("wrap", if wrapped { "Scroll Long Lines" } else { "Wrap Long Lines" }, &super::path_icons::WRAP, c, wrapped)
@@ -1937,8 +1946,11 @@ mod tests {
         settle(&mut rt);
         let tab = rt.state.tab().unwrap();
         assert!(tab.doc.path.ends_with("src/live/below.rs"), "{:?}", tab.doc.path);
-        let texts: Vec<String> = rt.elements().into_iter().filter(|e| e.visible[3] > 0.0).filter_map(|e| e.text).collect();
-        assert!(texts.iter().any(|x| x == "Paragraph 16."), "line 31 is in view: {texts:?}");
+        // A `.rs` file is one code card: its line 31 is marked and scrolled into view.
+        let els = rt.elements();
+        let view = els.iter().find(|e| e.key.as_deref() == Some("doc")).unwrap().rect;
+        let mark = els.iter().find(|e| e.key.as_deref().is_some_and(|k| k.ends_with("/goto-line"))).expect("the line's mark").rect;
+        assert!(mark[1] > view[1] + 20.0 && mark[1] < view[1] + 200.0, "line 31 near the top: {mark:?} in {view:?}");
         let _ = std::fs::remove_dir_all(&t);
     }
 
@@ -1993,6 +2005,26 @@ mod tests {
             settle(&mut rt);
             assert!(labels(&rt).iter().any(|l| l == want), "{want}: {:?}", labels(&rt));
         }
+    }
+
+    /// A code file is one code card under the file's name: header with its name, wrap and copy,
+    /// syntax colours, and no Markdown (a `# comment` is not a heading; decision
+    /// 2026-11-23-open-non-markdown).
+    #[test]
+    fn a_code_file_is_one_highlighted_card_with_no_markdown() {
+        let sh = "#!/bin/sh\n# Deploy the site\nset -e\n\n- not a list\necho done\n";
+        let rt = open_doc(Document::from_source(Path::new("/r/deploy.sh"), sh));
+        let els = rt.elements();
+        assert!(!els.iter().any(|e| e.role == "heading" || e.role == "list"), "no Markdown inside a code file");
+        assert_eq!(els.iter().filter(|e| e.role == "code").count(), 1, "one code card");
+        assert_eq!(els.iter().filter(|e| e.key.as_deref().is_some_and(|k| k.ends_with("code-head"))).count(), 1);
+        let texts: Vec<String> = els.iter().filter_map(|e| e.text.clone()).collect();
+        assert!(texts.iter().filter(|t| *t == "deploy.sh").count() >= 2, "title and header name the file: {texts:?}");
+        assert!(texts.iter().any(|t| t == "6 lines"), "{texts:?}");
+        assert!(texts.iter().any(|t| t.contains("# Deploy the site") && t.contains("set -e")), "the whole file in the card: {texts:?}");
+        assert!(els.iter().any(|e| e.label.as_deref() == Some("Copy Code")));
+        let code = els.iter().find(|e| e.text.as_deref().is_some_and(|t| t.starts_with("#!/bin/sh"))).expect("the code text");
+        assert!(code.text_color.is_some());
     }
 
     /// A table has "Copy table" under it (paths record, feature 5); its menu offers Markdown and CSV.
