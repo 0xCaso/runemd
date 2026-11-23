@@ -11,6 +11,7 @@
 //! - `MDSPIKE_LATENCY=path`: on every reload writes, at the first frame that shows it, the ms from
 //!   the file write (mtime) to the reload and to the frame.
 //! - `MDSPIKE_ACTIVE=1`: the window counts as active though not key (virtual screens);
+//!   `MDSPIKE_REFOCUS=out:in`: it goes inactive at `out` s and active again at `in` s (an app switch);
 //!   `MDSPIKE_QUICK=1`: the ⌘P panel opens at the first poll.
 //! - With `MDSPIKE_LOG` it also writes the cost of the index cache (`index_cache_ms`) and
 //!   when the scan ends (`index_scan_epoch_ms`).
@@ -380,10 +381,12 @@ fn poll(s: &mut App, clock: f64, tx: &mut Tx) -> bool {
         s.sidebar.quick.show();
         s.requery_sidebar();
     }
+    let refocused = probe::refocus(clock, tx).inspect(|focused| s.window_focus_probe(*focused)).is_some();
     let mut queued = open::queue::drain();
     queued.extend(probe::late_open(clock, tx));
     let opened = !queued.is_empty();
     if opened {
+        probe::event("open");
         let before = s.tab().map(|t| t.doc.id);
         s.open_paths(queued);
         if s.tab().map(|t| t.doc.id) != before {
@@ -465,7 +468,7 @@ fn poll(s: &mut App, clock: f64, tx: &mut Tx) -> bool {
     let wordmark = s.forge_images.borrow().next_ready();
     // A new `lab.json` (`--lab`): the view draws the new tuning, or the test state at the new time.
     let lab = lab::take_changed();
-    let changed = opened || quick || tabs || ring || side || blurred || found || wordmark || brief || lab;
+    let changed = opened || quick || tabs || ring || side || blurred || found || wordmark || brief || lab || refocused;
     // Only the fire at rest to redraw: the `REST_FRAME` wake-up commits to get a frame (a
     // resting window draws only for a poll that changed something; `Tx::live_only` does not hold
     // for `poll`). Inside a stream of frames (a scroll) the compositor already moves the flames
@@ -544,6 +547,55 @@ mod tests {
             rt.frame(1.0 / 120.0);
         }
         assert_eq!(rt.stats.commits, commits, "the view did not run again");
+    }
+
+    /// Light theme: the Brief fire that shows when the window becomes active again (the focus
+    /// handler's commit animates) is never inside an isolated layer. There the tips' Screen blend
+    /// has no page beneath it and they composite like a plain layer: a taller fire with black
+    /// tops for its 0.2 s fade-in (ledger S4).
+    #[test]
+    fn the_fire_shown_on_refocus_is_never_isolated() {
+        use rune::render::{KIND_EFFECT, KIND_LAYER, KIND_LAYER_END};
+        let mut app = crate::App::bare(crate::index::Library::load(Vec::new(), None));
+        app.settings.theme = crate::settings::ThemePref::Light;
+        app.open_paths(vec![PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("fixtures/normal.md")]);
+        let mut rt = rune::Runtime::new(app, crate::view, (1280.0, 800.0), rune::Env::new(true, 2.0));
+        rt.poll = Some(crate::poll);
+        rt.track_marks = true;
+        rt.window_focus(true);
+        rt.frame(0.0);
+        // The fire slot's depth in isolated layers, `None` without a fire.
+        let depth = |rt: &rune::Runtime<crate::App>| {
+            let mut depth = 0;
+            let mut fire = None;
+            for (n, i) in rt.instances.iter().enumerate() {
+                match i.params[1] {
+                    k if k == KIND_LAYER => depth += 1,
+                    k if k == KIND_LAYER_END => depth -= 1,
+                    k if k == KIND_EFFECT && rt.marks.get(n).copied() == Some(crate::fx::Mark::Fire.id()) => fire = Some(depth),
+                    _ => {}
+                }
+            }
+            fire
+        };
+        // The Brief show and its fade end; then the window goes inactive and comes back.
+        for _ in 0..8 * 30 {
+            rt.frame(1.0 / 30.0);
+        }
+        assert_eq!(depth(&rt), None, "the Brief fire has faded out");
+        rt.window_focus(false);
+        for _ in 0..30 {
+            rt.frame(1.0 / 30.0);
+        }
+        rt.window_focus(true);
+        let mut shown = 0;
+        for k in 0..120 {
+            rt.frame(1.0 / 120.0);
+            let d = depth(&rt);
+            assert!(d.is_none_or(|d| d == 0), "frame {k}: the fire is in {d:?} isolated layers");
+            shown += usize::from(d.is_some());
+        }
+        assert_eq!(shown, 120, "the fire shows from the first frame");
     }
 
     /// The empty screen's wordmark images are let go once a file is open: the cache frees

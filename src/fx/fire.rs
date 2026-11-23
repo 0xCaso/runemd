@@ -258,9 +258,12 @@ pub fn tips(layer: FxLayer, dark: bool) -> Option<FxLayer> {
 /// Makes `el` the fire slot: lit (new text below) since time `lit` of Rune's
 /// clock, at rest with `None`; at rest it fades out from `fade_at` (Brief), or never with `None`. The
 /// compositor paints it with [`layer`] on the rect of `el`, which must touch the bottom of the panel
-/// and have its width.
+/// and have its width. It enters and leaves with no Rune fade (`Transition::none`): a partial
+/// opacity puts an effect slot in its own isolated layer, where the light theme's [`tips`] would
+/// Screen over transparent instead of the page and draw a taller fire with black tops (ledger S4,
+/// the show a focus commit animates). The resting fire fades by itself ([`faded`]).
 pub fn slot(el: El, lit: Option<f64>, fade_at: Option<f64>, dark: bool, reduced: bool, active_window: bool, look: Look) -> El {
-    el.effect(Mark::Fire.id()).effect_data(slot_data(lit, fade_at, dark, reduced, active_window, look))
+    el.effect(Mark::Fire.id()).effect_data(slot_data(lit, fade_at, dark, reduced, active_window, look)).transition(rune::Transition::none())
 }
 
 /// What the compositor reads from a [`slot`].
@@ -339,11 +342,6 @@ pub fn fade_opacity(since: Option<f32>) -> f32 {
     let Some(t) = since else { return 1.0 };
     let x = (t / FADE).clamp(0.0, 1.0);
     1.0 - x * x * (3.0 - 2.0 * x)
-}
-
-/// The fade is under way: the display link moves it, not the `REST_FRAME` wake-ups.
-pub fn fading(since: Option<f32>) -> bool {
-    since.is_some_and(|t| (0.0..FADE).contains(&t))
 }
 
 /// `layer` with the fade of the resting Brief fire applied.
@@ -669,7 +667,6 @@ mod tests {
         assert!((mid - 0.5).abs() < 1e-3, "{mid}");
         let frames: Vec<f32> = (0..=120).map(|n| fade_opacity(Some(n as f32 / 120.0 * FADE))).collect();
         assert!(frames.windows(2).all(|w| w[1] <= w[0] && w[0] - w[1] < 0.02), "smooth and falling");
-        assert!(!fading(None) && !fading(Some(-0.1)) && fading(Some(0.0)) && fading(Some(FADE / 2.0)) && !fading(Some(FADE)));
         let l = faded(layer(panel(), Phase::Rest, 1.0, true, false, true, Look::default()), Some(FADE));
         assert!(!l.is_animating(), "faded out: nothing moves, nothing holds the display link");
         let l = faded(layer(panel(), Phase::Rest, 1.0, true, false, true, Look::default()), Some(FADE / 2.0));

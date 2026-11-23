@@ -128,6 +128,39 @@ pub fn late_open(clock: f64, tx: &mut rune::Tx) -> Option<std::path::PathBuf> {
     Some(path.into())
 }
 
+/// A fire start for the frame log (`MDSPIKE_FRAMES`): a file opened, the window active again.
+pub fn event(name: &str) {
+    if std::env::var_os("MDSPIKE_FRAMES").is_some() {
+        log_to("MDSPIKE_FRAMES", &format!("event epoch_ms={:.1} {name}", epoch_ms(Instant::now())));
+    }
+}
+
+/// `MDSPIKE_REFOCUS=out:in` (Rune clock, s): the window goes inactive at `out` and active again at
+/// `in`, like a switch to another app and back (a virtual screen never moves the focus). `Some(false)`
+/// and `Some(true)` once each, at the poll that reaches them; the second commit animates, as the
+/// focus handler's does.
+pub fn refocus(clock: f64, tx: &mut rune::Tx) -> Option<bool> {
+    thread_local! { static STEP: std::cell::Cell<u8> = const { std::cell::Cell::new(0) }; }
+    let v = std::env::var("MDSPIKE_REFOCUS").ok()?;
+    let (out, back) = v.split_once(':')?;
+    let at = [out.parse::<f64>().ok()?, back.parse::<f64>().ok()?];
+    let step = STEP.get();
+    let due = *at.get(usize::from(step))?;
+    if clock < due {
+        tx.wake_after(std::time::Duration::from_secs_f64(due - clock));
+        return None;
+    }
+    STEP.set(step + 1);
+    event(if step == 1 { "focus_in" } else { "focus_out" });
+    if step == 0 {
+        tx.wake_after(std::time::Duration::from_secs_f64((at[1] - clock).max(0.0)));
+    } else {
+        // The real focus arrives in Rune's focus handler, whose commit animates (`El::transition`).
+        tx.animated();
+    }
+    Some(step == 1)
+}
+
 /// `MDSPIKE_ACTIVE=1`: the window counts as active even when it is not key (a virtual screen never
 /// makes it key), so effects that stop in an inactive window can be measured and shot.
 pub fn force_active() -> bool {

@@ -1107,11 +1107,12 @@ mod tests {
         assert!(!slot(&rt) && !fire_drawn(&rt), "fire off: no slot and no label");
     }
 
-    /// At rest, with the window active and without "reduce motion", the flames ask for a
+    /// At rest (Always), with the window active and without "reduce motion", the flames ask for a
     /// wake-up every `fire::REST_FRAME`; still flames do not.
     #[test]
     fn the_resting_fire_is_paced_by_wakes_only_while_it_moves() {
         let mut rt = open(&join(&sample()));
+        rt.update(|s, _| s.settings.fire = crate::settings::FireMode::Always);
         assert!(rt.state.fire_rests(rt.clock));
         rt.update(|s, _| s.window_active = false);
         assert!(!rt.state.fire_rests(rt.clock), "window not active: still");

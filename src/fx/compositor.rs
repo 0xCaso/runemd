@@ -203,7 +203,10 @@ impl FireFall {
         self.lit = s.lit;
         let phase = fire_phase(s, self.out, clock);
         let layer = fire::faded(fire::layer(rect_pt(i), phase, clock as f32, s.dark, s.reduced, s.active_window, s.look), s.fade);
-        let paced = fire::paced(phase) && !fire::fading(s.fade);
+        // The Brief fire (it fades) holds the display link for its whole show, not only its fade:
+        // paced at 12 fps its first seconds stuttered, unevenly when other wake-ups crossed the
+        // `REST_FRAME` ones (ledger S1). Only the Always fire rests on them.
+        let paced = fire::paced(phase) && s.fade.is_none();
         if paced {
             self.out = None;
         }
@@ -422,5 +425,21 @@ mod tests {
         heading_glyphs(&list, 4, &mut out);
         assert_eq!(out.len(), 2, "the two letters, not the paragraph or the mark");
         assert!(out.iter().all(|i| i.fill == [1.0; 4] && i.params[1] == KIND_GLYPH), "white glyphs");
+    }
+
+    /// The Brief fire holds the display link for its whole show, as for its fade: paced by the
+    /// 12 fps `REST_FRAME` wake-ups its first seconds stuttered (ledger S1). The Always fire, which
+    /// never fades, stays paced at rest.
+    #[test]
+    fn only_the_always_fire_is_paced_at_rest() {
+        let look = fire::Look::default();
+        let paced = |fade_at: Option<f64>, clock: f64| {
+            let mut i = inst(KIND_EFFECT, [0.0, 600.0, 1200.0, 200.0]);
+            i.uv = fire::slot_data(None, fade_at, false, false, true, look);
+            FireFall::default().fire_layer(&i, clock).2
+        };
+        assert!(!paced(Some(15.0), 10.0), "Brief, in full");
+        assert!(!paced(Some(15.0), 15.5), "Brief, fading");
+        assert!(paced(None, 10.0), "Always");
     }
 }
