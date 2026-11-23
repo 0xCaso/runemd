@@ -884,6 +884,11 @@ impl App {
                 self.tabs[i].preview = false;
                 continue;
             }
+            // PDF, binaries and unknown non-text files: the system app, no tab.
+            if !crate::open::kind::of(path).in_app() {
+                crate::doc::paths::open_with_system(path, false);
+                continue;
+            }
             match Document::load(path) {
                 Ok(doc) => {
                     let follow = self.live.follow(path);
@@ -907,6 +912,10 @@ impl App {
         let canonical = path.canonicalize().unwrap_or_else(|_| path.clone());
         if let Some(i) = self.tabs.iter().position(|t| t.path() == canonical || t.doc.path == path) {
             self.active = i;
+        } else if !crate::open::kind::of(&path).in_app() {
+            // PDF, binaries and unknown non-text files: the system app, no tab.
+            crate::doc::paths::open_with_system(&path, false);
+            return false;
         } else {
             let doc = match Document::load(&path) {
                 Ok(doc) => doc,
@@ -2597,6 +2606,29 @@ mod tests {
             app.poll_tabs(1.0, Instant::now());
             std::thread::sleep(Duration::from_millis(5));
         }
+    }
+
+    /// A PDF, a binary or an unknown non-text file goes to the system app and opens no tab, from
+    /// a link, Finder or the sidebar (decision 2026-11-23-open-non-markdown).
+    #[test]
+    fn pdf_and_binaries_open_with_the_system_and_make_no_tab() {
+        let dir = tempfile::tempdir().unwrap();
+        let pdf = dir.path().join("paper.pdf");
+        let blob = dir.path().join("blob.weird");
+        let md = dir.path().join("a.md");
+        fs::write(&pdf, b"%PDF-1.4\n").unwrap();
+        fs::write(&blob, b"ab\0cd").unwrap();
+        fs::write(&md, "# a\n").unwrap();
+        crate::doc::paths::system_opened();
+        let mut app = empty_app();
+        app.open_paths(vec![pdf.clone(), blob.clone()]);
+        assert!(app.tabs.is_empty(), "no tab for a PDF or a binary");
+        assert!(!app.open_preview(pdf.clone()), "nor from the sidebar");
+        assert!(app.tabs.is_empty());
+        assert_eq!(crate::doc::paths::system_opened(), vec![(pdf.clone(), false), (blob, false), (pdf, false)]);
+        app.open_paths(vec![md]);
+        assert_eq!(app.tabs.len(), 1, "Markdown still opens in a tab");
+        assert!(crate::doc::paths::system_opened().is_empty());
     }
 
     fn tab_of(source: &str) -> Tab {

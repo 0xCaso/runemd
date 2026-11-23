@@ -554,8 +554,15 @@ pub fn relative(path: &Path, base: &Path) -> String {
     path.strip_prefix(base).ok().filter(|r| !r.as_os_str().is_empty()).unwrap_or(path).display().to_string()
 }
 
-/// Opens `path` with `open`: in its default app, or in Finder with `reveal`.
+/// Opens `path` with `open`: in its default app, or in Finder with `reveal`. Tests record the
+/// call ([`system_opened`]) instead of launching an app.
 pub fn open_with_system(path: &Path, reveal: bool) {
+    #[cfg(test)]
+    {
+        SYSTEM_OPENED.with_borrow_mut(|v| v.push((path.to_owned(), reveal)));
+        return;
+    }
+    #[cfg_attr(test, allow(unreachable_code))]
     let mut cmd = std::process::Command::new("/usr/bin/open");
     if reveal {
         cmd.arg("-R");
@@ -563,6 +570,15 @@ pub fn open_with_system(path: &Path, reveal: bool) {
     if let Err(e) = cmd.arg(path).spawn() {
         eprintln!("runemd: open {}: {e}", path.display());
     }
+}
+
+#[cfg(test)]
+thread_local! { static SYSTEM_OPENED: std::cell::RefCell<Vec<(PathBuf, bool)>> = const { std::cell::RefCell::new(Vec::new()) }; }
+
+/// The paths [`open_with_system`] was asked to open on this test thread, emptied.
+#[cfg(test)]
+pub fn system_opened() -> Vec<(PathBuf, bool)> {
+    SYSTEM_OPENED.with_borrow_mut(std::mem::take)
 }
 
 /// Line `line` (from 1) of `text`, the whole file, falls in block number…: the last block that

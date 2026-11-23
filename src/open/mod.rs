@@ -1,5 +1,6 @@
 //! Opening files: from Finder / "Open With" (`odoc`), from `open -a`, from the command line.
 
+pub mod kind;
 pub mod odoc;
 pub mod queue;
 
