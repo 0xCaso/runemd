@@ -1,0 +1,118 @@
+{
+  "version": 2,
+  "generated_at": "2026-11-22T21:14:03+01:00",
+  "source": {
+    "url": "x.com/following",
+    "page_size": 50
+  },
+  "settings": {
+    "daily_cap": 200,
+    "quiet_hours": {
+      "from": "00:00",
+      "to": "07:00",
+      "zone": "Europe/Rome"
+    },
+    "backoff": {
+      "codes": [
+        429,
+        403
+      ],
+      "wait_hours": [
+        1,
+        2,
+        4,
+        8
+      ]
+    },
+    "dry_run": false,
+    "ratio": 0.75
+  },
+  "accounts": [
+    {
+      "handle": "marta.rossi",
+      "user_id": "1805729250",
+      "name": "Marta Rossi",
+      "seen": {
+        "at": "2026-11-12T02:12:00Z",
+        "via": "search",
+        "list": {
+          "name": "Seguiti 2024",
+          "id": "1597729250"
+        }
+      },
+      "done": false
+    },
+    {
+      "handle": "giulia_bianchi",
+      "user_id": "1805737169",
+      "name": "Giulia Bianchi",
+      "seen": {
+        "at": "2026-11-13T02:12:00Z",
+        "via": "list",
+        "list": {
+          "name": "Seguiti 2024",
+          "id": "1597729250"
+        }
+      },
+      "done": true
+    },
+    {
+      "handle": "lucaferri",
+      "user_id": "1805745088",
+      "name": "Luca Ferri",
+      "seen": {
+        "at": "2026-11-14T02:12:00Z",
+        "via": "search",
+        "list": {
+          "name": "Seguiti 2024",
+          "id": "1597729250"
+        }
+      },
+      "done": true
+    },
+    {
+      "handle": "ale.conti",
+      "user_id": "1805753007",
+      "name": "Alessandro Conti",
+      "seen": {
+        "at": "2026-11-15T02:12:00Z",
+        "via": "list",
+        "list": {
+          "name": "Seguiti 2024",
+          "id": "1597729250"
+        }
+      },
+      "done": false
+    },
+    {
+      "handle": "sara.greco",
+      "user_id": "1805760926",
+      "name": "Sara Greco",
+      "seen": {
+        "at": "2026-11-16T02:12:00Z",
+        "via": "search",
+        "list": {
+          "name": "Seguiti 2024",
+          "id": "1597729250"
+        }
+      },
+      "done": true
+    },
+    {
+      "handle": "paolo_ricci",
+      "user_id": "1805768845",
+      "name": "Paolo Ricci",
+      "seen": {
+        "at": "2026-11-17T02:12:00Z",
+        "via": "list",
+        "list": {
+          "name": "Seguiti 2024",
+          "id": "1597729250"
+        }
+      },
+      "done": true
+    }
+  ],
+  "notes": null,
+  "tags": []
+}

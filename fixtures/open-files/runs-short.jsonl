@@ -1,0 +1,4 @@
+{"run": 1, "at": "2026-11-23T08:13:00Z", "branch": "main", "status": "ok", "duration_s": 65.9, "steps": [{"name": "checkout", "ok": true}, {"name": "install", "ok": true}, {"name": "build", "ok": true}, {"name": "test", "ok": true}]}
+{"run": 2, "at": "2026-11-23T08:26:00Z", "branch": "main", "status": "ok", "duration_s": 52.1, "steps": [{"name": "checkout", "ok": true}, {"name": "install", "ok": true}, {"name": "build", "ok": true}, {"name": "test", "ok": true}, {"name": "package", "ok": true}]}
+{"run": 3, "at": "2026-11-23T08:39:00Z", "branch": "main", "status": "ok", "duration_s": 92.1, "steps": [{"name": "checkout", "ok": true}, {"name": "install", "ok": true}, {"name": "build", "ok": true}]}
+{"run": 4, "at": "2026-11-23T09:52:00Z", "branch": "main", "status": "ok", "duration_s": 45.8, "steps": [{"name": "checkout", "ok": true}, {"name": "install", "ok": true}, {"name": "build", "ok": true}, {"name": "test", "ok": true}]}

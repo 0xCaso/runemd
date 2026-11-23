@@ -298,6 +298,11 @@ impl MarkdownStyle {
         self.code_bg = c;
         self
     }
+    /// How a code block looks, for an app that draws code cards of its own (RuneMD's JSON
+    /// viewer): fill, font, the text colour where the highlighter leaves it, and the token colours.
+    pub fn code_look(&self) -> (Color, TextStyle, Color, crate::syntax::SyntaxTheme) {
+        (self.code_block_fill, self.code_block, self.code_text.unwrap_or(self.text), self.syntax)
+    }
     pub fn code_block(mut self, fill: Color, border: Color) -> Self {
         self.code_block_fill = fill;
         self.code_block_border = border;

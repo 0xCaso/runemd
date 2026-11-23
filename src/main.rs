@@ -82,6 +82,11 @@ fn init() -> App {
     // The tabs of the last launch, then the files from Finder or the terminal (in front).
     app.restore_session(session);
     app.open_paths(paths);
+    // `RUNEMD_FOLD` (photos, `;`-separated JSON places such as `/settings;/accounts/0`): those
+    // nodes start folded in the front tab; a `!` before a place folds its whole subtree.
+    if let Some(v) = std::env::var("RUNEMD_FOLD").ok().filter(|v| !v.is_empty()) {
+        app.fold_places(&v.split(';').map(str::to_owned).collect::<Vec<_>>());
+    }
     // The recovery copies from the last exit (a conflict or a write error).
     app.open_recovered();
     app
@@ -145,6 +150,9 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
                 open::kind::FileKind::Image => {
                     let room = cx.layout_with("image-box", |r| r[2]);
                     ui::file_view::image_pane(&tab.doc.path, s.file_image(&tab.doc.path), room, s.settings.column, &theme)
+                }
+                open::kind::FileKind::Json | open::kind::FileKind::Jsonl if tab.doc.json.is_some() => {
+                    ui::json_view::view(s, s.style(dark), &theme, s.settings.column, fx::fire::doc_bottom(s.settings.fire.shows(), s.settings.fire_height))
                 }
                 _ => ui::doc_view::view(s, App::active_document, s.style(dark), s.settings.column, App::visible_rows, signals),
             };

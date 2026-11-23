@@ -9,6 +9,7 @@
 use std::collections::BTreeMap;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use rune::{TextEdit, Tx};
@@ -88,11 +89,39 @@ pub struct Tab {
     pub(crate) preview: bool,
     /// The block and bytes of the line a `:line` link opened this code file at (`App::open_link`).
     pub(crate) goto: Option<(u64, std::ops::Range<usize>)>,
+    /// A JSON file's fold state (`doc::json::Folds`), from the first fold; until then the default.
+    pub(crate) folds: Option<crate::doc::json::Folds>,
+    /// The visible JSON lines, for the document revision and fold generation they were made for.
+    json_rows: std::cell::RefCell<Option<JsonRows>>,
 }
 
+/// The visible JSON lines and the (document revision, fold generation) they were made for.
+type JsonRows = ((u64, u64), Arc<[crate::doc::json::Shown]>);
+
 impl Tab {
+    /// The fold generation (the JSON view's rows version).
+    pub(crate) fn folds_generation(&self) -> u64 {
+        self.folds.as_ref().map_or(0, |f| f.generation)
+    }
+
+    /// The JSON lines the folds leave visible (`ui::json_view`), cached; empty without a tree.
+    pub(crate) fn json_rows(&self) -> Arc<[crate::doc::json::Shown]> {
+        let Some(tree) = self.doc.json.as_ref() else { return Arc::from([]) };
+        let key = (self.doc.revision, self.folds_generation());
+        let mut cache = self.json_rows.borrow_mut();
+        if let Some((_, rows)) = cache.as_ref().filter(|(k, _)| *k == key) {
+            return rows.clone();
+        }
+        let rows = match &self.folds {
+            Some(f) => ui::json_view::rows(tree, f),
+            None => ui::json_view::rows(tree, &crate::doc::json::Folds::new(tree)),
+        };
+        *cache = Some((key, rows.clone()));
+        rows
+    }
+
     pub(crate) fn new(doc: Document, follow: Follow) -> Tab {
-        Tab { doc, mode: Mode::Read, below: Below::default(), changed: Changed::default(), follow, visible_last: 0, visible_first: 0, fire_since: None, fire_armed: None, mark_wake: None, caret_since: None, caret_at: None, visible_start: 0, visible_end: 0, outline: ui::outline::Cache::default(), viewport: [0.0; 4], page: [0.0; 4], reading: None, hold: None, at_bottom: false, picked: None, not_utf8: false, preview: false, goto: None }
+        Tab { doc, mode: Mode::Read, below: Below::default(), changed: Changed::default(), follow, visible_last: 0, visible_first: 0, fire_since: None, fire_armed: None, mark_wake: None, caret_since: None, caret_at: None, visible_start: 0, visible_end: 0, outline: ui::outline::Cache::default(), viewport: [0.0; 4], page: [0.0; 4], reading: None, hold: None, at_bottom: false, picked: None, not_utf8: false, preview: false, goto: None, folds: None, json_rows: Default::default() }
     }
 
     /// The file as FSEvents reports it (canonical): the key of the rings.
@@ -1362,7 +1391,9 @@ impl App {
     /// Cmd+F: the Find bar opens with focus, and the Cmd+P and Cmd+N fields close. Only
     /// in reading: in the source (Cmd+E) and without tabs it does nothing. True if it opened.
     pub fn open_find(&mut self) -> bool {
-        if !self.tab().is_some_and(|t| matches!(t.mode, Mode::Read)) {
+        // The JSON viewer and the image view draw no Find marks: no bar there.
+        let own_view = |t: &Tab| t.doc.json.is_some() || t.doc.kind == crate::open::kind::FileKind::Image;
+        if !self.tab().is_some_and(|t| matches!(t.mode, Mode::Read) && !own_view(t)) {
             return false;
         }
         self.sidebar.quick.close();
@@ -1524,6 +1555,37 @@ impl App {
         let path = crate::fx::doc_fx::image_path(doc, src)?;
         let cache = self.images.as_ref()?;
         Some(self.doc_images.borrow_mut().entry(path.clone()).or_insert_with(|| cache.file(&path, DOC_IMAGE_PT, DOC_IMAGE_SCALE)).clone())
+    }
+
+    /// A click on the arrow of JSON line `line` in the tab of document `doc`: the node folds or
+    /// unfolds; with `subtree` (Alt) everything inside it too.
+    pub fn fold_json(&mut self, doc: u64, line: usize, subtree: bool) {
+        let Some(tab) = self.tab_of(doc) else { return };
+        let Some(tree) = tab.doc.json.clone() else { return };
+        tab.folds.get_or_insert_with(|| crate::doc::json::Folds::new(&tree)).toggle(&tree, line, subtree);
+    }
+
+    /// Folds the front tab's JSON nodes at `places` (`/settings`; `!/settings` with its subtree):
+    /// the `RUNEMD_FOLD` photo hook.
+    pub fn fold_places(&mut self, places: &[String]) {
+        let Some(id) = self.tab().map(|t| t.doc.id) else { return };
+        let Some(tree) = self.tab().and_then(|t| t.doc.json.clone()) else { return };
+        for place in places {
+            let (subtree, place) = match place.strip_prefix('!') {
+                Some(p) => (true, p),
+                None => (false, place.as_str()),
+            };
+            if let Some(i) = tree.lines.iter().position(|l| l.node.as_ref().is_some_and(|n| n.path == place)) {
+                self.fold_json(id, i, subtree);
+            }
+        }
+    }
+
+    /// Expand all (`folded` false) or Collapse all in the JSON tab of document `doc`.
+    pub fn fold_all_json(&mut self, doc: u64, folded: bool) {
+        let Some(tab) = self.tab_of(doc) else { return };
+        let Some(tree) = tab.doc.json.clone() else { return };
+        tab.folds.get_or_insert_with(|| crate::doc::json::Folds::new(&tree)).set_all(&tree, folded);
     }
 
     /// The picture of an image tab and its pixels per point (`ui::file_view::image_pane`): a raster

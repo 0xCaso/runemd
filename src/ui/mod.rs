@@ -5,6 +5,7 @@ pub(crate) mod contrast;
 pub mod doc_view;
 pub mod file_view;
 pub mod find;
+pub mod json_view;
 pub mod forge;
 pub mod markdown_style;
 pub mod new_file;

@@ -240,7 +240,8 @@ pub fn view<S: 'static>(s: &S, doc_of: fn(&S) -> &Document, style: &MarkdownStyl
     // A file that is not Markdown (a code card): its name over the card and in the card's header.
     let title = (doc.kind != crate::open::kind::FileKind::Markdown).then(|| doc.path.file_name().map(|n| n.to_string_lossy().into_owned())).flatten();
     let head = title.as_ref().map(|_| {
-        let lines = doc.blocks.first().map_or(0, |b| b.source.lines().count().saturating_sub(2));
+        // The code card's block (under the parse error's callout for invalid JSON).
+        let lines = doc.blocks.iter().find(|b| b.source.starts_with("```")).map_or(0, |b| b.source.lines().count().saturating_sub(2));
         let head = super::file_view::head(&doc.path, Some(super::file_view::lines(lines)), signals.meta.label, signals.meta.chrome.label);
         super::theme::column(col().w_full(), column).self_center().px(ROW_PAD_X).child(head)
     });
@@ -879,7 +880,7 @@ fn code_heads<S: 'static>(md: rune_kit::Markdown, source: &str, meta: &Meta, wra
 }
 
 /// A 26 pt icon button of a code header or table, filled in `sel` on hover and while `on`.
-fn head_button(key: &str, label: &str, icon: &'static rune::Icon, c: ChromeColors, on: bool) -> El {
+pub(crate) fn head_button(key: &str, label: &str, icon: &'static rune::Icon, c: ChromeColors, on: bool) -> El {
     let b = el().key(key).size(HEAD_BUTTON, HEAD_BUTTON).radius(HEAD_BUTTON_RADIUS).center().role("button").label(label).help(label).child(rune::icon(icon, HEAD_BUTTON_ICON).color(c.button)).hover(c.hover);
     if on { b.fill(c.hover) } else { b }
 }

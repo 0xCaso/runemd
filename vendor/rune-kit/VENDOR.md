@@ -21,5 +21,8 @@ Changes from the rev:
   last row, for a table in a box the app draws (R1: a full-width rule doubled the box's bottom).
 - `Markdown::code_header` (`markdown.rs`, `markdown/render.rs`): a row drawn on top of each code
   block, inside its card (language, wrap and copy buttons).
+- `MarkdownStyle::code_look` (`markdown/style.rs`): fill, font, text colour and token colours of a
+  code block, read back so the JSON viewer (decision 2026-11-23-json-viewer) draws its own code
+  card with the same look.
 
 To drop the vendor: once Rune has equivalents, point `rune-kit` back at the git rev.
