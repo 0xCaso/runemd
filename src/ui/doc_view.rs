@@ -529,7 +529,10 @@ const LABEL_GAP: f32 = 16.0;
 #[allow(clippy::too_many_arguments)]
 fn block_body<S: 'static>(source: &str, style: &MarkdownStyle, notes: &crate::doc::footnotes::Notes, places: &Paths, progress: Option<(u32, u32)>, open: fn(&mut S, &str, &mut rune::Tx), fonts: super::markdown_style::Fonts, meta: Meta, dress: &Dress, hits: super::find::Marks) -> El {
     let forge = dress.forge;
-    let table = forge.on.forged && crate::fx::doc_fx::is_table(source);
+    let is_table = crate::fx::doc_fx::is_table(source);
+    let table = forge.on.forged && is_table;
+    // "Copy table" copies the block as written (Markdown) or as CSV.
+    let copy_table = is_table.then(|| table_copy::<S>(source, meta.chrome));
     // A `Task N` heading: the number outside the Markdown, in `fg3`, and the progress on the right.
     let task = crate::doc::labels::task_head(source);
     let untasked = task.as_ref().map(|t| crate::doc::footnotes::Edited::new(source, vec![(t.hashes.end + 1..t.prefix.end, String::new())]));
@@ -605,6 +608,10 @@ fn block_body<S: 'static>(source: &str, style: &MarkdownStyle, notes: &crate::do
         None => body,
     };
     let body = if table && callout.is_none() { framed(el().w_full().radius(CARD_RADIUS).child(body), crate::fx::doc_fx::BlockKind::Table, forge) } else { body };
+    let body = match copy_table {
+        Some(button) => col().w_full().child(body).child(button),
+        None => body,
+    };
     let body = match callout {
         Some(c) if forge.on.any() => forged_callout(callout_head(c.kind, &meta), body, c.kind, forge),
         Some(c) => col().w_full().child(callout_head(c.kind, &meta)).child(body),
@@ -867,6 +874,32 @@ fn head_button(key: &str, label: &str, icon: &'static rune::Icon, c: ChromeColor
     let b = el().key(key).size(HEAD_BUTTON, HEAD_BUTTON).radius(HEAD_BUTTON_RADIUS).center().role("button").label(label).help(label).child(rune::icon(icon, HEAD_BUTTON_ICON).color(c.button)).hover(c.hover);
     if on { b.fill(c.hover) } else { b }
 }
+
+/// The "Copy table" button under a table, on the right (mockup `colori` `.tfoot`): its menu copies
+/// the table as Markdown (the block as written) or as CSV (`doc::table`).
+fn table_copy<S: 'static>(source: &str, c: ChromeColors) -> El {
+    let key = format!("copy-table-{:x}", code_key(source, 0));
+    let markdown = source.to_owned();
+    let label = rune::text("Copy table").font(TextStyle::new(CODE_HEAD_TEXT, CODE_HEAD_WEIGHT)).color(c.button).selectable(false);
+    let button = rune::row().key(key.clone()).h(TABLE_BUTTON_H).px(TABLE_BUTTON_PAD).radius(HEAD_BUTTON_RADIUS).gap(TABLE_BUTTON_GAP).center_y()
+        .role("button").label("Copy Table").child(rune::icon(&super::path_icons::COPY, CODE_HEAD_ICON).color(c.button)).child(label).hover(c.hover)
+        .on_press_tx(move |_: &mut S, tx: &mut rune::Tx| {
+            let menu = rune::PopupMenu::new().item(rune::PopupItem::new("markdown", "Copy as Markdown")).item(rune::PopupItem::new("csv", "Copy as CSV"));
+            let markdown = markdown.clone();
+            tx.popup_menu(menu, &key, move |_: &mut S, picked, tx| match picked {
+                Some("markdown") => tx.copy(markdown),
+                Some("csv") => tx.copy(crate::doc::table::to_csv(&markdown).unwrap_or_default()),
+                _ => {}
+            });
+        });
+    rune::row().w_full().justify_end().pt(TABLE_BUTTON_TOP).child(button)
+}
+
+/// "Copy table" (`.ghost`): 24 high, 7 at the sides, 5 between icon and label, 4 under the table.
+const TABLE_BUTTON_H: f32 = 24.0;
+const TABLE_BUTTON_PAD: f32 = 7.0;
+const TABLE_BUTTON_GAP: f32 = 5.0;
+const TABLE_BUTTON_TOP: f32 = 4.0;
 
 /// Code header (mockup `colori` `.cb-h`): 32 high, 12 left and 4 right, 6 between, label 12/500.
 const CODE_HEAD_H: f32 = 32.0;
@@ -1959,6 +1992,28 @@ mod tests {
             settle(&mut rt);
             assert!(labels(&rt).iter().any(|l| l == want), "{want}: {:?}", labels(&rt));
         }
+    }
+
+    /// A table has "Copy table" under it (paths record, feature 5); its menu offers Markdown and CSV.
+    #[test]
+    fn a_table_has_a_copy_button_with_markdown_and_csv() {
+        let mut rt = open_themed("| a | b |\n|---|---|\n| 1 | 2 |\n", false);
+        let clipboard = rune::clipboard::memory();
+        rt.use_clipboard(&clipboard);
+        let els = rt.elements();
+        let button = els.iter().find(|e| e.role == "button" && e.label.as_deref() == Some("Copy Table")).unwrap_or_else(|| panic!("no Copy Table")).rect;
+        let (x, y) = (button[0] + button[2] / 2.0, button[1] + button[3] / 2.0);
+        rt.pointer_move(x, y);
+        rt.pointer_down(x, y);
+        rt.pointer_up(x, y);
+        rt.frame(0.0);
+        let menu = rt.popup_menu().expect("a menu");
+        assert_eq!([menu.find("markdown").map(|i| i.title()), menu.find("csv").map(|i| i.title())], [Some("Copy as Markdown"), Some("Copy as CSV")]);
+        rt.resolve_popup(Some("csv")).unwrap();
+        rt.frame(0.0);
+        assert_eq!(clipboard.text().map(|t| t.to_string()).as_deref(), Some("a,b\r\n1,2\r\n"));
+        let paragraph = open_themed("No table here.\n", false);
+        assert!(!paragraph.elements().iter().any(|e| e.label.as_deref() == Some("Copy Table")));
     }
 
     #[test]

@@ -12,3 +12,4 @@ pub mod ids;
 pub mod labels;
 pub mod paths;
 pub mod select_all;
+pub mod table;
