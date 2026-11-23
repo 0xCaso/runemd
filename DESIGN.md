@@ -509,7 +509,9 @@ middle), from 8 below the bar's top (`tab-top`) down to the document, UI text 13
 place and insets; review R4, record `2026-11-23-t3-paths-review`; the dividers on both sides fade out with it), pressed
 scale 0.98, and a 1 px divider in `line`
 (`tab-divider`, 9 short of the tab's top and bottom) on the right, except next to the front tab. The front tab is a pill
-inside the bar, as in the installed app (record `2026-11-18-tab-bar-style`): the tab's full width, 24 tall (`PILL_H`),
+inside the bar, as in the installed app (record `2026-11-18-tab-bar-style`): the tab's width less 3 on each side
+(`PILL_X`, so neighbouring pills keep at least 4 of bar between them, ring included: review R5, record
+`2026-11-23-t3-paths-review-2`), 24 tall (`PILL_H`),
 corners of 5 (`PILL_R`, half the page panel's `R_PANEL`: Matteo, 2026-11-18, constraint 5), `sel` fill and `fg` text; the bar's line runs on under it. A closed metal
 ring goes all round the pill (`RING_W` outside it, concentric: outer radius 7, the moving chrome at 8 steps a second, still with Reduce Motion or an
 inactive window), wholly inside the bar with the same room above it and below it, 8 (`RING_GAP`) to the bar's top and to

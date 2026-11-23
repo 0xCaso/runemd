@@ -232,6 +232,13 @@ pub const PILL_H: f32 = 24.0;
 /// its outer radius is `PILL_R + RING_W` (7 pt, `fx::ring::chrome`).
 pub const PILL_R: f32 = R_PANEL / 2.0;
 const _PILL_R_IS_HALF_THE_PANEL: () = assert!(PILL_R == R_PANEL / 2.0 && PILL_R == 5.0 && PILL_R + RING_W == 7.0 && PILL_R < PILL_H / 2.0);
+/// The least bar left between two neighbouring tabs' pills, counting the front pill's metal ring
+/// (review R5, record 2026-11-23-t3-paths-review-2: "separerei leggermente").
+pub const PILL_GAP: f32 = 4.0;
+/// Each pill's inset from its tab's sides: a hover pill next to the front one leaves `PILL_GAP`
+/// to its ring (`2 · PILL_X - RING_W`), two back tabs' pills leave `2 · PILL_X`.
+pub const PILL_X: f32 = (PILL_GAP + RING_W) / 2.0;
+const _PILLS_APART: () = assert!(2.0 * PILL_X - RING_W >= PILL_GAP);
 /// The room above the ring (to the bar's top) and below it (to the bar's line): the same.
 pub const RING_GAP: f32 = (TAB_BAR_H - PILL_H - 2.0 * RING_W) / 2.0;
 /// The pill's top and middle, from the bar's top.
@@ -255,7 +262,7 @@ const _RING_FITS: () = assert!(
         && PILL_Y >= 0.0
         && TAB_PAD_B >= 0.0
         && TAB_BAR_LEAD > RING_W
-        && TAB_PAD_X >= PILL_R
+        && TAB_PAD_X >= PILL_X + PILL_R
         && CLOSE_PAD > RING_W
         && PILL_TOP + PILL_H + RING_W < SCROLL_BAR_Y
         && SCROLL_BAR_Y + SCROLL_BAR < TAB_BAR_H
@@ -317,7 +324,7 @@ fn tab_row(s: &App, hooks: Hooks<App>, i: usize, n: usize, tab: &crate::app::Tab
     // out.
     // The pill behind the name, and the ring's host: always present, so the structure does not change
     // when the tab comes to the front or the ring lights up.
-    let mut pill = el().key(format!("{key}-pill")).pin(Some(0.0), Some(PILL_Y), Some(0.0), None).h(PILL_H).radius(PILL_R).a11y_hidden();
+    let mut pill = el().key(format!("{key}-pill")).pin(Some(PILL_X), Some(PILL_Y), Some(PILL_X), None).h(PILL_H).radius(PILL_R).a11y_hidden();
     if front {
         pill = pill.fill(theme.sel);
     }
@@ -326,7 +333,7 @@ fn tab_row(s: &App, hooks: Hooks<App>, i: usize, n: usize, tab: &crate::app::Tab
     // 2026-11-23-t3-paths-review), shown by the tab's hover group; its own element, so the pill's
     // ring (a writing back tab) never fades with it.
     let hover = (!front && motion.hover).then(|| {
-        el().key(format!("{key}-hover")).pin(Some(0.0), Some(PILL_Y), Some(0.0), None).h(PILL_H).radius(PILL_R).fill(theme.sel).group_opacity(0.0, 1.0).a11y_hidden()
+        el().key(format!("{key}-hover")).pin(Some(PILL_X), Some(PILL_Y), Some(PILL_X), None).h(PILL_H).radius(PILL_R).fill(theme.sel).group_opacity(0.0, 1.0).a11y_hidden()
     });
     let e = row()
         .max_w(TAB_MAX_W)
@@ -644,7 +651,7 @@ mod tests {
             let front = tab_key(rt.state.tabs[rt.state.active].doc.id);
             let pill = find(&rt, &format!("{front}-pill")).expect("pill").rect;
             let tab = find(&rt, &front).expect("front tab").rect;
-            assert!((pill[3] - PILL_H).abs() < 0.01 && (pill[0] - tab[0]).abs() < 0.01 && (pill[2] - tab[2]).abs() < 0.01, "the pill spans the tab, {PILL_H} tall: {pill:?} {tab:?}");
+            assert!((pill[3] - PILL_H).abs() < 0.01 && (pill[0] - tab[0] - PILL_X).abs() < 0.01 && (pill[2] - tab[2] + 2.0 * PILL_X).abs() < 0.01, "the pill spans the tab less PILL_X a side, {PILL_H} tall: {pill:?} {tab:?}");
             assert_eq!(layer.shape.radius, R_PANEL / 2.0 + RING_W, "the ring concentric with the pill (whose radius the compositor reads): outer radius R_PANEL / 2 + RING_W");
             let label = find(&rt, &format!("{front}-label")).expect("label").rect;
             let mid = pill[1] + pill[3] / 2.0;
@@ -697,6 +704,27 @@ mod tests {
             let flat = rt.instances.iter().any(|i| i.params[1] == rune::render::KIND_RECT && i.fill[3] > 0.0 && i.rect.iter().zip(whole).all(|(a, b)| (a - b).abs() < 1.0));
             assert!(!flat, "dark {dark}: no flat hover on the tab itself");
         }
+    }
+
+    /// Review R5 (record 2026-11-23-t3-paths-review-2): a hovered back tab's pill does not touch the
+    /// front pill's metal ring beside it, nor a neighbour's pill: at least `PILL_GAP` of bar between.
+    #[test]
+    fn neighbouring_pills_never_touch() {
+        let mut rt = tabs(&["a.md", "b.md", "c.md"]);
+        assert_eq!(rt.state.active, 2);
+        let key = |rt: &Runtime<App>, i: usize| tab_key(rt.state.tabs[i].doc.id);
+        let label = find(&rt, &format!("{}-label", key(&rt, 1))).expect("label").rect;
+        rt.pointer_move(label[0] + 4.0, label[1] + label[3] / 2.0);
+        settle(&mut rt);
+        let hover = |i: usize| find(&rt, &format!("{}-hover", key(&rt, i))).expect("hover pill").rect;
+        let front = find(&rt, &format!("{}-pill", key(&rt, 2))).expect("front pill").rect;
+        let h1 = hover(1);
+        let ring_left = front[0] - RING_W;
+        assert!(ring_left - (h1[0] + h1[2]) >= PILL_GAP - 0.01, "hover pill ends at {}, the front ring starts at {ring_left}", h1[0] + h1[2]);
+        // Two back tabs' pills (both may show: one fading out as the other fades in).
+        let h0 = hover(0);
+        assert!(h1[0] - (h0[0] + h0[2]) >= PILL_GAP - 0.01, "{h0:?} {h1:?}");
+        assert_eq!((h1[3], front[3]), (PILL_H, PILL_H), "same height");
     }
 
     /// Review R4: the dividers on both sides of a hovered back tab hide, as next to the front pill.
