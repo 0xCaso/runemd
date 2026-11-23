@@ -154,7 +154,8 @@ Reference screen: the `scheda` variant in `design/mockups/2026-11-13-runemd-main
 
 **Key Characteristics:**
 - Two materials: glass (frame, sidebar, tab bar) and a solid panel (the document).
-- Neutral grays with a touch of blue (hue 260–270); no accent.
+- Neutral grays with a touch of blue (hue 260–270); no accent. The one exception: the icons of paths and links take
+  their file type's color (see "Path icon colors").
 - Three live signals, each with one meaning only: metal, fire, caret.
 - Mac app density: 28 px rows, 13 px UI text; the document breathes (15.5 px, line height 1.62).
 
@@ -174,6 +175,24 @@ A scale of OKLCH grays with very low chroma, in two themes. In Rune they are wri
 | `line` | black 9 % | white 14 % | Decorative lines only: table rows, tree guides, field borders |
 | `sel` | black 6 % | white 12 % | Selected row, hover, selection, fill of Find results |
 | `mark` | light `fg-3` at 70 % | dark `fg-3` at 65 % | Marks with a meaning: ring of Find results, "changed" mark |
+
+### Path icon colors
+
+The only colors in the document (record `2026-11-23-t3-style-paths`, constraint 1, T3 Code's per-type colors). They go
+on the 1 em icon before a path and nowhere else: the path text stays in the grays above, so the color never carries
+meaning alone (the name says the file). Web link icons (globe, GitHub mark) stay gray, in the link's `fg`.
+
+| Kind | Light | Dark | Files |
+|---|---|---|---|
+| Folder | `#5d6f8f` | `#9fb3d6` | a path ending in `/` |
+| Data | `#b58a12` | `#f2c94c` | `.json` `.jsonl` `.yaml` `.yml` |
+| Rust | `#c2621d` | `#ffa359` | `.rs` |
+| Text | `#1a77c2` | `#69b1ff` | `.md` `.markdown` `.mdx` `.txt` |
+| Image | `#9b2fb2` | `#d568ea` | `.png` `.jpg` `.gif` `.webp` `.svg` `.pdf` |
+| Shell | `#16883a` | `#5ecc71` | `.sh` `.zsh` `.bash` `.fish` |
+| Other | `#6f6f76` | `#adadb1` | every other file (generic file icon) |
+
+The code header's language icon uses the same shapes in `fg-3`, without color.
 
 **Contrast.** The ratios of each token are in the "Contrast" section below. With the tint at 60 % the panel grays
 on glass fall under the minimums (measurements below, "Real glass at 60 %"): on glass, that is in the whole sidebar
@@ -364,13 +383,34 @@ drawn where they are written but at the end of the file, under a 0.5 line in `li
 list at 13.5 in `fg-2`. A reference without a definition stays written as it is. Find finds the text of the notes in
 the list at the end, where it is shown.
 
-**Paths and file names** (with or without backticks; record `2026-11-16-paths-name-and-link`, mockup p-mix): in
-monospace at 13.5, without a pill; folders and `:line` in `fg-3`, file name in `fg` 600. If the file exists (beside
-the file, in the repo, absolute or `~`) it is a link: a 1 line in `fg-3` under the whole path (the kit does not have
-the mockup's dotted line), on hover a `sel` background, the line in `fg-2` and "Open in RuneMD"; the click opens the
-file in a tab, with `:line` at the line. If it does not exist it is not a link (no hand cursor, no click): inline
-code, name in `fg` (the code weight, 400), without a pill if it is the only code in the block, with the pill if not.
-Nothing in code blocks; words with a dot (`etc.`, `v1.2`, `Node.js`) and URLs stay text.
+**Paths and file names** (with or without backticks, and local link destinations; record
+`2026-11-23-t3-style-paths`, mockup `colori` in `design/mockups/2026-11-23-t3-style-markdown/`; it replaces the
+2026-11-16 p-mix look). A path to a file or folder that exists (beside the file, in the repo, absolute or `~`) is a
+link drawn as T3 Code draws it: the type icon (1 em, gap .24 em, color from "Path icon colors") and only the base
+name, body font, weight 500, in `fg`, no background. A line number shows as `L88` (a range as `L42–64`) after the
+name, in `fg-3`. Two files with the same name in one document show, in `fg-3`, the shortest folder tail that tells
+them apart (at least two levels, as T3 Code). Hover: a 1 underline in `fg-2` and, at once (no delay), a popover with
+the full path (home as `~`) and the size, or for a folder "Click shows it in the sidebar"; popover: `panel` fill,
+0.5 ring in `line`, radius 8, 10 × 7 inside, 12/450 in `fg-2`, max 520 wide, the panel's shadow. Rune's tooltip look
+is global, so the other tooltips (tabs, shortcuts) also open at once. Click: a file opens in a tab (at the line), a
+folder opens in the sidebar tree (in Finder if no sidebar root holds it); ⌘-click opens the file in its default app.
+Right-click: a native menu with Show in Finder, Copy Relative Path (from the repo root, else the file's folder), Copy
+Full Path. A file path that does not exist is not a link (no icon, no hand cursor, no click): inline code, without a
+pill if it is the only code in the block, with the pill if not; a missing folder or link stays as written. Nothing in
+code blocks; words with a dot (`etc.`, `v1.2`, `Node.js`) and URLs stay text.
+
+**Web links**: an icon before the text, in the link's `fg`: the GitHub mark for `github.com`, a globe for other
+`http(s)` links (the kit's icons).
+
+**Code block header** (record `2026-11-23-t3-style-paths`, feature 2): a 32 row inside the code card, on top: 12
+left, 4 right, 6 between. On the left the language as written (or, if the fence names a file, its base name) at
+12/500 in `fg-3` with its 13 type icon in `fg-3`; on the right two 26 square buttons, radius 6, 14 icons in `fg-2`,
+hover `sel`: wrap (filled `sel` while on) and copy. Wrap is off by default: long lines scroll sideways; it holds for
+the block until the app quits. No run button: a reader does not run commands.
+
+**Copy table**: under each table, on the right, 4 below it, a ghost button: 24 tall, 7 at the sides, radius 6, the 13
+copy icon and "Copy table" at 12/500 in `fg-2`, 5 between, hover `sel`. It opens a native menu: Copy as Markdown (the
+table as written) or Copy as CSV.
 
 **Registers and plans** (record `2026-11-16-tasks-sections-and-columns` with `2026-11-16-wrap-only-label-blocks`,
 mockup t-mix): a paragraph in which more than half of the lines, and at least two, start with a label (one to three
@@ -612,12 +652,15 @@ motion, inactive window) does not fade: it goes at the end of its 6 s.
 - No labels above a heading that repeat the context; no spaced UPPERCASE labels.
 - No cards inside cards, no grids of identical cards, no decorative gradients.
 - At most one accent, only for actions, selection and state. RuneMD has none today.
+- No color in the document except the path and link icons ("Path icon colors"); never on text, callouts or code.
 - No filler labels, no "→" at the end of buttons, no text that explains what the UI already shows.
 - No neon glows, status pills, glowing dots or orange bars (Matteo's comment).
 - No decorative stats rows ("Today 165 files…").
 - The repo is not at the same level as its files.
 
 **Intended exceptions to the skills' rules**
+- Colored path icons (record `2026-11-23-t3-style-paths`): the "no accent in the document" rule gives way for the
+  icon before a path only, as T3 Code does it; the name beside it says the same thing, so color is never the only cue.
 - Glass on the frame and the sidebar: Impeccable forbids it, here it is the identity (Current) and it is system
   material.
 - GPU effects (metal, fire, caret): Impeccable and "no decoration" would suspect them; here each one carries a state
