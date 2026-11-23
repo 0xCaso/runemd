@@ -91,6 +91,9 @@ pub fn style_with(theme: &Theme, face: Typeface) -> MarkdownStyle {
     kit.c.text_muted = d.muted;
     MarkdownStyle::from_kit(&kit)
         .inline_code_bg(neutral.alpha(neutral.c.text_base, 0.08))
+        // No border of the kit's own on code cards: the view frames them with the table's quiet
+        // edge (`doc_view::framed`, 1 pt in `line`; review R2, record 2026-11-23-t3-paths-review).
+        .code_block(neutral.c.layer_01, Color::TRANSPARENT)
         .diff_text(neutral.c.text_base, neutral.c.text_base)
         .diff_hunk(neutral.c.text_muted)
         .diagram(d.node_fill, d.node_border, d.line)
@@ -169,6 +172,18 @@ mod tests {
             assert_ne!(h(&m), h(&m.clone().text(t.fg)));
             assert_eq!(h(&m), h(&m.clone().link(t.fg).link_underline(t.fg3)), "link fg, underline fg3");
             assert_ne!(h(&m), h(&m.clone().link_underline(t.fg)));
+        }
+    }
+
+    /// Review R2: code cards draw no border of their own (the kit's `border_muted`), so the only
+    /// edge is the quiet one the view gives tables too.
+    #[test]
+    fn code_cards_have_no_border_of_their_own() {
+        for dark in [true, false] {
+            let m = style(&Theme::for_mode(dark), 15.5);
+            let fill = Kit::neutral(dark).c.layer_01;
+            assert_eq!(h(&m), h(&m.clone().code_block(fill, Color::TRANSPARENT)), "dark {dark}");
+            assert_ne!(h(&m), h(&m.clone().code_block(fill, Kit::neutral(dark).c.border_muted)));
         }
     }
 

@@ -406,7 +406,9 @@ code blocks; words with a dot (`etc.`, `v1.2`, `Node.js`) and URLs stay text.
 left, 4 right, 6 between. On the left the language as written (or, if the fence names a file, its base name) at
 12/500 in `fg-3` with its 13 type icon in `fg-3`; on the right two 26 square buttons, radius 6, 14 icons in `fg-2`,
 hover `sel`: wrap (filled `sel` while on) and copy. Wrap is off by default: long lines scroll sideways; it holds for
-the block until the app quits. No run button: a reader does not run commands.
+the block until the app quits. No run button: a reader does not run commands. The card's edge is the table
+box's: 1 in `line`, radius 6, in both themes, and no other border (review R2, record `2026-11-23-t3-paths-review`;
+before, a gunmetal edge over the kit's own border).
 
 **Copy table**: under each table, on the right, 4 below it, a ghost button: 24 tall, 7 at the sides, radius 6, the 13
 copy icon and "Copy table" at 12/500 in `fg-2`, 5 between, hover `sel`. It opens a native menu: Copy as Markdown (the

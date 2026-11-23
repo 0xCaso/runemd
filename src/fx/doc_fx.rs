@@ -7,7 +7,7 @@
 //! view builds exactly the tree it built before.
 //!
 //! Metal frames are rare (constraint 3): code, tables, callouts, front matter and images get a quiet
-//! 1 pt edge in `line`, drawn by Rune, not rune-fx; only the block kind in [`METAL_BLOCK`] (code) keeps metal.
+//! 1 pt edge in `line`, drawn by Rune, not rune-fx; only the block kind in [`METAL_BLOCK`] (none by default; the lab sets one) keeps metal.
 //!
 //! The view puts a [`slot`] on the element a [`Piece`] dresses (a code card, a callout, a rule, a
 //! task bead…); the compositor turns each slot into the layer of [`layer`] on its rect. Every piece
@@ -162,10 +162,11 @@ impl BlockKind {
     }
 }
 
-/// The one block kind that keeps a metal frame (constraint 3: at most one): code blocks
-/// (docs/decisions/2026-11-18-full-forge-round-2.md, constraint 1). Tables, callouts, front matter
-/// and images get the quiet edge.
-pub const METAL_BLOCK: Option<BlockKind> = Some(BlockKind::Code);
+/// The one block kind that keeps a metal frame (constraint 3: at most one): none. Code blocks had
+/// it (docs/decisions/2026-11-18-full-forge-round-2.md, constraint 1) until Matteo asked for the
+/// table's border on them (review R2, docs/decisions/2026-11-23-t3-paths-review.md): every block
+/// gets the quiet edge.
+pub const METAL_BLOCK: Option<BlockKind> = None;
 
 /// [`METAL_BLOCK`], or `RUNEMD_METAL_BLOCK` (`none`, `code`, `callouts`, `tables`, `frontmatter`,
 /// `images`) in the lab, read once at startup.
@@ -561,18 +562,19 @@ mod tests {
         assert_eq!(metal_block_from(Some("none")), None);
     }
 
-    /// Round 2, constraint 1: by default only code blocks keep the metal frame (the "code" variant of
-    /// docs/proof/full-forge/metal-variants-code-*.png); tables, callouts, front matter and images
-    /// get the quiet edge.
+    /// Review R2 (record 2026-11-23-t3-paths-review): by default no block keeps metal; code blocks
+    /// get the table's quiet edge, the same width and colour. `RUNEMD_METAL_BLOCK=code` brings the
+    /// metal back in the lab.
     #[test]
-    fn only_code_blocks_get_a_metal_frame_by_default() {
+    fn code_blocks_get_the_tables_edge_by_default() {
         let d = Directions::DEFAULT;
-        assert_eq!(METAL_BLOCK, Some(BlockKind::Code));
-        assert_eq!(d.frame(BlockKind::Code, METAL_BLOCK), Some(Frame::Metal(Piece::Edge { width: FORGED_W, chrome: false })));
-        for k in [BlockKind::Callout, BlockKind::Table, BlockKind::Frontmatter, BlockKind::Image] {
+        assert_eq!(METAL_BLOCK, None);
+        assert_eq!(metal_block_from(None), None, "no lab override: no metal");
+        assert_eq!(d.frame(BlockKind::Code, METAL_BLOCK), d.frame(BlockKind::Table, METAL_BLOCK));
+        for k in [BlockKind::Code, BlockKind::Callout, BlockKind::Table, BlockKind::Frontmatter, BlockKind::Image] {
             assert_eq!(d.frame(k, METAL_BLOCK), Some(Frame::Quiet), "{k:?}");
         }
-        assert_eq!(metal_block_from(None), Some(BlockKind::Code), "no lab override: code");
+        assert_eq!(d.frame(BlockKind::Code, metal_block_from(Some("code"))), Some(Frame::Metal(Piece::Edge { width: FORGED_W, chrome: false })));
     }
 
     #[test]
