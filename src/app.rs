@@ -415,6 +415,8 @@ pub struct App {
     pub(crate) forge_lab: Option<crate::fx::doc_fx::Directions>,
     /// The block kind that keeps a metal frame (`doc_fx::METAL_BLOCK`, or `RUNEMD_METAL_BLOCK`).
     pub(crate) metal_block: Option<crate::fx::doc_fx::BlockKind>,
+    /// The code blocks whose long lines wrap (`ui::doc_view::code_key`), for this run of the app.
+    pub(crate) code_wraps: std::sync::Arc<std::collections::HashSet<u64>>,
     /// The document pictures Full forge shows (Forged, Glass), by path: held so they decode once.
     pub(crate) doc_images: std::cell::RefCell<std::collections::HashMap<PathBuf, rune::Image>>,
     /// "Reduce motion" as the last view saw it (`poll` has no `Cx`): the fire at rest
@@ -493,6 +495,7 @@ impl App {
             reduced_seen: std::cell::Cell::new(false),
             forge_lab: crate::fx::doc_fx::Directions::from_env(),
             metal_block: crate::fx::doc_fx::metal_block(),
+            code_wraps: Default::default(),
             doc_images: Default::default(),
             motion_env: crate::fx::reduce_motion_env(std::env::var("RUNEMD_REDUCE_MOTION").ok().as_deref()),
             glass_env: glass_env(std::env::var("RUNEMD_GLASS").ok().as_deref()),
@@ -671,6 +674,15 @@ impl App {
         } else {
             // The reading places too, in case the app does not quit cleanly.
             self.save_session();
+        }
+    }
+
+    /// `MDSPIKE_REFOCUS` (measurements): the window goes inactive or active though `MDSPIKE_ACTIVE`
+    /// holds it active.
+    pub fn window_focus_probe(&mut self, focused: bool) {
+        self.window_active = focused;
+        if focused {
+            self.show_fire();
         }
     }
 
@@ -1167,9 +1179,17 @@ impl App {
 
     /// A click on a link in the document. A path that exists (`runemd-open:`, `doc::paths`)
     /// opens the file in a pinned tab (or brings its tab to the front) and, with `:line`, puts the
-    /// block of that line at the top. `#heading` puts that heading at the top; a relative link to a file that
+    /// block of that line at the top; a folder opens in the sidebar tree; with Cmd the file opens
+    /// in its default app. `#heading` puts that heading at the top; a relative link to a file that
     /// exists opens it like a path; the others (`https:`, `mailto:`) are opened by the system.
     pub fn open_link(&mut self, url: &str, tx: &mut Tx) {
+        if let Some(key) = url.strip_prefix(ui::doc_view::WRAP_SCHEME).and_then(|k| u64::from_str_radix(k, 16).ok()) {
+            let wraps = std::sync::Arc::make_mut(&mut self.code_wraps);
+            if !wraps.remove(&key) {
+                wraps.insert(key);
+            }
+            return;
+        }
         if url.starts_with('#') {
             let Some(tab) = self.tab_mut().filter(|t| matches!(t.mode, Mode::Read)) else { return };
             if let Some(i) = crate::doc::anchors::find(tab.doc.blocks.iter().map(|b| &*b.source), url) {
@@ -1194,6 +1214,18 @@ impl App {
             }
         };
         let Some((path, line)) = crate::doc::paths::parse_target(&url) else { return };
+        // Cmd-click: the file in its default app, the folder in Finder.
+        if tx.mods().cmd {
+            crate::doc::paths::open_with_system(&path, false);
+            return;
+        }
+        // A folder opens in the sidebar tree; one outside every root is shown in Finder.
+        if path.is_dir() {
+            if !self.sidebar.reveal_dir(&path) {
+                crate::doc::paths::open_with_system(&path, true);
+            }
+            return;
+        }
         let before = self.tab().map(|t| t.doc.id);
         self.open_paths(vec![path.clone()]);
         if self.tab().map(|t| t.doc.id) != before {
@@ -1472,19 +1504,20 @@ impl App {
         gap.is_none_or(|g| g >= crate::fx::fire::REST_FRAME.as_secs_f64() * 0.75 || g < 0.0)
     }
 
-    /// The fire of the front tab is at rest and moving at `clock` (Always, or Brief until its fade
-    /// ends), or the empty screen's wordmark fire is calm or
+    /// The fire of the front tab is at rest and moving (Always: the Brief show holds the
+    /// display link), or the empty screen's wordmark fire is calm or
     /// falling (forge-empty): without a display link, `poll` requests a wakeup every
     /// `fx::fire::REST_FRAME` to redraw it. Still (inactive window, "reduce motion") or lit (the
     /// display link moves it): no. The fall holds the display link anyway; the extra wakes cost nothing.
-    pub fn fire_rests(&self, clock: f64) -> bool {
+    pub fn fire_rests(&self, _clock: f64) -> bool {
         if !self.window_active || self.reduced_seen.get() {
             return false;
         }
         let rests = match self.settings.fire {
             FireMode::Off => false,
             FireMode::Always => true,
-            FireMode::Brief => self.brief.showing(clock),
+            // Its show holds the display link (`FireFall::fire_layer`): no wake-ups.
+            FireMode::Brief => false,
         };
         match self.tab() {
             Some(t) => rests && matches!(t.mode, Mode::Read) && t.fire_since.is_none() && crate::lab::lab_time().is_none(),
@@ -1932,7 +1965,7 @@ mod tests {
         assert!(!app.tabs[0].note_reload(&change, 3.0));
         assert_eq!(app.tabs[0].below.count(), 2, "counts in the background");
         assert!(app.tab().unwrap().fire_since.is_none(), "the front tab stays off");
-        assert!(app.fire_rests(0.0), "the front tab stays at rest");
+        assert_eq!(app.fire_flames(), Some(None), "the front tab stays at rest");
         app.select(0);
         assert!(app.visible_rows(app.tabs[0].doc.id, 0..1));
         assert_eq!(app.tab().unwrap().fire_since, Some(3.0));
@@ -1961,8 +1994,8 @@ mod tests {
         (dir, app)
     }
 
-    /// Brief, the default: the resting fire wakes the app for 5 s and its fade, then the view drops
-    /// the slot and nothing wakes for it any more (constraint 2).
+    /// Brief, the default: the resting fire shows for 5 s and its fade (on the display link, not
+    /// paced wake-ups), then the view drops the slot and nothing wakes for it any more (constraint 2).
     #[test]
     fn the_brief_fire_rests_for_five_seconds_then_fades_and_stops_waking() {
         let (_dir, mut app) = brief_app();
@@ -1972,8 +2005,9 @@ mod tests {
         assert!(changed, "the view gets when it fades");
         assert_eq!(wake, Some(end(10.0)), "one wake-up at the end, for a still fire");
         assert_eq!(app.fire_flames(), Some(Some(10.0 + BRIEF)));
-        assert!(app.fire_rests(10.0) && app.fire_rests(14.9), "in full");
-        assert!(app.fire_rests(15.5), "fading");
+        assert!(app.brief.showing(10.0) && app.brief.showing(14.9), "in full");
+        assert!(app.brief.showing(15.5), "fading");
+        assert!(!app.fire_rests(10.0), "the show holds the display link: no paced wake-ups");
         assert!(!app.fire_rests(gone(10.0)), "gone: no wake-ups");
         assert_eq!(app.tick_fire(12.0), (false, None), "nothing new in between");
         let (changed, _) = app.tick_fire(gone(10.0));
@@ -1996,7 +2030,7 @@ mod tests {
         app.window_focus(true);
         assert_eq!(app.fire_flames(), Some(None));
         assert!(app.tick_fire(200.0).0);
-        assert!(app.fire_rests(201.0) && !app.fire_rests(gone(200.0)));
+        assert!(app.brief.showing(201.0) && !app.brief.showing(gone(200.0)));
     }
 
     /// Another tab comes to the front, or a document opens: another show.
@@ -2007,13 +2041,13 @@ mod tests {
         app.tick_fire(gone(0.0));
         assert!(app.select(0));
         assert!(app.tick_fire(50.0).0);
-        assert!(app.fire_rests(54.0) && !app.fire_rests(gone(50.0)));
+        assert!(app.brief.showing(54.0) && !app.brief.showing(gone(50.0)));
         app.tick_fire(gone(50.0));
         let c = dir.path().join("c.md");
         fs::write(&c, "# c\n").unwrap();
         app.open_paths(vec![c]);
         assert!(app.tick_fire(80.0).0);
-        assert!(app.fire_rests(81.0));
+        assert!(app.brief.showing(81.0));
     }
 
     /// The lit fire (an agent writes below the view) rises in Brief even after the fade; when it
@@ -2031,7 +2065,7 @@ mod tests {
         app.tabs[app.active].fire_since = None;
         assert!(app.tick_fire(30.0).0, "calm: a show from now");
         assert_eq!(app.fire_flames(), Some(Some(30.0 + BRIEF)));
-        assert!(app.fire_rests(34.0) && !app.fire_rests(gone(30.0)));
+        assert!(app.brief.showing(34.0) && !app.brief.showing(gone(30.0)));
     }
 
     /// Always is today's fire: at rest it wakes the app as long as the window is active (constraint 3).
@@ -2097,7 +2131,7 @@ mod tests {
         app.tick_fire(0.0);
         app.set_fire_mode(FireMode::Brief);
         assert!(app.tick_fire(100.0).0);
-        assert!(app.fire_rests(101.0));
+        assert!(app.brief.showing(101.0));
         assert_eq!(app.settings.fire, FireMode::Brief);
     }
 

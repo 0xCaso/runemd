@@ -91,6 +91,9 @@ pub fn style_with(theme: &Theme, face: Typeface) -> MarkdownStyle {
     kit.c.text_muted = d.muted;
     MarkdownStyle::from_kit(&kit)
         .inline_code_bg(neutral.alpha(neutral.c.text_base, 0.08))
+        // No border of the kit's own on code cards: the view frames them with the table's quiet
+        // edge (`doc_view::framed`, 1 pt in `line`; review R2, record 2026-11-23-t3-paths-review).
+        .code_block(neutral.c.layer_01, Color::TRANSPARENT)
         .diff_text(neutral.c.text_base, neutral.c.text_base)
         .diff_hunk(neutral.c.text_muted)
         .diagram(d.node_fill, d.node_border, d.line)
@@ -101,6 +104,8 @@ pub fn style_with(theme: &Theme, face: Typeface) -> MarkdownStyle {
         .text(theme.body)
         .link(theme.fg)
         .link_underline(theme.fg3)
+        // A globe or GitHub's mark before web links, 1 em, like the path icons (mockup `colori`).
+        .link_icons(body.size, body.size * super::doc_view::PATH_ICON_GAP)
         .text_width(COLUMN)
         .muted(theme.fg3)
         .body_font(body)
@@ -119,6 +124,11 @@ pub fn style_with(theme: &Theme, face: Typeface) -> MarkdownStyle {
         .table_header_weight(560.0)
         .table_header_fill(Color::TRANSPARENT)
         .table_outline(None)
+        // The table fills its box: columns share out the free width in proportion to their content
+        // (review R1, record 2026-11-23-t3-paths-review), and shrink and wrap when it is too narrow.
+        .table_full_width(true)
+        // The box (`doc_view::framed`) closes the table: no rule of its own under the last row.
+        .table_open_end(true)
         .table_rules(theme.line)
         .rule(theme.line)
         // Task list checkboxes like the Settings one (DESIGN.md, "Contrast"):
@@ -168,6 +178,27 @@ mod tests {
             assert_eq!(h(&m), h(&m.clone().link(t.fg).link_underline(t.fg3)), "link fg, underline fg3");
             assert_ne!(h(&m), h(&m.clone().link_underline(t.fg)));
         }
+    }
+
+    /// Review R2: code cards draw no border of their own (the kit's `border_muted`), so the only
+    /// edge is the quiet one the view gives tables too.
+    #[test]
+    fn code_cards_have_no_border_of_their_own() {
+        for dark in [true, false] {
+            let m = style(&Theme::for_mode(dark), 15.5);
+            let fill = Kit::neutral(dark).c.layer_01;
+            assert_eq!(h(&m), h(&m.clone().code_block(fill, Color::TRANSPARENT)), "dark {dark}");
+            assert_ne!(h(&m), h(&m.clone().code_block(fill, Kit::neutral(dark).c.border_muted)));
+        }
+    }
+
+    /// Review R1: tables fill their box and leave its bottom edge to the box.
+    #[test]
+    fn tables_fill_their_box_and_end_on_it() {
+        let m = style(&Theme::for_mode(false), 15.5);
+        assert_eq!(h(&m), h(&m.clone().table_full_width(true).table_open_end(true)));
+        assert_ne!(h(&m), h(&m.clone().table_full_width(false)));
+        assert_ne!(h(&m), h(&m.clone().table_open_end(false)));
     }
 
     /// Find without accent: matches in `sel` with a ring in `mark` (they stand apart from

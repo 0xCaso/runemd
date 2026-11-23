@@ -172,6 +172,23 @@ pub const FOCUS_LIGHTEN: f32 = 0.1;
 /// How much the keyboard focus is darkened in the light theme.
 pub const FOCUS_DARKEN: f32 = 0.68;
 
+/// The app's tooltips, the path popover's look (decision 2026-11-23-t3-style-paths, mockup
+/// `colori`): `panel` card with a hairline edge, radius 8, 12 pt text in `fg2`, a soft shadow,
+/// shown at once (a path's full path is what the hover is for).
+pub fn help_look(t: &Theme) -> rune::HelpLook {
+    let (edge, shadow) = if t.dark { (Color::WHITE.alpha(0.14), Color::BLACK.alpha(0.5)) } else { (Color::BLACK.alpha(0.12), Color::BLACK.alpha(0.16)) };
+    rune::HelpLook::system(t.dark)
+        .fill(t.panel)
+        .ink(t.fg2)
+        .ring(HAIRLINE, edge)
+        .radius(8.0)
+        .padding(10.0, 7.0)
+        .font(rune::TextStyle::new(12.0, 450.0).lh(16.0))
+        .max_width(Some(520.0))
+        .delay(0.0)
+        .shadows([rune::Shadow { x: 0.0, y: 10.0, blur: 30.0, spread: 0.0, color: shadow, inset: false }])
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Theme {
     pub dark: bool,
@@ -191,7 +208,7 @@ impl Theme {
     /// The YAML frontmatter block: text `fg2` on half `sel` (quieter than code).
     pub fn meta(&self) -> crate::ui::doc_view::Meta {
         let rule = rune_kit::Kit::neutral(self.dark).c.layer_03;
-        crate::ui::doc_view::Meta { text: self.fg2, fill: self.sel.alpha(self.sel.a * 0.5), label: self.fg, icon: self.fg2, rule, line: self.line, headings: [self.body, self.fg2, self.fg3], path: crate::ui::doc_view::PathColors { name: self.fg, dim: self.fg3, hover_line: self.fg2, hover_bg: self.sel } }
+        crate::ui::doc_view::Meta { text: self.fg2, fill: self.sel.alpha(self.sel.a * 0.5), label: self.fg, icon: self.fg2, rule, line: self.line, headings: [self.body, self.fg2, self.fg3], path: crate::ui::doc_view::PathColors { name: self.fg, dim: self.fg3, hover_line: self.fg2, dark: self.dark }, chrome: crate::ui::doc_view::ChromeColors { label: self.fg3, button: self.fg2, hover: self.sel } }
     }
 
     /// Text colors on glass (sidebar): `fg2` and `fg3` stronger than on the panel, because

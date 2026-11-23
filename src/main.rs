@@ -11,6 +11,7 @@
 //! - `MDSPIKE_LATENCY=path`: on every reload writes, at the first frame that shows it, the ms from
 //!   the file write (mtime) to the reload and to the frame.
 //! - `MDSPIKE_ACTIVE=1`: the window counts as active though not key (virtual screens);
+//!   `MDSPIKE_REFOCUS=out:in`: it goes inactive at `out` s and active again at `in` s (an app switch);
 //!   `MDSPIKE_QUICK=1`: the ⌘P panel opens at the first poll.
 //! - With `MDSPIKE_LOG` it also writes the cost of the index cache (`index_cache_ms`) and
 //!   when the scan ends (`index_scan_epoch_ms`).
@@ -116,6 +117,7 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
     // (and a bit darker in the light theme).
     let focus = ui::theme::focus_ring(cx.focus_color(), dark);
     cx.focus_ring(3.0, 0.0, focus);
+    cx.help_look(ui::theme::help_look(&theme));
     let hooks = ui::sidebar::Hooks { get: |s: &App| &s.sidebar, get_mut: |s: &mut App| &mut s.sidebar, open: App::open_from_sidebar, pin: App::pin_from_sidebar, ring: App::ring_of, query: App::requery_sidebar, create: App::create_from_sidebar, save: App::save_from_sidebar, unsave: App::unsave_from_sidebar, recent_collapsed: App::recent_collapsed, toggle_recent: App::toggle_recent };
     // With a file open the wordmark is not drawn: its handles go, so the cache frees the decoded
     // pixels (about 6 MB at 2×); going back to the empty screen decodes them again.
@@ -138,7 +140,7 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
             // Labelled blocks in two columns if the text column is wide (from the last
             // layout; Rune runs the view again when the threshold is crossed).
             let columns = cx.layout_with("rows", |r| r[2] - 2.0 * ui::theme::ROW_PAD_X >= ui::doc_view::TWO_COLUMNS).unwrap_or(false);
-            let signals = ui::doc_view::Signals { marked: App::is_marked, mark: theme.mark, caret, hits: App::find_hits, edge: App::doc_edge, meta: theme.meta(), fonts: ui::markdown_style::fonts(fonts::Typeface::of(&s.settings.font, s.settings.size)), open: App::open_link, columns, bottom: fx::fire::doc_bottom(s.settings.fire.shows(), s.settings.fire_height), forge: ui::doc_view::Forge { on: s.forge(), look: fx::doc_fx::Look { dark, reduced }, metal: s.metal_block }, image: App::doc_image, images_ready: if s.forge().any() { s.doc_images_ready() } else { 0 } };
+            let signals = ui::doc_view::Signals { marked: App::is_marked, mark: theme.mark, caret, hits: App::find_hits, edge: App::doc_edge, meta: theme.meta(), fonts: ui::markdown_style::fonts(fonts::Typeface::of(&s.settings.font, s.settings.size)), open: App::open_link, columns, bottom: fx::fire::doc_bottom(s.settings.fire.shows(), s.settings.fire_height), forge: ui::doc_view::Forge { on: s.forge(), look: fx::doc_fx::Look { dark, reduced }, metal: s.metal_block }, image: App::doc_image, images_ready: if s.forge().any() { s.doc_images_ready() } else { 0 }, wraps: s.code_wraps.clone() };
             let doc = ui::doc_view::view(s, App::active_document, s.style(dark), s.settings.column, App::visible_rows, signals);
             // The heading outline on the right, only if the window is at least sidebar + column
             // + 200 wide (before the first layout it is not known: no outline). The view reads it from Rune,
@@ -380,10 +382,12 @@ fn poll(s: &mut App, clock: f64, tx: &mut Tx) -> bool {
         s.sidebar.quick.show();
         s.requery_sidebar();
     }
+    let refocused = probe::refocus(clock, tx).inspect(|focused| s.window_focus_probe(*focused)).is_some();
     let mut queued = open::queue::drain();
     queued.extend(probe::late_open(clock, tx));
     let opened = !queued.is_empty();
     if opened {
+        probe::event("open");
         let before = s.tab().map(|t| t.doc.id);
         s.open_paths(queued);
         if s.tab().map(|t| t.doc.id) != before {
@@ -465,7 +469,7 @@ fn poll(s: &mut App, clock: f64, tx: &mut Tx) -> bool {
     let wordmark = s.forge_images.borrow().next_ready();
     // A new `lab.json` (`--lab`): the view draws the new tuning, or the test state at the new time.
     let lab = lab::take_changed();
-    let changed = opened || quick || tabs || ring || side || blurred || found || wordmark || brief || lab;
+    let changed = opened || quick || tabs || ring || side || blurred || found || wordmark || brief || lab || refocused;
     // Only the fire at rest to redraw: the `REST_FRAME` wake-up commits to get a frame (a
     // resting window draws only for a poll that changed something; `Tx::live_only` does not hold
     // for `poll`). Inside a stream of frames (a scroll) the compositor already moves the flames
@@ -546,6 +550,55 @@ mod tests {
         assert_eq!(rt.stats.commits, commits, "the view did not run again");
     }
 
+    /// Light theme: the Brief fire that shows when the window becomes active again (the focus
+    /// handler's commit animates) is never inside an isolated layer. There the tips' Screen blend
+    /// has no page beneath it and they composite like a plain layer: a taller fire with black
+    /// tops for its 0.2 s fade-in (ledger S4).
+    #[test]
+    fn the_fire_shown_on_refocus_is_never_isolated() {
+        use rune::render::{KIND_EFFECT, KIND_LAYER, KIND_LAYER_END};
+        let mut app = crate::App::bare(crate::index::Library::load(Vec::new(), None));
+        app.settings.theme = crate::settings::ThemePref::Light;
+        app.open_paths(vec![PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("fixtures/normal.md")]);
+        let mut rt = rune::Runtime::new(app, crate::view, (1280.0, 800.0), rune::Env::new(true, 2.0));
+        rt.poll = Some(crate::poll);
+        rt.track_marks = true;
+        rt.window_focus(true);
+        rt.frame(0.0);
+        // The fire slot's depth in isolated layers, `None` without a fire.
+        let depth = |rt: &rune::Runtime<crate::App>| {
+            let mut depth = 0;
+            let mut fire = None;
+            for (n, i) in rt.instances.iter().enumerate() {
+                match i.params[1] {
+                    k if k == KIND_LAYER => depth += 1,
+                    k if k == KIND_LAYER_END => depth -= 1,
+                    k if k == KIND_EFFECT && rt.marks.get(n).copied() == Some(crate::fx::Mark::Fire.id()) => fire = Some(depth),
+                    _ => {}
+                }
+            }
+            fire
+        };
+        // The Brief show and its fade end; then the window goes inactive and comes back.
+        for _ in 0..8 * 30 {
+            rt.frame(1.0 / 30.0);
+        }
+        assert_eq!(depth(&rt), None, "the Brief fire has faded out");
+        rt.window_focus(false);
+        for _ in 0..30 {
+            rt.frame(1.0 / 30.0);
+        }
+        rt.window_focus(true);
+        let mut shown = 0;
+        for k in 0..120 {
+            rt.frame(1.0 / 120.0);
+            let d = depth(&rt);
+            assert!(d.is_none_or(|d| d == 0), "frame {k}: the fire is in {d:?} isolated layers");
+            shown += usize::from(d.is_some());
+        }
+        assert_eq!(shown, 120, "the fire shows from the first frame");
+    }
+
     /// The empty screen's wordmark images are let go once a file is open: the cache frees
     /// their decoded pixels only when no handle is left.
     #[test]
@@ -583,6 +636,42 @@ mod tests {
             .filter(|(n, i)| i.params[1] == rune::render::KIND_EFFECT && rt.marks.get(*n).copied() == Some(crate::fx::Mark::DocFx.id()))
             .filter_map(|(_, i)| crate::fx::doc_fx::read(i.uv).map(|(p, _)| p))
             .collect()
+    }
+
+    /// Review R3 (record 2026-11-23-t3-paths-review): scrolled so headings pass under the tab bar,
+    /// every heading's chrome stays inside the document's viewport, below the bar, as its text
+    /// does; before, it was drawn over the tab bar and the strip above the panel.
+    #[test]
+    fn heading_chrome_stays_under_the_tab_bar_when_scrolled() {
+        let mut app = crate::App::bare(crate::index::Library::load(Vec::new(), None));
+        app.forge_lab = crate::fx::doc_fx::Directions::parse(Some("engraved"));
+        app.open_paths(vec![PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("fixtures/headings.md")]);
+        let scale = 2.0;
+        let mut rt = rune::Runtime::new(app, crate::view, (900.0, 700.0), rune::Env::new(true, scale));
+        rt.track_marks = true;
+        rt.frame(0.0);
+        let doc = rt.elements().into_iter().find(|e| e.key.as_deref() == Some("doc")).expect("the document scroll").rect;
+        // Small steps, so that at some frame a heading straddles the viewport's top edge.
+        let mut straddled = false;
+        for _ in 0..60 {
+            rt.wheel(doc[0] + 100.0, doc[1] + 200.0, -23.0);
+            rt.frame(1.0 / 120.0);
+            // The clip the compositor draws each slot in (`fx::Scopes`).
+            let mut scopes = crate::fx::Scopes::default();
+            for (n, i) in rt.instances.iter().enumerate() {
+                let clip = scopes.clip(i);
+                if i.params[1] != rune::render::KIND_EFFECT || rt.marks.get(n).copied() != Some(crate::fx::Mark::DocFx.id()) {
+                    continue;
+                }
+                if crate::fx::doc_fx::read(i.uv).map(|(p, _)| p) != Some(crate::fx::doc_fx::Piece::Chrome) {
+                    continue;
+                }
+                let top = doc[1] * scale;
+                straddled |= i.rect[1] < top && i.rect[1] + i.rect[3] > top;
+                assert!(clip[1] >= top - 0.5, "a chrome slot at {:?} clips at {clip:?}, above the document's top {top}", i.rect);
+            }
+        }
+        assert!(straddled, "no heading crossed the top edge: the test scrolled too little");
     }
 
     /// Full forge off: no forge slot in the document, so nothing is drawn differently.

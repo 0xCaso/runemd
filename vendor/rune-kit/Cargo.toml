@@ -1,0 +1,24 @@
+# Vendored from github.com/anomalyco/rune, crates/rune-kit at rev 384c2991e582418ba529835279c5876ac3915e02
+# (MIT, LICENSE beside this file). Local changes: `Markdown::link_icon` and `Markdown::code_wrap`.
+# See VENDOR.md.
+[package]
+name = "rune-kit"
+version = "0.0.1"
+edition = "2024"
+license = "MIT"
+description = "Generic, themable components for Rune. Components read only semantic tokens (`Kit`); a theme crate supplies them."
+publish = false
+
+[dependencies]
+rune = { git = "https://github.com/anomalyco/rune", rev = "384c2991e582418ba529835279c5876ac3915e02", default-features = false }
+rune-highlights = { git = "https://github.com/anomalyco/rune", rev = "384c2991e582418ba529835279c5876ac3915e02" }
+rune-mermaid = { git = "https://github.com/anomalyco/rune", rev = "384c2991e582418ba529835279c5876ac3915e02", optional = true }
+rune-motion = { git = "https://github.com/anomalyco/rune", rev = "384c2991e582418ba529835279c5876ac3915e02" }
+icu_normalizer = { version = "2", default-features = false, features = ["compiled_data"] }
+unicode-segmentation = "1.13"
+pulldown-cmark = { version = "0.13", default-features = false, optional = true }
+
+[features]
+markdown = ["dep:pulldown-cmark"]
+mermaid = ["markdown", "dep:rune-mermaid"]
+frame-profile = ["rune/frame-profile"]

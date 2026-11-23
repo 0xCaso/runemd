@@ -310,6 +310,34 @@ impl Sidebar {
         self.tree_version += 1;
     }
 
+    /// A click on a folder path in the document (decision 2026-11-23-t3-style-paths): the
+    /// deepest root that contains `dir` expands down to it, opens it and selects it. False if no
+    /// root shows it (outside every root, or hidden).
+    pub fn reveal_dir(&mut self, dir: &Path) -> bool {
+        let dir = dir.canonicalize().unwrap_or_else(|_| dir.to_owned());
+        let Some(k) = self.folders.iter().enumerate().filter(|(_, f)| dir.starts_with(&f.root)).max_by_key(|(_, f)| f.root.components().count()).map(|(k, _)| k) else { return false };
+        let f = &mut self.folders[k];
+        let Some(id) = f.id_of(&dir) else { return false };
+        if !id.is_empty() && !f.tree.contains(&id) {
+            return false;
+        }
+        f.expanded = true;
+        if !id.is_empty() {
+            f.tree.expand_to(&id);
+            f.tree.set_expanded(&id, true);
+            f.tree.clear_selection();
+            f.tree.select(&id);
+            let mut d = Some(Path::new(&id));
+            while let Some(p) = d.filter(|p| !p.as_os_str().is_empty()) {
+                f.open_dirs.insert(p.to_string_lossy().into_owned());
+                d = p.parent();
+            }
+            self.reveal = Some(flat_id(k, &id));
+        }
+        self.tree_version += 1;
+        true
+    }
+
     /// The saved folders are these (canonical, in order): the roots are rebuilt, keeping the
     /// state of the ones that stay.
     pub fn set_saved(&mut self, saved: Vec<PathBuf>, index: &Index) {
@@ -773,7 +801,7 @@ pub(super) struct Motion {
 
 impl Motion {
     /// The `sel` hover fades in and out in 120 ms (`ease`).
-    fn hover_fade(self) -> Anim {
+    pub(super) fn hover_fade(self) -> Anim {
         if self.reduced { Anim::INSTANT } else { Curve::tween(HOVER_FADE, Easing::EASE).into() }
     }
 
@@ -1330,6 +1358,21 @@ mod tests {
         assert!(sb.refresh_trees(&Index::from_entries(more)));
         assert!(sb.tree().is_expanded("design") && sb.tree().is_expanded("docs/spike"), "expanded folders kept");
         assert!(sb.tree().contains("docs/new.md") && sb.tree().is_selected("docs/spike/a.md"));
+    }
+
+    #[test]
+    fn a_folder_path_opens_its_folder_in_the_tree() {
+        let (_d, root) = repo_with(&["CLAUDE.md", "docs/spike/a.md", "design/x.md"]);
+        let files = ["CLAUDE.md", "docs/spike/a.md", "design/x.md"];
+        let index = Index::from_entries(files.iter().map(|f| entry(&root.join(f), 1)).collect());
+        let mut sb = Sidebar::default();
+        sb.set_open(&root.join("CLAUDE.md"), &index);
+        assert!(!sb.tree().is_expanded("design"));
+        assert!(sb.reveal_dir(&root.join("design")));
+        assert!(sb.tree().is_expanded("design") && sb.tree().is_selected("design"));
+        assert!(sb.reveal_dir(&root.join("docs/spike")));
+        assert!(sb.tree().is_expanded("docs") && sb.tree().is_expanded("docs/spike"));
+        assert!(!sb.reveal_dir(Path::new("/definitely/not/here")), "outside every root");
     }
 
     /// A root with its rows expanded, all folders expanded: the visible ids.
