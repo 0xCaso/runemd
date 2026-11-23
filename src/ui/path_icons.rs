@@ -18,6 +18,8 @@ stroked!(MARKDOWN, "runemd-path-md", r#"<rect x="1.6" y="3.6" width="12.8" heigh
 stroked!(IMAGE, "runemd-path-img", r#"<rect x="2" y="2.8" width="12" height="10.4" rx="1.6"/><circle cx="5.8" cy="6.3" r="1.1"/><path d="m2.4 11.6 3.4-3.2 2.4 2.2 2-1.8 3.4 3"/>"#);
 stroked!(SHELL, "runemd-path-sh", r#"<rect x="1.8" y="2.8" width="12.4" height="10.4" rx="1.6"/><path d="m4.6 6.4 1.9 1.6-1.9 1.6M8.2 10h3"/>"#);
 stroked!(FILE, "runemd-path-file", r#"<path d="M4 1.9h5l3 3v8c0 .7-.5 1.2-1.2 1.2H4c-.7 0-1.2-.5-1.2-1.2V3.1c0-.7.5-1.2 1.2-1.2z"/><path d="M8.8 2v3.1H12M5.4 8.2h5.2M5.4 10.8h3.6"/>"#);
+stroked!(COPY, "runemd-copy", r#"<rect x="5.2" y="5.2" width="8.4" height="8.4" rx="1.6"/><path d="M10.8 5.2V3.6c0-.9-.7-1.6-1.6-1.6H4c-.9 0-1.6.7-1.6 1.6v5.2c0 .9.7 1.6 1.6 1.6h1.2"/>"#);
+stroked!(WRAP, "runemd-wrap", r#"<path d="M2.5 4h11M2.5 8h9a2 2 0 0 1 0 4H8.5M10 10.4 8.4 12l1.6 1.6M2.5 12h3"/>"#);
 
 /// The icon of a kind of path.
 pub fn icon(kind: Kind) -> &'static Icon {

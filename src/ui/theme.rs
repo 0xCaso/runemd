@@ -208,7 +208,7 @@ impl Theme {
     /// The YAML frontmatter block: text `fg2` on half `sel` (quieter than code).
     pub fn meta(&self) -> crate::ui::doc_view::Meta {
         let rule = rune_kit::Kit::neutral(self.dark).c.layer_03;
-        crate::ui::doc_view::Meta { text: self.fg2, fill: self.sel.alpha(self.sel.a * 0.5), label: self.fg, icon: self.fg2, rule, line: self.line, headings: [self.body, self.fg2, self.fg3], path: crate::ui::doc_view::PathColors { name: self.fg, dim: self.fg3, hover_line: self.fg2, dark: self.dark } }
+        crate::ui::doc_view::Meta { text: self.fg2, fill: self.sel.alpha(self.sel.a * 0.5), label: self.fg, icon: self.fg2, rule, line: self.line, headings: [self.body, self.fg2, self.fg3], path: crate::ui::doc_view::PathColors { name: self.fg, dim: self.fg3, hover_line: self.fg2, dark: self.dark }, chrome: crate::ui::doc_view::ChromeColors { label: self.fg3, button: self.fg2, hover: self.sel } }
     }
 
     /// Text colors on glass (sidebar): `fg2` and `fg3` stronger than on the panel, because

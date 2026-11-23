@@ -371,15 +371,40 @@ impl Kind {
         if url.split('#').next().is_some_and(|u| u.ends_with('/')) {
             return Some(Kind::Folder);
         }
-        let ext = path.extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
-        Some(match ext.as_str() {
+        Some(Kind::of_extension(&path.extension().map(|e| e.to_string_lossy()).unwrap_or_default()))
+    }
+
+    /// The kind of a file extension (`rs`, `JSON`…).
+    fn of_extension(ext: &str) -> Kind {
+        match ext.to_ascii_lowercase().as_str() {
             "json" | "jsonl" | "yaml" | "yml" => Kind::Json,
             "rs" => Kind::Rust,
             "md" | "markdown" | "mdx" | "txt" => Kind::Markdown,
             "png" | "jpg" | "jpeg" | "gif" | "webp" | "svg" | "pdf" => Kind::Image,
             "sh" | "zsh" | "bash" | "fish" => Kind::Shell,
             _ => Kind::Other,
-        })
+        }
+    }
+}
+
+/// What a code block's header shows for its fence's first word: a file name (`src/main.rs`)
+/// as its base name with the extension's kind, else the language as written with its kind.
+pub fn code_head(word: &str) -> (String, Kind) {
+    let path = Path::new(word);
+    match path.extension() {
+        Some(ext) if word.contains(['.', '/']) => {
+            let name = path.file_name().map_or_else(|| word.to_owned(), |n| n.to_string_lossy().into_owned());
+            (name, Kind::of_extension(&ext.to_string_lossy()))
+        }
+        _ => {
+            let kind = match word.to_ascii_lowercase().as_str() {
+                "sh" | "bash" | "zsh" | "shell" | "console" | "fish" => Kind::Shell,
+                "rust" => Kind::Rust,
+                "jsonc" => Kind::Json,
+                lang => Kind::of_extension(lang),
+            };
+            (word.to_owned(), kind)
+        }
     }
 }
 
@@ -769,5 +794,16 @@ mod tests {
         assert_eq!(block_of_line(text, blocks.into_iter(), 5), 1);
         assert_eq!(block_of_line(text, blocks.into_iter(), 6), 2);
         assert_eq!(block_of_line(text, blocks.into_iter(), 99), 2);
+    }
+
+    #[test]
+    fn a_code_head_names_the_language_or_the_file() {
+        assert_eq!(code_head("rust"), ("rust".to_owned(), Kind::Rust));
+        assert_eq!(code_head("bash"), ("bash".to_owned(), Kind::Shell));
+        assert_eq!(code_head("json"), ("json".to_owned(), Kind::Json));
+        assert_eq!(code_head("python"), ("python".to_owned(), Kind::Other));
+        assert_eq!(code_head("src/ui/doc_view.rs"), ("doc_view.rs".to_owned(), Kind::Rust));
+        assert_eq!(code_head("Cargo.toml"), ("Cargo.toml".to_owned(), Kind::Other));
+        assert_eq!(code_head("config.yaml"), ("config.yaml".to_owned(), Kind::Json));
     }
 }

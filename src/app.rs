@@ -415,6 +415,8 @@ pub struct App {
     pub(crate) forge_lab: Option<crate::fx::doc_fx::Directions>,
     /// The block kind that keeps a metal frame (`doc_fx::METAL_BLOCK`, or `RUNEMD_METAL_BLOCK`).
     pub(crate) metal_block: Option<crate::fx::doc_fx::BlockKind>,
+    /// The code blocks whose long lines wrap (`ui::doc_view::code_key`), for this run of the app.
+    pub(crate) code_wraps: std::sync::Arc<std::collections::HashSet<u64>>,
     /// The document pictures Full forge shows (Forged, Glass), by path: held so they decode once.
     pub(crate) doc_images: std::cell::RefCell<std::collections::HashMap<PathBuf, rune::Image>>,
     /// "Reduce motion" as the last view saw it (`poll` has no `Cx`): the fire at rest
@@ -493,6 +495,7 @@ impl App {
             reduced_seen: std::cell::Cell::new(false),
             forge_lab: crate::fx::doc_fx::Directions::from_env(),
             metal_block: crate::fx::doc_fx::metal_block(),
+            code_wraps: Default::default(),
             doc_images: Default::default(),
             motion_env: crate::fx::reduce_motion_env(std::env::var("RUNEMD_REDUCE_MOTION").ok().as_deref()),
             glass_env: glass_env(std::env::var("RUNEMD_GLASS").ok().as_deref()),
@@ -1171,6 +1174,13 @@ impl App {
     /// in its default app. `#heading` puts that heading at the top; a relative link to a file that
     /// exists opens it like a path; the others (`https:`, `mailto:`) are opened by the system.
     pub fn open_link(&mut self, url: &str, tx: &mut Tx) {
+        if let Some(key) = url.strip_prefix(ui::doc_view::WRAP_SCHEME).and_then(|k| u64::from_str_radix(k, 16).ok()) {
+            let wraps = std::sync::Arc::make_mut(&mut self.code_wraps);
+            if !wraps.remove(&key) {
+                wraps.insert(key);
+            }
+            return;
+        }
         if url.starts_with('#') {
             let Some(tab) = self.tab_mut().filter(|t| matches!(t.mode, Mode::Read)) else { return };
             if let Some(i) = crate::doc::anchors::find(tab.doc.blocks.iter().map(|b| &*b.source), url) {

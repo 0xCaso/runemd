@@ -54,6 +54,8 @@ pub struct Signals<S> {
     pub image: fn(&S, &std::path::Path, &str) -> Option<rune::Image>,
     /// How many of the document's pictures have decoded: the rows build again when it changes.
     pub images_ready: usize,
+    /// The code blocks whose lines wrap (`code_key`); the others scroll sideways.
+    pub wraps: Arc<HashSet<u64>>,
 }
 
 /// Which forge directions are on, and the theme and motion of their slots.
@@ -160,6 +162,16 @@ pub struct Meta {
     /// Paths (`doc::paths`): file name (`fg`), `L88` and telling folders (`fg3`), line on
     /// hover (`fg2`); the icons take their kind's color (`path_icons::color`).
     pub path: PathColors,
+    /// Code headers and the table's copy button: label and icon (`fg3`), buttons (`fg2`), hover (`sel`).
+    pub chrome: ChromeColors,
+}
+
+/// The colors of the controls around code blocks and tables (mockup `colori`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ChromeColors {
+    pub label: Color,
+    pub button: Color,
+    pub hover: Color,
 }
 
 /// The colors of paths in the text (decision 2026-11-23-t3-style-paths, mockup `colori`).
@@ -224,6 +236,7 @@ pub fn view<S: 'static>(s: &S, doc_of: fn(&S) -> &Document, style: &MarkdownStyl
     let flag = select_all.clone();
     let order = blocks.clone();
     let places = paths_of(doc);
+    let wraps_version = signals.wraps.iter().fold(0, |acc, k| acc ^ k);
     // The column is at most `column` wide ("Text width"; "Full" follows the panel).
     let rows = super::theme::column(col().key("rows").w_full(), column).self_center().selection_group(true)
         .growth(GrowthSpec::default())
@@ -254,7 +267,7 @@ pub fn view<S: 'static>(s: &S, doc_of: fn(&S) -> &Document, style: &MarkdownStyl
                     } else {
                         Pictures::default()
                     };
-                    let dress = Dress { forge, pictures };
+                    let dress = Dress { forge, pictures, wraps: signals.wraps.clone() };
                     let row = block_row(&b.source, &style, &doc.notes, &places, progress, signals.columns, signals.open, signals.fonts, signals.meta, &dress, (signals.marked)(s, b.id).then_some(signals.mark), hits);
                     match caret {
                         Some(c) => caret_row(row, c),
@@ -273,7 +286,7 @@ pub fn view<S: 'static>(s: &S, doc_of: fn(&S) -> &Document, style: &MarkdownStyl
                 })
             },
         )
-        .virtual_rows_version((rows_version(doc), signals.forge.on.any().then_some((signals.images_ready, signals.forge.on.electric))))
+        .virtual_rows_version((rows_version(doc), signals.forge.on.any().then_some((signals.images_ready, signals.forge.on.electric)), wraps_version))
         .on_visible_rows(move |s: &mut S, rows| on_rows(s, generation, rows));
     let bottom = col().w_full().h(signals.bottom);
     let edge = signals.edge;
@@ -581,6 +594,8 @@ fn block_body<S: 'static>(source: &str, style: &MarkdownStyle, notes: &crate::do
         Some(sh) => path_links::<S>(md, &meta, fonts, sh.helps.clone(), places.places.root.clone().unwrap_or_else(|| places.places.dir.clone())),
         None => md,
     };
+    // Only blocks that may hold code get the hooks: with them the kit does not cache the block.
+    let md = if has_code(source) { code_heads::<S>(md, source, &meta, &dress.wraps, open) } else { md };
     let md = if forge.on.any() { forge_markdown(md, dress, callout.is_some()) } else { md };
     // Every link opens (`App::open_link`): paths, URLs and `#heading`.
     let md = md.on_link_tx(move |s: &mut S, url, tx| open(s, url, tx));
@@ -605,6 +620,8 @@ fn block_body<S: 'static>(source: &str, style: &MarkdownStyle, notes: &crate::do
 pub(crate) struct Dress {
     pub forge: Forge,
     pub pictures: Pictures,
+    /// The code blocks whose lines wrap (`Signals::wraps`).
+    pub wraps: Arc<HashSet<u64>>,
 }
 
 /// The kit's code cards and images radius (`markdown/render.rs`: code 6, images 4).
@@ -803,6 +820,66 @@ fn path_menu<S: 'static>(url: &str, press: rune::PointerPress, base: &std::path:
         _ => {}
     });
 }
+
+/// The key of code block `index` of a block's `source`, for its wrap state (`App::code_wraps`).
+pub fn code_key(source: &str, index: usize) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    (source, index).hash(&mut h);
+    h.finish()
+}
+
+/// Whether a block may hold a code block: a fence, or a line indented as code.
+fn has_code(source: &str) -> bool {
+    source.contains("```") || source.contains("~~~") || source.lines().any(|l| l.starts_with("    ") || l.starts_with('\t'))
+}
+
+/// The `open` destination that turns line wrap on or off for code block `key`.
+pub const WRAP_SCHEME: &str = "runemd-wrap:";
+
+/// The header on top of each code block (mockup `colori`): the language or file name with its
+/// icon, then the wrap and copy buttons. No run button (decision 2026-11-23-t3-style-paths,
+/// constraint 4). Wrap is off by default: long lines scroll sideways.
+fn code_heads<S: 'static>(md: rune_kit::Markdown, source: &str, meta: &Meta, wraps: &Arc<HashSet<u64>>, open: fn(&mut S, &str, &mut rune::Tx)) -> rune_kit::Markdown {
+    let c = meta.chrome;
+    let block = source.to_owned();
+    let on = wraps.clone();
+    let md = md.code_wrap(move |i| on.contains(&code_key(&block, i)));
+    let block = source.to_owned();
+    let wraps = wraps.clone();
+    md.code_header(move |f| {
+        let key = code_key(&block, f.index);
+        let wrapped = wraps.contains(&key);
+        let label = f.language.map(crate::doc::paths::code_head);
+        let icon = label.as_ref().map(|(_, kind)| rune::icon(super::path_icons::icon(*kind), CODE_HEAD_ICON).color(c.label));
+        let name = label.map(|(name, _)| rune::text(name).font(TextStyle::new(CODE_HEAD_TEXT, CODE_HEAD_WEIGHT)).color(c.label).selectable(false));
+        let wrap = head_button("wrap", if wrapped { "Scroll Long Lines" } else { "Wrap Long Lines" }, &super::path_icons::WRAP, c, wrapped)
+            .on_press_tx(move |s: &mut S, tx: &mut rune::Tx| open(s, &format!("{WRAP_SCHEME}{key:x}"), tx));
+        let code = f.source.to_owned();
+        let copy = head_button("copy", "Copy Code", &super::path_icons::COPY, c, false).on_press_tx(move |_: &mut S, tx: &mut rune::Tx| tx.copy(code.clone()));
+        rune::row().key("code-head").w_full().h(CODE_HEAD_H).pl(CODE_HEAD_PAD_L).pr(CODE_HEAD_PAD_R).gap(CODE_HEAD_GAP).center_y()
+            .children(icon).children(name).child(el().grow(1.0)).child(wrap).child(copy)
+    })
+}
+
+/// A 26 pt icon button of a code header or table, filled in `sel` on hover and while `on`.
+fn head_button(key: &str, label: &str, icon: &'static rune::Icon, c: ChromeColors, on: bool) -> El {
+    let b = el().key(key).size(HEAD_BUTTON, HEAD_BUTTON).radius(HEAD_BUTTON_RADIUS).center().role("button").label(label).help(label).child(rune::icon(icon, HEAD_BUTTON_ICON).color(c.button)).hover(c.hover);
+    if on { b.fill(c.hover) } else { b }
+}
+
+/// Code header (mockup `colori` `.cb-h`): 32 high, 12 left and 4 right, 6 between, label 12/500.
+const CODE_HEAD_H: f32 = 32.0;
+const CODE_HEAD_PAD_L: f32 = 12.0;
+const CODE_HEAD_PAD_R: f32 = 4.0;
+const CODE_HEAD_GAP: f32 = 6.0;
+const CODE_HEAD_TEXT: f32 = 12.0;
+const CODE_HEAD_WEIGHT: f32 = 500.0;
+const CODE_HEAD_ICON: f32 = 13.0;
+/// Header and table buttons (`.ib`): 26 square, radius 6, icon 14.
+const HEAD_BUTTON: f32 = 26.0;
+const HEAD_BUTTON_RADIUS: f32 = 6.0;
+const HEAD_BUTTON_ICON: f32 = 14.0;
 
 /// A path name's weight (mockup `colori`: 500).
 const PATH_WEIGHT: f32 = 500.0;
@@ -1858,6 +1935,38 @@ mod tests {
         // `docs/spec.md` exists beside the test's working folder: it shows as its base name.
         let preamble = texts.iter().find(|x| x.starts_with("Spec: spec.md")).unwrap_or_else(|| panic!("{texts:?}"));
         assert!(preamble.contains("push).\nRuling: lavoro"), "two lines, both labelled: {preamble:?}");
+    }
+
+    /// A code block has a header (paths record, feature 2): the language with its icon, wrap
+    /// and copy, no run button; wrap turns on with a click and off with another. A paragraph has none.
+    #[test]
+    fn a_code_block_has_a_header_with_wrap_and_copy() {
+        let mut rt = open_themed("Intro.\n\n```rust\nfn main() {}\n```\n", true);
+        let labels = |rt: &Runtime<Doc>| rt.elements().into_iter().filter(|e| e.role == "button").filter_map(|e| e.label).collect::<Vec<_>>();
+        let first = labels(&rt);
+        assert!(first.iter().any(|l| l == "Copy Code"), "{first:?}");
+        assert!(!first.iter().any(|l| l.contains("Run")), "{first:?}");
+        let heads = rt.elements().into_iter().filter(|e| e.key.as_deref().is_some_and(|k| k.ends_with("code-head"))).count();
+        assert_eq!(heads, 1);
+        let texts: Vec<String> = rt.elements().into_iter().filter_map(|e| e.text).collect();
+        assert!(texts.iter().any(|t| t == "rust"), "{texts:?}");
+        for want in ["Scroll Long Lines", "Wrap Long Lines"] {
+            let wrap = rt.elements().into_iter().find(|e| e.role == "button" && e.label.as_deref().is_some_and(|l| l.ends_with("Long Lines"))).unwrap().rect;
+            let (x, y) = (wrap[0] + wrap[2] / 2.0, wrap[1] + wrap[3] / 2.0);
+            rt.pointer_move(x, y);
+            rt.pointer_down(x, y);
+            rt.pointer_up(x, y);
+            settle(&mut rt);
+            assert!(labels(&rt).iter().any(|l| l == want), "{want}: {:?}", labels(&rt));
+        }
+    }
+
+    #[test]
+    fn only_blocks_with_code_get_the_code_hooks() {
+        assert!(super::has_code("```sh\nls\n```"));
+        assert!(super::has_code("~~~\nx\n~~~"));
+        assert!(super::has_code("    indented"));
+        assert!(!super::has_code("A paragraph with `code`."));
     }
 
     /// A window where the text column is narrower than [`super::TWO_COLUMNS`].
