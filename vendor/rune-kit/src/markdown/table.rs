@@ -181,6 +181,13 @@ impl MarkdownStyle {
         self.table_full_width = on;
         self
     }
+    /// Whether a table without an outline leaves out the rule under its last row, for an app that
+    /// draws its own box around the table, where that rule would double the box's bottom edge.
+    /// Off by default (RuneMD's local change, vendor/rune-kit/VENDOR.md).
+    pub fn table_open_end(mut self, on: bool) -> Self {
+        self.table_open_end = on;
+        self
+    }
     /// Whether cells follow their column's `:-:` and `--:` alignment (on by default). Off, every
     /// cell starts at its column's left, as a web table whose CSS sets `text-align: start`.
     pub fn table_column_align(mut self, on: bool) -> Self {
@@ -343,7 +350,7 @@ impl Renderer {
                 let sep = match s.table_head_rule { Some(c) if i == 0 => sep.fill(c), _ => sep };
                 frame = frame.child(sep).child(row_at(i, cells));
             }
-            if ring.is_none() {
+            if ring.is_none() && !s.table_open_end {
                 let end = rule("s-end".into());
                 frame = frame.child(match s.table_head_rule { Some(c) if t.rows.is_empty() => end.fill(c), _ => end });
             }
@@ -436,6 +443,8 @@ impl Renderer {
         } else {
             Vec::new()
         };
+        // The icons before links (a path's type icon, a web page's globe) take room in their cell.
+        let icons: Vec<u32> = t.head.iter().chain(rows.iter().flatten()).map(|inl| self.link_icons_advance(inl).to_bits()).collect();
         let key = hash_of((
             n,
             &t.head,
@@ -448,7 +457,7 @@ impl Renderer {
             self.s.table_pad.map(f32::to_bits),
             self.head_pad().map(f32::to_bits),
             self.s.table_flush_left,
-            (link_styles, rune::text::font_epoch()),
+            (link_styles, rune::text::font_epoch(), &icons),
         ));
         if let Some(hit) = WIDTHS.with_borrow_mut(|c| c.get(&key).cloned()) {
             return hit;
@@ -473,8 +482,10 @@ impl Renderer {
                     let pad = |hit: bool| if hit { self.s.inline_code_pad } else { 0.0 };
                     let pads = inl.spans.iter().filter(|s| s.2 == Style::CodePad && inl.spans.iter().any(|c| c.2 == Style::Code && c.1 == s.0));
                     let (last, word) = pads.fold((false, false), |(last, word), s| (last || s.1 == inl.text.len(), word || ends_code(s.1)));
-                    natural[j] = natural[j].max(max + pad(last) + 0.01);
-                    fit[j] = fit[j].max(min + pad(word) + 0.01);
+                    // An icon sits before its link's first word, so it widens both.
+                    let icons = self.link_icons_advance(inl);
+                    natural[j] = natural[j].max(max + pad(last) + icons + 0.01);
+                    fit[j] = fit[j].max(min + pad(word) + icons + 0.01);
                 }
             }
             let min = fit.iter().map(|w| w.min(cap)).collect::<Vec<_>>();

@@ -124,6 +124,11 @@ pub fn style_with(theme: &Theme, face: Typeface) -> MarkdownStyle {
         .table_header_weight(560.0)
         .table_header_fill(Color::TRANSPARENT)
         .table_outline(None)
+        // The table fills its box: columns share out the free width in proportion to their content
+        // (review R1, record 2026-11-23-t3-paths-review), and shrink and wrap when it is too narrow.
+        .table_full_width(true)
+        // The box (`doc_view::framed`) closes the table: no rule of its own under the last row.
+        .table_open_end(true)
         .table_rules(theme.line)
         .rule(theme.line)
         // Task list checkboxes like the Settings one (DESIGN.md, "Contrast"):
@@ -185,6 +190,15 @@ mod tests {
             assert_eq!(h(&m), h(&m.clone().code_block(fill, Color::TRANSPARENT)), "dark {dark}");
             assert_ne!(h(&m), h(&m.clone().code_block(fill, Kit::neutral(dark).c.border_muted)));
         }
+    }
+
+    /// Review R1: tables fill their box and leave its bottom edge to the box.
+    #[test]
+    fn tables_fill_their_box_and_end_on_it() {
+        let m = style(&Theme::for_mode(false), 15.5);
+        assert_eq!(h(&m), h(&m.clone().table_full_width(true).table_open_end(true)));
+        assert_ne!(h(&m), h(&m.clone().table_full_width(false)));
+        assert_ne!(h(&m), h(&m.clone().table_open_end(false)));
     }
 
     /// Find without accent: matches in `sel` with a ring in `mark` (they stand apart from

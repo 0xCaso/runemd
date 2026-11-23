@@ -14,6 +14,11 @@ Changes from the rev:
   any scheme; it replaces `MarkdownStyle::link_icons`' globe for the links it answers.
 - `Markdown::code_wrap` (`markdown.rs`, `markdown/render.rs`): code block `index` wraps its lines,
   or scrolls sideways (`Renderer::code_wrapped`).
+- `markdown/table.rs`, `markdown/link_icon.rs` (`Renderer::link_icons_advance`): a table counts
+  the icons before its cells' links in its columns' widths (review R1, record
+  2026-11-23-t3-paths-review); without it a cell with a path icon wrapped its last word.
+- `MarkdownStyle::table_open_end` (`markdown/style.rs`, `markdown/table.rs`): no rule under the
+  last row, for a table in a box the app draws (R1: a full-width rule doubled the box's bottom).
 - `Markdown::code_header` (`markdown.rs`, `markdown/render.rs`): a row drawn on top of each code
   block, inside its card (language, wrap and copy buttons).
 

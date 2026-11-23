@@ -410,6 +410,11 @@ the block until the app quits. No run button: a reader does not run commands. Th
 box's: 1 in `line`, radius 6, in both themes, and no other border (review R2, record `2026-11-23-t3-paths-review`;
 before, a gunmetal edge over the kit's own border).
 
+**Tables** fill their box (1 in `line`, radius 6, like code cards): the columns share out the free width in
+proportion to their content, a path's type icon counted in its column, and short cells stay on one line while there
+is room; in a box too narrow the longest cells wrap. The box closes the table: no rule under the last row (review R1,
+record `2026-11-23-t3-paths-review`).
+
 **Copy table**: under each table, on the right, 4 below it, a ghost button: 24 tall, 7 at the sides, radius 6, the 13
 copy icon and "Copy table" at 12/500 in `fg-2`, 5 between, hover `sel`. It opens a native menu: Copy as Markdown (the
 table as written) or Copy as CSV.

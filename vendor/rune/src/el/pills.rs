@@ -116,6 +116,11 @@ impl InlineIcon {
         self.color = Some(c);
         self
     }
+    /// The width it takes in a line, in points: its side and the gap after it (RuneMD's local
+    /// change, vendor/rune/VENDOR.md: a table sizes its columns with it).
+    pub fn advance(&self) -> f32 {
+        self.size + self.gap
+    }
 }
 
 /// `spans` with each pill's label colour over it.

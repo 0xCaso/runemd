@@ -20,6 +20,9 @@ Changes from the rev:
 - `src/text/glyph_emit.rs`: `cluster_table`, the table built from `line.items()`, adding each
   inline box's width to `x`; `glyphs_in_band` uses it.
 - `src/text/glyph_cache.rs`: `Entry::flatten` uses `cluster_table` in place of its own copy.
+- `src/el/pills.rs`: `InlineIcon::advance`, the width an inline icon takes (size + gap), so
+  rune-kit's tables count a path's icon in its column's width (review R1,
+  docs/decisions/2026-11-23-t3-paths-review.md).
 
 Test: `tests/inline_icon_glyph_bytes.rs` (fails on the rev, passes here).
 

@@ -2016,6 +2016,76 @@ mod tests {
         assert!(!paragraph.elements().iter().any(|e| e.label.as_deref() == Some("Copy Table")));
     }
 
+    /// The cells of each row of the first table, in row order: (row rect, cell rects left to right).
+    fn table_rows(rt: &Runtime<Doc>) -> Vec<([f32; 4], Vec<[f32; 4]>)> {
+        let els = rt.elements();
+        let table = els.iter().find(|e| e.role == "table").expect("a table");
+        let rows: Vec<_> = els.iter().filter(|e| e.role == "row" && e.path.starts_with(&table.path)).collect();
+        rows.iter()
+            .map(|r| {
+                let mut cells: Vec<[f32; 4]> = els.iter().filter(|e| (e.role == "cell" || e.role == "columnheader") && e.path.starts_with(&format!("{}/", r.path))).map(|e| e.rect).collect();
+                cells.sort_by(|a, b| a[0].total_cmp(&b[0]));
+                (r.rect, cells)
+            })
+            .collect()
+    }
+
+    /// The box a table is drawn in: as wide as the "Copy table" row under it, whose button sits
+    /// at its right edge.
+    fn table_box_right(rt: &Runtime<Doc>) -> f32 {
+        let b = rt.elements().into_iter().find(|e| e.role == "button" && e.label.as_deref() == Some("Copy Table")).expect("Copy table").rect;
+        b[0] + b[2]
+    }
+
+    /// `fixtures/t3-paths.md`, with its paths as links (they exist), in a window `w` wide.
+    fn t3_paths(w: f32) -> Runtime<Doc> {
+        let path = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/t3-paths.md"));
+        let src = std::fs::read_to_string(path).unwrap();
+        let mut state = Doc::bare(crate::index::Library::load(Vec::new(), None));
+        state.set_style(crate::ui::markdown_style::style(&crate::ui::theme::Theme::for_mode(false), crate::ui::theme::BODY_TEXT));
+        state.push_tab(Document::from_source(path, &src));
+        let mut rt = Runtime::new(state, crate::view, (w, VIEWPORT.1), Env::new(false, 2.0));
+        rt.frame(0.0);
+        settle(&mut rt);
+        rt
+    }
+
+    /// Review R1 (record 2026-11-23-t3-paths-review): the Esito table of `fixtures/t3-paths.md`
+    /// fills its box (the columns share out the free width), and "edit_big.json" stays on one
+    /// line at the proof shots' window width and in a narrow window, where only counting the
+    /// path's icon in its column (vendored rune-kit, `link_icons_advance`) keeps it whole.
+    #[test]
+    fn a_table_fills_its_box_and_keeps_short_cells_on_one_line() {
+        for w in [VIEWPORT.0, NARROW.0] {
+            let rt = t3_paths(w);
+            let rows = table_rows(&rt);
+            assert_eq!(rows.len(), 4, "header and three rows: {rows:?}");
+            let right = table_box_right(&rt);
+            for (row, cells) in &rows {
+                assert_eq!(cells.len(), 3, "{row:?}: {cells:?}");
+                let end = cells[2][0] + cells[2][2];
+                assert!((end - right).abs() <= 1.5, "window {w}: the last column ends at {end}, the box at {right}");
+            }
+            let heights: Vec<f32> = rows[1..].iter().map(|(r, _)| r[3]).collect();
+            assert!(heights.iter().all(|h| (h - heights[0]).abs() < 0.5), "window {w}: every body row is one line tall: {heights:?}");
+        }
+    }
+
+    /// Review R1: a cell too long for a narrow box still wraps, inside the box.
+    #[test]
+    fn a_long_cell_wraps_when_the_box_is_narrow() {
+        let long = "una frase lunga che non entra in una riga sola di questa colonna stretta, quindi va a capo";
+        let mut rt = open_sized(&format!("| File | Esito |\n|---|---|\n| a.rs | breve |\n| b.rs | {long} |\n"), false, NARROW);
+        settle(&mut rt);
+        let rows = table_rows(&rt);
+        let right = table_box_right(&rt);
+        assert!(rows[2].0[3] > rows[1].0[3] + 10.0, "the long row wraps: {rows:?}");
+        for (_, cells) in &rows {
+            let end = cells[1][0] + cells[1][2];
+            assert!(end <= right + 1.5, "the last column ends at {end}, past the box at {right}");
+        }
+    }
+
     #[test]
     fn only_blocks_with_code_get_the_code_hooks() {
         assert!(super::has_code("```sh\nls\n```"));

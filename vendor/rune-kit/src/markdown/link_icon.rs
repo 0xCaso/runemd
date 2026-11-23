@@ -69,6 +69,23 @@ impl Markdown {
 }
 
 impl Renderer {
+    /// The width the icons [`Self::link_icons`] puts before the links of `inl` take in its line,
+    /// in points (RuneMD's local change: a table counts them in its columns' widths).
+    pub(super) fn link_icons_advance(&self, inl: &Inline) -> f32 {
+        let mut w = 0.0;
+        for (a, b, url) in &inl.links {
+            if inl.text.get(*a..*b).is_none_or(|t| t.trim().is_empty()) {
+                continue;
+            }
+            if let Some(icon) = self.link_icon.as_ref().and_then(|own| own(url)) {
+                w += icon.advance();
+            } else if let Some([size, gap]) = self.s.link_icon.filter(|_| link_host(url).is_some()) {
+                w += size + gap;
+            }
+        }
+        w
+    }
+
     /// `e`, the text of `inl`, with an icon before each of its links to a web page.
     pub(super) fn link_icons(&self, mut e: El, inl: &Inline) -> El {
         if let Some(own) = &self.link_icon {

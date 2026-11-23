@@ -60,6 +60,8 @@ pub struct MarkdownStyle {
     /// Header cell padding (x, y) when it differs from the body's.
     pub(super) table_head_pad: Option<[f32; 2]>,
     pub(super) table_full_width: bool,
+    /// No rule under the last row of a table without an outline (RuneMD's local change).
+    pub(super) table_open_end: bool,
     /// Space above and below a table (collapsed with its neighbours' like CSS margins).
     pub(super) table_margin: [f32; 2],
     /// Space above and below a code block, a diff and a diagram (collapsed like `table_margin`).
@@ -211,6 +213,7 @@ impl MarkdownStyle {
             table_body: None,
             table_head_pad: None,
             table_full_width: false,
+            table_open_end: false,
             table_margin: [12.0, 16.0],
             code_margin: [12.0, 24.0],
             table_bar: None,
@@ -614,6 +617,7 @@ impl std::hash::Hash for MarkdownStyle {
             ref table_body,
             table_head_pad,
             table_full_width,
+            table_open_end,
             table_margin,
             code_margin,
             table_bar,
@@ -645,7 +649,7 @@ impl std::hash::Hash for MarkdownStyle {
             .map(f32_bits)
             .hash(state);
         (table_outline, table_rule, table_head_fill, table_head_text, table_head_rule, table_head_weight.map(f32_bits), table_tabular, table_font).hash(state);
-        ([f32_bits(table_pad[0]), f32_bits(table_pad[1])], table_flush_left, table_head_pad.map(|p| p.map(f32_bits)), table_full_width, table_margin.map(f32_bits), code_margin.map(f32_bits)).hash(state);
+        ([f32_bits(table_pad[0]), f32_bits(table_pad[1])], table_flush_left, table_head_pad.map(|p| p.map(f32_bits)), (table_full_width, table_open_end), table_margin.map(f32_bits), code_margin.map(f32_bits)).hash(state);
         table_frame.map(|TableFrame { fill, ring, pad }| (fill, ring, f32_bits(pad))).hash(state);
         (table_bar, text_width.map(f32_bits), f32_bits(wide_fade), link_icon.map(|l| l.map(f32_bits))).hash(state);
         match table_body {
