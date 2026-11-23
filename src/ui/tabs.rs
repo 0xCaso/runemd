@@ -339,7 +339,7 @@ fn tab_row(s: &App, hooks: Hooks<App>, i: usize, n: usize, tab: &crate::app::Tab
         .role("tab")
         .label(title)
         .focus_selected(front)
-        .hover_group()
+        .hover_group_shared(key.clone())
         .children(hover)
         .child(pill)
         .child(label)
@@ -373,7 +373,15 @@ fn tab_row(s: &App, hooks: Hooks<App>, i: usize, n: usize, tab: &crate::app::Tab
         e
     };
     if divider {
-        e.child(el().key("tab-divider").pin(None, Some(TAB_DIVIDER_INSET), Some(0.0), Some(TAB_DIVIDER_INSET)).w(TAB_DIVIDER).fill(theme.line).a11y_hidden())
+        // The divider hides while either tab beside it is hovered, as next to the front pill (review
+        // R4): this tab's group fades its host, and the host is a group shared with the next tab
+        // (`hover_group_shared` by tab key), whose hover fades the line. The host is 0 wide, so the
+        // pointer on the line does not light the next tab.
+        let line = el().key("tab-divider").pin(Some(-TAB_DIVIDER), Some(0.0), None, Some(0.0)).w(TAB_DIVIDER).fill(theme.line).group_opacity(1.0, 0.0).a11y_hidden();
+        let host = el().key("tab-divider-host").pin(None, Some(TAB_DIVIDER_INSET), Some(0.0), Some(TAB_DIVIDER_INSET)).w(0.0)
+            .hover_group_shared(tab_key(s.tabs[i + 1].doc.id)).group_opacity(1.0, 0.0).a11y_hidden().child(line);
+        let host = if motion.hover { host.hover_motion(motion.hover_fade(), motion.hover_fade()) } else { host };
+        e.child(host)
     } else {
         e
     }
@@ -689,6 +697,28 @@ mod tests {
             let flat = rt.instances.iter().any(|i| i.params[1] == rune::render::KIND_RECT && i.fill[3] > 0.0 && i.rect.iter().zip(whole).all(|(a, b)| (a - b).abs() < 1.0));
             assert!(!flat, "dark {dark}: no flat hover on the tab itself");
         }
+    }
+
+    /// Review R4: the dividers on both sides of a hovered back tab hide, as next to the front pill.
+    #[test]
+    fn a_hovered_back_tab_hides_the_dividers_beside_it() {
+        // Front is the last: dividers after tabs 0, 1 and 2; hovering tab 1 hides the ones after 0 and 1.
+        let mut rt = tabs(&["a.md", "b.md", "c.md", "d.md", "e.md"]);
+        assert_eq!(rt.state.active, 4);
+        let shown = |rt: &Runtime<App>| {
+            let mut d: Vec<(f32, f32)> = rt.elements().iter().filter(|e| e.key.as_deref() == Some("tab-divider")).map(|e| (e.rect[0], e.opacity)).collect();
+            d.sort_by(|a, b| a.0.total_cmp(&b.0));
+            d.into_iter().map(|(_, o)| o).collect::<Vec<f32>>()
+        };
+        assert_eq!(shown(&rt), vec![1.0, 1.0, 1.0], "at rest every divider shows");
+        let label = find(&rt, &format!("{}-label", tab_key(rt.state.tabs[1].doc.id))).expect("label").rect;
+        rt.pointer_move(label[0] + 4.0, label[1] + label[3] / 2.0);
+        settle(&mut rt);
+        assert_eq!(shown(&rt), vec![0.0, 0.0, 1.0], "the two beside the hovered tab hide");
+        let tab0 = find(&rt, &tab_key(rt.state.tabs[0].doc.id)).expect("tab 0").rect;
+        rt.pointer_move(tab0[0] + 4.0, tab0[1] + tab0[3] / 2.0);
+        settle(&mut rt);
+        assert_eq!(shown(&rt), vec![0.0, 1.0, 1.0], "the first tab: only the one after it");
     }
 
     fn close_of(rt: &Runtime<App>, i: usize) -> rune::ElementInfo {
