@@ -141,7 +141,13 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
             // layout; Rune runs the view again when the threshold is crossed).
             let columns = cx.layout_with("rows", |r| r[2] - 2.0 * ui::theme::ROW_PAD_X >= ui::doc_view::TWO_COLUMNS).unwrap_or(false);
             let signals = ui::doc_view::Signals { marked: App::is_marked, mark: theme.mark, caret, hits: App::find_hits, edge: App::doc_edge, meta: theme.meta(), fonts: ui::markdown_style::fonts(fonts::Typeface::of(&s.settings.font, s.settings.size)), open: App::open_link, columns, bottom: fx::fire::doc_bottom(s.settings.fire.shows(), s.settings.fire_height), forge: ui::doc_view::Forge { on: s.forge(), look: fx::doc_fx::Look { dark, reduced }, metal: s.metal_block }, image: App::doc_image, images_ready: if s.forge().any() { s.doc_images_ready() } else { 0 }, wraps: s.code_wraps.clone() };
-            let doc = ui::doc_view::view(s, App::active_document, s.style(dark), s.settings.column, App::visible_rows, signals);
+            let doc = match tab.doc.kind {
+                open::kind::FileKind::Image => {
+                    let room = cx.layout_with("image-box", |r| r[2]);
+                    ui::file_view::image_pane(&tab.doc.path, s.file_image(&tab.doc.path), room, s.settings.column, &theme)
+                }
+                _ => ui::doc_view::view(s, App::active_document, s.style(dark), s.settings.column, App::visible_rows, signals),
+            };
             // The heading outline on the right, only if the window is at least sidebar + column
             // + 200 wide (before the first layout it is not known: no outline). The view reads it from Rune,
             // which runs the view again when the threshold is crossed; `App::wide` is the copy for the
@@ -612,6 +618,66 @@ mod tests {
         rt.invalidate();
         rt.frame(1.0 / 120.0);
         assert!(!rt.state.forge_images.borrow().holds(), "no handle left with a file open");
+    }
+
+    /// An image opens in a tab: its name over it, the picture centred and fitted to the column,
+    /// never past its own size; a corrupt file shows an error line, not a broken tab (decision
+    /// 2026-11-23-open-non-markdown).
+    #[test]
+    fn an_image_tab_fits_the_picture_and_a_corrupt_one_says_so() {
+        let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("fixtures/open-files");
+        let mut app = crate::App::bare(crate::index::Library::load(Vec::new(), None));
+        app.images = Some(rune::ImageCache::new(std::sync::Arc::new(|| {})));
+        app.open_paths(vec![dir.join("table.png")]);
+        assert_eq!(app.tabs.len(), 1);
+        let (img, _) = app.file_image(&dir.join("table.png")).unwrap();
+        assert_eq!(img.wait().ok(), Some([1300, 460]));
+        let mut rt = rune::Runtime::new(app, crate::view, (1280.0, 800.0), rune::Env::new(false, 2.0));
+        for _ in 0..3 {
+            rt.invalidate();
+            rt.frame(1.0 / 60.0);
+        }
+        let els = rt.elements();
+        let rect = |k: &str| els.iter().find(|e| e.key.as_deref() == Some(k)).unwrap_or_else(|| panic!("no {k}")).rect;
+        let (pic, room) = (rect("image"), rect("image-box"));
+        assert!((pic[2] - room[2]).abs() < 0.5 && pic[2] < 1300.0, "fitted to the column: {pic:?} in {room:?}");
+        assert!((pic[3] - pic[2] * 460.0 / 1300.0).abs() < 0.5, "same aspect: {pic:?}");
+        assert!(els.iter().any(|e| e.text.as_deref() == Some("table.png")), "the file's name");
+        assert!(els.iter().any(|e| e.text.as_deref() == Some("1300 × 460")));
+
+        rt.state.open_paths(vec![dir.join("corrupt.png")]);
+        let (bad, _) = rt.state.file_image(&dir.join("corrupt.png")).unwrap();
+        assert!(bad.wait().is_err());
+        for _ in 0..3 {
+            rt.invalidate();
+            rt.frame(1.0 / 60.0);
+        }
+        let els = rt.elements();
+        assert!(!els.iter().any(|e| !e.exiting && e.key.as_deref() == Some("image")));
+        let error = els.iter().find(|e| e.key.as_deref() == Some("image-error")).expect("an error line");
+        assert!(error.text.as_deref().is_some_and(|t| t.starts_with("Can't show this image")), "{:?}", error.text);
+    }
+
+    /// A small picture keeps its own size, centred: never upscaled.
+    #[test]
+    fn a_small_image_is_not_upscaled() {
+        let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("fixtures/open-files");
+        let mut app = crate::App::bare(crate::index::Library::load(Vec::new(), None));
+        app.images = Some(rune::ImageCache::new(std::sync::Arc::new(|| {})));
+        app.open_paths(vec![dir.join("ridge-small.png")]);
+        let (img, _) = app.file_image(&dir.join("ridge-small.png")).unwrap();
+        let [w, h] = img.wait().unwrap();
+        let mut rt = rune::Runtime::new(app, crate::view, (1280.0, 800.0), rune::Env::new(false, 2.0));
+        for _ in 0..3 {
+            rt.invalidate();
+            rt.frame(1.0 / 60.0);
+        }
+        let els = rt.elements();
+        let rect = |k: &str| els.iter().find(|e| e.key.as_deref() == Some(k)).unwrap().rect;
+        let (pic, room) = (rect("image"), rect("image-box"));
+        assert!(w as f32 <= room[2], "the fixture is narrower than the column");
+        assert_eq!([pic[2], pic[3]], [w as f32, h as f32], "its own size");
+        assert!(((pic[0] + pic[2] / 2.0) - (room[0] + room[2] / 2.0)).abs() < 0.5, "centred");
     }
 
     /// The forge pieces drawn for `fixtures/forge.md` with `forge` on: (piece, still).

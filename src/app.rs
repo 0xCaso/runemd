@@ -1526,6 +1526,24 @@ impl App {
         Some(self.doc_images.borrow_mut().entry(path.clone()).or_insert_with(|| cache.file(&path, DOC_IMAGE_PT, DOC_IMAGE_SCALE)).clone())
     }
 
+    /// The picture of an image tab and its pixels per point (`ui::file_view::image_pane`): a raster
+    /// file at 1, an SVG rasterized at its own size at 2. `None` without a cache (tests).
+    pub fn file_image(&self, path: &std::path::Path) -> Option<(rune::Image, f32)> {
+        let cache = self.images.as_ref()?;
+        let svg = path.extension().is_some_and(|e| e.eq_ignore_ascii_case("svg"));
+        let scale = if svg { 2.0 } else { 1.0 };
+        let image = self.doc_images.borrow_mut().entry(path.to_owned()).or_insert_with(|| {
+            let side = if svg {
+                let text = std::fs::read_to_string(path).unwrap_or_default();
+                ui::file_view::svg_size(&text).map_or(ui::file_view::SVG_DEFAULT, |[w, h]| w.max(h)).clamp(16.0, ui::file_view::SVG_MAX)
+            } else {
+                DOC_IMAGE_PT
+            };
+            cache.file(path, side, scale)
+        }).clone();
+        Some((image, scale))
+    }
+
     /// How many document pictures have decoded (the rows build again when it changes).
     pub fn doc_images_ready(&self) -> usize {
         self.doc_images.borrow().values().filter(|i| i.is_ready()).count()
