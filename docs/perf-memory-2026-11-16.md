@@ -637,3 +637,44 @@ because of the release branch's tab bar: the buttons' backdrop blur (`backdrop_b
 blurred on every moving-metal frame (16/s), even with 3 tabs, where only the flat bar is under it; frame CPU p95 went
 from ~0.55 to ~1.6 ms. e70280b blurs only while the tabs overflow: idle with the defaults is 2.22 % median (target
 ≤ ~2.5 %), off 2.00 %. Scroll is unchanged by the fix (the blur still runs when the tabs overflow).
+
+## Fire start lag 2026-11-23
+
+Ledger `docs/feedback/2026-11-23-fire-lag-and-t3-links.md`, S1 (the fire stutters for 1–2 s when it starts) and S4
+(light theme: black flame tops for a moment after switching back to the app). Frame-profile build
+(`cargo build --profile perf --features frame-profile`), private 120 Hz virtual display, light theme, Matteo's fire look
+(Brief, height 4.8, strength 1.25, speed 1.5), `MDSPIKE_ACTIVE=1`. Each cold launch opens `fixtures/headings.md` at 3 s
+(`MDSPIKE_OPEN_AT`) and switches the window out and in at 10/12 s (`MDSPIKE_REFOCUS`); the 3 s after each event, from
+`MDSPIKE_FRAMES`. "Before" is the branch without the S1 change, "after" is the branch. Proof: `docs/proof/fire-start-lag/`.
+
+**S1 cause.** During the 5 s Brief show the resting fire was paced by `REST_FRAME` wake-ups (83 ms, 12 fps), not by the
+display link; other wake-ups (the metal edges' `METAL_FRAME`) broke the `rest_wake` rhythm, so after ~0.9 s at 120 Hz the
+fire came in bursts of 3–5 frames with ~105 ms holes (~9 fps). Fix: the Brief fire holds the display link for its whole
+show, as it already did for its 1 s fade (`FireFall::fire_layer`); `App::fire_rests` asks no wake-ups for it. Always keeps
+the paced rest. Idle after the show is unchanged.
+
+| 3 s after the event, median of 5 cold launches | frames | dt p50 / p95 / max ms | missed refreshes | frame CPU p50 / p95 ms |
+|---|---|---|---|---|
+| document open, before | 160 | 8.4 / 104.6 / 107.0 | 193 | 0.5 / 1.0 |
+| document open, after | 352 | 8.3 / 9.3 / 16.6 | 4 | 0.5 / 1.2 |
+| window active again, before | 171 | 8.4 / 103.8 / 107.3 | 185 | 0.5 / 1.3 |
+| window active again, after | 358 | 8.3 / 9.3 / 16.7 | 2 | 0.5 / 0.7 |
+
+One "before" launch drew no frames after its focus-in (counted as 0 in the median). GPU (Metal System Trace, one launch
+each): before, paced frames 7.1 ms median (p95 10.1, the GPU clocks down between them); after, 120 Hz show frames 5.6 ms
+(p95 7.7), under the 8.3 ms budget.
+
+**S4 cause.** The real focus arrives in Rune's focus handler, whose commit animates, so the fire slot entered with Rune's
+default opacity fade (~0.7 s, measured headless). A fading effect slot is drawn in an isolated offscreen layer cleared to
+transparent; there the light theme's tips (`fire::tips`, `FxBlend::Screen`) screen over nothing and composite like a plain
+layer: a taller fire with black tops. Fix: the fire slot has `Transition::none()` (it shows whole, as after a poll or at
+launch). Test `the_fire_shown_on_refocus_is_never_isolated`; `MDSPIKE_REFOCUS` now animates its focus-in commit, which
+reproduces the bug on the virtual screen (`s4-refocus-before.png`, 20 ms after focus-in) and shows it fixed
+(`s4-refocus-after.png`).
+
+| Idle, 60 s, headings.md (method of "Release integration 2026-11-18", dark, defaults) | cpu_time | ps_mean | frames/s | frame CPU p50/p95 ms | load |
+|---|---|---|---|---|---|
+| before | 2.25 / 2.60 % | 1.93 / 2.19 % | 15.9 / 15.7 | 0.43/0.66 · 0.48/1.00 | 12 / 12 |
+| after | 2.47 / 2.40 % | 2.11 / 2.07 % | 15.6 / 15.4 | 0.46/0.76 · 0.46/0.74 | 10 / 43 |
+
+Idle is unchanged within noise (mean 2.43 vs 2.44 %): the show ends 6 s after launch, before the 10–70 s window.
