@@ -801,7 +801,7 @@ pub(super) struct Motion {
 
 impl Motion {
     /// The `sel` hover fades in and out in 120 ms (`ease`).
-    fn hover_fade(self) -> Anim {
+    pub(super) fn hover_fade(self) -> Anim {
         if self.reduced { Anim::INSTANT } else { Curve::tween(HOVER_FADE, Easing::EASE).into() }
     }
 

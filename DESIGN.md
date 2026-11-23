@@ -505,7 +505,8 @@ spazio"). The bar is 44 tall (`tab-bar`) on the `tab-bar` tint over `panel` (bla
 page), 8 before the first tab (`tab-bar-lead`), 10 margin on the right (`tab-bar-pad`), a 0.5 line in `line` at the
 bottom. Tabs sit edge to edge, as wide as the file name up to 240 (`tab-max`, D5; beyond that, the name is cut in the
 middle), from 8 below the bar's top (`tab-top`) down to the document, UI text 13 px with 12 before the name
-(`tab-pad`). Back tabs: no fill, `fg-2` text, hover `sel`, pressed scale 0.98, and a 1 px divider in `line`
+(`tab-pad`). Back tabs: no fill, `fg-2` text, hover `sel` in the front tab's pill shape (the same 24 tall, corners 5,
+place and insets; review R4, record `2026-11-23-t3-paths-review`), pressed scale 0.98, and a 1 px divider in `line`
 (`tab-divider`, 9 short of the tab's top and bottom) on the right, except next to the front tab. The front tab is a pill
 inside the bar, as in the installed app (record `2026-11-18-tab-bar-style`): the tab's full width, 24 tall (`PILL_H`),
 corners of 5 (`PILL_R`, half the page panel's `R_PANEL`: Matteo, 2026-11-18, constraint 5), `sel` fill and `fg` text; the bar's line runs on under it. A closed metal

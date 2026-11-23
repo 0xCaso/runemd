@@ -302,7 +302,7 @@ const CLOSE_GLYPH: f32 = 14.0;
 
 /// A tab (record 2026-11-18-vscode-tabs): `TAB_H` tall, edge to edge with the others, `TAB_PAD_X` before
 /// the name and the × after it. Front: a `sel` pill (`PILL_H`, corners `PILL_R`) with the metal
-/// ring round it, text `fg`, no divider. The others: no fill (the bar's tint), text `fg2`, hover `sel`, a `TAB_DIVIDER` line in
+/// ring round it, text `fg`, no divider. The others: no fill (the bar's tint), text `fg2`, hover `sel` in the pill's shape, a `TAB_DIVIDER` line in
 /// `line` on the right unless the next tab is the front one.
 fn tab_row(s: &App, hooks: Hooks<App>, i: usize, n: usize, tab: &crate::app::Tab, theme: &Theme, motion: Motion) -> El {
     let front = i == s.active;
@@ -322,6 +322,12 @@ fn tab_row(s: &App, hooks: Hooks<App>, i: usize, n: usize, tab: &crate::app::Tab
         pill = pill.fill(theme.sel);
     }
     let pill = fx::ring::slot(pill, Mark::TabRing(i as u32), fx::ring::edge(s.ring_of(tab.path()), front), motion.reduced, theme.dark);
+    // A back tab's hover is the front pill's shape in `sel` (review R4, record
+    // 2026-11-23-t3-paths-review), shown by the tab's hover group; its own element, so the pill's
+    // ring (a writing back tab) never fades with it.
+    let hover = (!front && motion.hover).then(|| {
+        el().key(format!("{key}-hover")).pin(Some(0.0), Some(PILL_Y), Some(0.0), None).h(PILL_H).radius(PILL_R).fill(theme.sel).group_opacity(0.0, 1.0).a11y_hidden()
+    });
     let e = row()
         .max_w(TAB_MAX_W)
         .h(TAB_H)
@@ -334,6 +340,7 @@ fn tab_row(s: &App, hooks: Hooks<App>, i: usize, n: usize, tab: &crate::app::Tab
         .label(title)
         .focus_selected(front)
         .hover_group()
+        .children(hover)
         .child(pill)
         .child(label)
         .child(close)
@@ -347,7 +354,9 @@ fn tab_row(s: &App, hooks: Hooks<App>, i: usize, n: usize, tab: &crate::app::Tab
         .on_double_press(move |s: &mut App| s.pin(id))
         .on_middle_press(move |s: &mut App, tx: &mut Tx| close_tab(s, id, tx));
     let divider = !front && i + 1 != s.active && i + 1 < n;
-    let e = sidebar::pressable(e, key.clone(), &s.sidebar, hooks, theme, motion, !front).corners([R_ROW, R_ROW, 0.0, 0.0]).key(key.clone());
+    // No hover of its own (the hover pill above has it): the press scale stays.
+    let e = sidebar::pressable(e, key.clone(), &s.sidebar, hooks, theme, motion, false).corners([R_ROW, R_ROW, 0.0, 0.0]).key(key.clone());
+    let e = if motion.hover { e.hover_motion(motion.hover_fade(), motion.hover_fade()) } else { e };
     // The front tab comes out from under the bar's buttons and the strip's ends, however it got to the
     // front (click, keys, a file opened, launch): a marker keyed by the document is new each time the
     // front changes, so its first layout scrolls the strip once; later layouts (the strip scrolling by
@@ -593,11 +602,16 @@ mod tests {
     }
 
     fn tabs(names: &[&str]) -> Runtime<App> {
+        tabs_themed(names, true)
+    }
+
+    /// [`tabs`] in the `dark` or light theme.
+    fn tabs_themed(names: &[&str], dark: bool) -> Runtime<App> {
         let mut state = App::bare(crate::index::Library::load(Vec::new(), None));
         for n in names {
             state.push_tab(Document::from_source(Path::new(n), &format!("# {n}\n")));
         }
-        let mut rt = Runtime::new(state, crate::view, (1200.0, 900.0), Env::new(true, 2.0));
+        let mut rt = Runtime::new(state, crate::view, (1200.0, 900.0), Env::new(dark, 2.0));
         rt.on_key = Some(crate::on_key);
         rt.frame(0.0);
         settle(&mut rt);
@@ -644,6 +658,36 @@ mod tests {
             if n == 16 {
                 assert!(find(&rt, "tabs-scroll-thumb").expect("thumb").rect[2] >= SCROLL_BAR_MIN, "the thumb shows");
             }
+        }
+    }
+
+    /// Review R4 (record 2026-11-23-t3-paths-review): a back tab's hover is the front tab's pill
+    /// shape, the same height, corners and insets in its tab, in `sel`; the tab itself gets no
+    /// hover overlay (before, a flat block flush with the bar). Both themes.
+    #[test]
+    fn a_back_tab_hovers_in_the_front_pills_shape() {
+        for dark in [true, false] {
+            let mut rt = tabs_themed(&["a.md", "b.md", "c.md"], dark);
+            let theme = Theme::for_mode(dark);
+            let key = |rt: &Runtime<App>, i: usize| tab_key(rt.state.tabs[i].doc.id);
+            let (back, front) = (key(&rt, 0), key(&rt, rt.state.active));
+            let rest = find(&rt, &format!("{back}-hover")).expect("the back tab's hover pill");
+            assert_eq!(rest.opacity, 0.0, "dark {dark}: no hover at rest");
+            let label = find(&rt, &format!("{back}-label")).expect("label").rect;
+            rt.pointer_move(label[0] + 4.0, label[1] + label[3] / 2.0);
+            settle(&mut rt);
+            let hover = find(&rt, &format!("{back}-hover")).expect("the back tab's hover pill");
+            let pill = find(&rt, &format!("{front}-pill")).expect("the front pill");
+            let (tb, tf) = (find(&rt, &back).expect("back tab"), find(&rt, &front).expect("front tab"));
+            assert_eq!(hover.opacity, 1.0, "dark {dark}: the pointer on the tab shows its hover");
+            assert_eq!(hover.fill, theme.sel, "dark {dark}: in `sel`");
+            assert_eq!((hover.radius, hover.rect[3]), (pill.radius, pill.rect[3]), "dark {dark}: the front pill's corners and height");
+            let inset = |p: [f32; 4], t: [f32; 4]| [p[0] - t[0], p[1] - t[1], (t[0] + t[2]) - (p[0] + p[2]), (t[1] + t[3]) - (p[1] + p[3])];
+            assert_eq!(inset(hover.rect, tb.rect), inset(pill.rect, tf.rect), "dark {dark}: the front pill's insets in its tab");
+            // Nothing painted over the whole tab (the old flat hover block).
+            let whole = tb.rect.map(|v| v * 2.0);
+            let flat = rt.instances.iter().any(|i| i.params[1] == rune::render::KIND_RECT && i.fill[3] > 0.0 && i.rect.iter().zip(whole).all(|(a, b)| (a - b).abs() < 1.0));
+            assert!(!flat, "dark {dark}: no flat hover on the tab itself");
         }
     }
 
