@@ -43,6 +43,8 @@ pub(super) struct Renderer {
     pub(super) link_icon: Option<link_icon::LinkIconWire>,
     /// `Markdown::code_wrap` (RuneMD's local change).
     pub(super) code_wrap: Option<super::CodeWrapWire>,
+    /// `Markdown::code_header` (RuneMD's local change).
+    pub(super) code_header: Option<super::CodeHeaderWire>,
     /// `Markdown::images` and `Markdown::on_image`.
     pub(super) images: Option<image::ImageWire>,
     pub(super) on_image: Option<image::ImagePress>,
@@ -444,10 +446,10 @@ impl Renderer {
     }
 
     pub(super) fn code(&self, code: &str, source: Option<&Source>, map: Option<&SpanMap>) -> El {
-        self.code_with(code, source, map, self.scroll_wide)
+        self.code_with(code, source, map, self.scroll_wide, None)
     }
 
-    fn code_with(&self, code: &str, source: Option<&Source>, map: Option<&SpanMap>, scroll_wide: bool) -> El {
+    fn code_with(&self, code: &str, source: Option<&Source>, map: Option<&SpanMap>, scroll_wide: bool, header: Option<El>) -> El {
         let s = &self.s;
         let highlights = self.text_highlights_for(code, map);
         let shell = s.shell.filter(|_| source.and_then(|src| src.lang.as_deref()).is_some_and(|l| SHELLS.iter().any(|sh| l.eq_ignore_ascii_case(sh))));
@@ -462,21 +464,27 @@ impl Renderer {
         // `.highlights`' `border: 0.5px` takes its device pixel each side, inside which the padding sits.
         // Code reads left to right in any document, as `markdown.css` isolates it.
         let frame = col().role("code").dir(rune::Direction::Ltr).w_full().radius(6.0).fill(fill).border(0.5, border).border_layout();
+        // A header (`Markdown::code_header`) sits on top inside the card; the code below keeps
+        // its side and bottom room.
+        let (frame, top) = match header {
+            Some(h) => (frame.child(h), 0.0),
+            None => (frame, s.code_block_pad[1]),
+        };
         if scroll_wide {
             // The text sizes to its longest line inside the viewport, which scrolls under the
             // padding so lines run to the frame's edge.
             let viewport = col().key("scroll").w_full().scroll_x();
             let viewport = if s.wide_fade > 0.0 { viewport.scroll_edge_fade(s.wide_fade) } else { viewport };
-            return frame.child(viewport.child(col().px(s.code_block_pad[0]).py(s.code_block_pad[1]).child(self.select(body))));
+            return frame.child(viewport.child(col().px(s.code_block_pad[0]).pt(top).pb(s.code_block_pad[1]).child(self.select(body))));
         }
-        frame.px(s.code_block_pad[0]).py(s.code_block_pad[1]).child(self.select(body.w_full()))
+        frame.child(col().w_full().px(s.code_block_pad[0]).pt(top).pb(s.code_block_pad[1]).child(self.select(body.w_full())))
     }
 
     /// [`Self::code`] with its lines wrapped at the card's width, or scrolling sideways
     /// (`Markdown::code_wrap`, RuneMD's local change).
-    fn code_wrapped(&self, code: &str, source: Option<&Source>, map: Option<&SpanMap>, wrap: bool) -> El {
+    fn code_wrapped(&self, code: &str, source: Option<&Source>, map: Option<&SpanMap>, wrap: bool, header: Option<El>) -> El {
         if !wrap {
-            return self.code_with(code, source, map, true);
+            return self.code_with(code, source, map, true, header);
         }
         let s = &self.s;
         let highlights = self.text_highlights_for(code, map);
@@ -484,8 +492,12 @@ impl Renderer {
         let ink = if plain { s.plain_code_text.or(s.code_text).unwrap_or(s.text) } else { s.code_text.unwrap_or(s.text) };
         let spans = self.syntax_spans(code, source);
         let body = self.with_reveal(tabbed(code, spans, highlights, s.code_block).font(s.code_block).color(ink).wrap()).copy_breaks(2, 2);
-        col().role("code").dir(rune::Direction::Ltr).w_full().radius(6.0).fill(s.code_block_fill).border(0.5, s.code_block_border).border_layout()
-            .px(s.code_block_pad[0]).py(s.code_block_pad[1]).child(self.select(body.w_full()))
+        let frame = col().role("code").dir(rune::Direction::Ltr).w_full().radius(6.0).fill(s.code_block_fill).border(0.5, s.code_block_border).border_layout();
+        let (frame, top) = match header {
+            Some(h) => (frame.child(h), 0.0),
+            None => (frame, s.code_block_pad[1]),
+        };
+        frame.child(col().w_full().px(s.code_block_pad[0]).pt(top).pb(s.code_block_pad[1]).child(self.select(body.w_full())))
     }
 
     /// Colour-only spans, so highlighting never moves a glyph: a block streaming in draws its
@@ -636,12 +648,14 @@ impl Renderer {
                 let n = self.next_source.get();
                 self.next_source.set(n + 1);
                 let source = self.sources.get(n).filter(|src| src.len == code.len());
+                let frame = CodeFrame { index: n, source: code, language: source.and_then(|s| s.lang.as_deref()), open: source.is_some_and(|s| s.open) };
+                let header = self.code_header.as_ref().map(|f| f(&frame));
                 let card = match self.code_wrap.as_ref().map(|f| f(n)) {
-                    Some(wrap) => self.code_wrapped(code, source, code_map, wrap),
-                    None => self.code(code, source, code_map),
+                    Some(wrap) => self.code_wrapped(code, source, code_map, wrap, header),
+                    None => self.code_with(code, source, code_map, self.scroll_wide, header),
                 };
                 match &self.code_frame {
-                    Some(f) => f(card.key("card"), &CodeFrame { index: n, source: code, language: source.and_then(|s| s.lang.as_deref()), open: source.is_some_and(|s| s.open) }),
+                    Some(f) => f(card.key("card"), &frame),
                     None => card,
                 }
             }

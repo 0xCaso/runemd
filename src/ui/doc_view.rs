@@ -157,18 +157,19 @@ pub struct Meta {
     pub line: Color,
     /// The color of headings 4, 5 and 6 (`body` like headings 1–3, `fg2`, `fg3`).
     pub headings: [Color; 3],
-    /// Paths (`doc::paths`): file name (`fg`), folders, `:line` and dots (`fg3`), line
-    /// on hover (`fg2`) and ground on hover (`sel`).
+    /// Paths (`doc::paths`): file name (`fg`), `L88` and telling folders (`fg3`), line on
+    /// hover (`fg2`); the icons take their kind's color (`path_icons::color`).
     pub path: PathColors,
 }
 
-/// The colors of paths in the text (record 2026-11-16-paths-name-and-link, mockup p-mix).
+/// The colors of paths in the text (decision 2026-11-23-t3-style-paths, mockup `colori`).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PathColors {
     pub name: Color,
     pub dim: Color,
     pub hover_line: Color,
-    pub hover_bg: Color,
+    /// The theme, for the icon colors.
+    pub dark: bool,
 }
 
 /// A rectangle of the document view, in window points.
@@ -222,7 +223,7 @@ pub fn view<S: 'static>(s: &S, doc_of: fn(&S) -> &Document, style: &MarkdownStyl
     let select_all = doc.select_all.clone();
     let flag = select_all.clone();
     let order = blocks.clone();
-    let places = Arc::new(crate::doc::paths::Places::of(&doc.path));
+    let places = paths_of(doc);
     // The column is at most `column` wide ("Text width"; "Full" follows the panel).
     let rows = super::theme::column(col().key("rows").w_full(), column).self_center().selection_group(true)
         .growth(GrowthSpec::default())
@@ -417,7 +418,7 @@ const FRONTMATTER_PAD_Y: f32 = 10.0;
 /// A document row, with the Find marks `hits`; with `mark` it has the "what changed" mark
 /// in the left margin, out of the flow (the text does not move), as tall as the block's text.
 #[allow(clippy::too_many_arguments)]
-fn block_row<S: 'static>(source: &str, style: &MarkdownStyle, notes: &crate::doc::footnotes::Notes, places: &crate::doc::paths::Places, progress: Option<(u32, u32)>, columns: bool, open: fn(&mut S, &str, &mut rune::Tx), fonts: super::markdown_style::Fonts, meta: Meta, dress: &Dress, mark: Option<Color>, hits: super::find::Marks) -> El {
+fn block_row<S: 'static>(source: &str, style: &MarkdownStyle, notes: &crate::doc::footnotes::Notes, places: &Paths, progress: Option<(u32, u32)>, columns: bool, open: fn(&mut S, &str, &mut rune::Tx), fonts: super::markdown_style::Fonts, meta: Meta, dress: &Dress, mark: Option<Color>, hits: super::find::Marks) -> El {
     let forge = dress.forge;
     // Full forge: a thematic break and a flat task list are drawn here, not by the kit.
     let rule = forge.on.rule().filter(|_| crate::fx::doc_fx::is_rule(source));
@@ -479,6 +480,31 @@ fn label_columns(source: &str, lines: &[crate::doc::labels::Line], hits: super::
     }))
 }
 
+/// Where a document's paths are looked up and the folders that tell its same-name files apart
+/// (`doc::paths`).
+pub(crate) struct Paths {
+    pub places: crate::doc::paths::Places,
+    pub labels: crate::doc::paths::Labels,
+}
+
+/// The [`Paths`] of `doc`, kept while it does not change: the labels look at every path of
+/// the document on disk, which a frame cannot afford.
+fn paths_of(doc: &Document) -> Arc<Paths> {
+    type Last = Option<((u64, u64, u64), Arc<Paths>)>;
+    thread_local! { static LAST: std::cell::RefCell<Last> = const { std::cell::RefCell::new(None) }; }
+    let key = (doc.id, doc.revision, doc.file_hash);
+    LAST.with_borrow_mut(|last| match last {
+        Some((k, p)) if *k == key => p.clone(),
+        _ => {
+            let places = crate::doc::paths::Places::of(&doc.path);
+            let labels = crate::doc::paths::Labels::of(doc.blocks.iter().map(|b| &*b.source), &places);
+            let p = Arc::new(Paths { places, labels });
+            *last = Some((key, p.clone()));
+            p
+        }
+    })
+}
+
 /// Weight of the labels in the column (the document's bold, `strong_weight`).
 const LABEL_WEIGHT: f32 = 620.0;
 /// The label column is at most 10 em wide (constraint 4).
@@ -488,7 +514,7 @@ const LABEL_GAP: f32 = 16.0;
 
 /// The Markdown of a block (or of a piece of it) as it is drawn, with the Find marks `hits`.
 #[allow(clippy::too_many_arguments)]
-fn block_body<S: 'static>(source: &str, style: &MarkdownStyle, notes: &crate::doc::footnotes::Notes, places: &crate::doc::paths::Places, progress: Option<(u32, u32)>, open: fn(&mut S, &str, &mut rune::Tx), fonts: super::markdown_style::Fonts, meta: Meta, dress: &Dress, hits: super::find::Marks) -> El {
+fn block_body<S: 'static>(source: &str, style: &MarkdownStyle, notes: &crate::doc::footnotes::Notes, places: &Paths, progress: Option<(u32, u32)>, open: fn(&mut S, &str, &mut rune::Tx), fonts: super::markdown_style::Fonts, meta: Meta, dress: &Dress, hits: super::find::Marks) -> El {
     let forge = dress.forge;
     let table = forge.on.forged && crate::fx::doc_fx::is_table(source);
     // A `Task N` heading: the number outside the Markdown, in `fg3`, and the progress on the right.
@@ -510,9 +536,9 @@ fn block_body<S: 'static>(source: &str, style: &MarkdownStyle, notes: &crate::do
         Some(e) => (e.text.as_str(), hits.into_iter().map(|(ranges, hl)| (ranges.iter().map(|r| e.map(r)).collect(), hl)).collect()),
         None => (source, hits),
     };
-    // Paths: monospaced links with the file name in bold (`doc::paths`); the name
-    // takes its color from a mark without a ground, like the Find ones.
-    let linked = crate::doc::paths::shown(source, places);
+    // Paths: links with the kind's icon and the base name (`doc::paths`); name and `L88` take
+    // their colors from marks without a ground, like the Find ones.
+    let linked = crate::doc::paths::shown(source, &places.places, &places.labels);
     let (source, hits) = match &linked {
         Some(sh) => {
             let e = &sh.edited;
@@ -551,7 +577,10 @@ fn block_body<S: 'static>(source: &str, style: &MarkdownStyle, notes: &crate::do
     // the heading and clipped to its glyphs by the compositor (`Piece::Chrome`).
     let chrome = (forge.on.engraved && level.is_some()).then(|| heading_chrome(forge.look));
     let md = rune_kit::Markdown::new(shown).highlights(hits).selectable(true);
-    let md = if linked.is_some() { path_links(md, &meta, fonts) } else { md };
+    let md = match &linked {
+        Some(sh) => path_links::<S>(md, &meta, fonts, sh.helps.clone(), places.places.root.clone().unwrap_or_else(|| places.places.dir.clone())),
+        None => md,
+    };
     let md = if forge.on.any() { forge_markdown(md, dress, callout.is_some()) } else { md };
     // Every link opens (`App::open_link`): paths, URLs and `#heading`.
     let md = md.on_link_tx(move |s: &mut S, url, tx| open(s, url, tx));
@@ -675,7 +704,7 @@ fn heading_chrome(look: crate::fx::doc_fx::Look) -> El {
 /// A flat task list, forged (Tasks): each item's checkbox a chrome bead (a gunmetal ring when
 /// unchecked), in the kit's checkbox place; the item's text is the block's Markdown.
 #[allow(clippy::too_many_arguments)]
-fn task_list<S: 'static>(items: Vec<(bool, &str)>, style: &MarkdownStyle, notes: &crate::doc::footnotes::Notes, places: &crate::doc::paths::Places, open: fn(&mut S, &str, &mut rune::Tx), fonts: super::markdown_style::Fonts, meta: Meta, dress: &Dress) -> El {
+fn task_list<S: 'static>(items: Vec<(bool, &str)>, style: &MarkdownStyle, notes: &crate::doc::footnotes::Notes, places: &Paths, open: fn(&mut S, &str, &mut rune::Tx), fonts: super::markdown_style::Fonts, meta: Meta, dress: &Dress) -> El {
     use crate::fx::doc_fx::{Piece, slot};
     use super::theme::{ICON, R_KBD};
     let look = dress.forge.look;
@@ -741,26 +770,44 @@ const TUBE_W: f32 = 44.0;
 const TUBE_H: f32 = 5.0;
 const TUBE_GAP: f32 = 6.0;
 
-/// The look of path links to files that exist (mockup p-mix): monospaced at 13.5 in
-/// `fg3`, underlined in `fg3` (the kit has no dotted line) and on hover a `sel` ground, a
-/// `fg2` line and "Open in RuneMD". Those that do not exist are not links (`doc::paths::shown`).
-fn path_links(md: rune_kit::Markdown, meta: &Meta, fonts: super::markdown_style::Fonts) -> rune_kit::Markdown {
-    use crate::doc::paths::OPEN;
+/// The look of path links to files and folders that exist (mockup `colori`): the kind's icon in its
+/// color, 1 em, then the name at weight 500 in `fg`, underlined in `fg2` only on hover; on hover
+/// the popover of [`crate::doc::paths::Shown::helps`] at once. Those that do not exist are not
+/// links (`doc::paths::shown`).
+fn path_links<S: 'static>(md: rune_kit::Markdown, meta: &Meta, fonts: super::markdown_style::Fonts, helps: std::collections::HashMap<String, String>, base: std::path::PathBuf) -> rune_kit::Markdown {
+    use crate::doc::paths::{Kind, OPEN};
     let c = meta.path;
-    let size = super::theme::CODE_TEXT * fonts.body.size / super::theme::BODY_TEXT;
-    let span = rune::text::Span { mono: true, size: Some(size), color: Some(c.dim), ..Default::default() };
-    md.link_style(move |url| {
-        if url.starts_with(OPEN) {
-            Some((rune::text::Span { underline: Some(c.dim), ..span.clone() }, rune::text::LinkPaint::new().bg(c.hover_bg).underline(c.hover_line)))
-        } else {
-            None
-        }
-    })
-    .link_help(|url| url.starts_with(OPEN).then(|| OPEN_HELP.to_owned()))
+    let size = fonts.body.size;
+    let span = rune::text::Span { weight: Some(PATH_WEIGHT), color: Some(c.name), ..Default::default() };
+    md.link_style(move |url| url.starts_with(OPEN).then(|| (span.clone(), rune::text::LinkPaint::new().underline(c.hover_line))))
+        .link_icon(move |url| {
+            let kind = Kind::of(url)?;
+            Some(rune::InlineIcon::glyph(super::path_icons::icon(kind)).color(super::path_icons::color(kind, c.dark)).size(size).gap(size * PATH_ICON_GAP))
+        })
+        .link_help(move |url| helps.get(url).cloned())
+        .on_link_secondary(move |_: &mut S, url, press, tx| path_menu::<S>(url, press, &base, tx))
 }
 
-/// The hint on paths that open (mockup p-mix).
-pub const OPEN_HELP: &str = "Open in RuneMD";
+/// Right-click on a path (mockup `colori`): Show in Finder, Copy Relative Path (from the repo
+/// root or the document's folder, `base`), Copy Full Path. Other links have no menu.
+fn path_menu<S: 'static>(url: &str, press: rune::PointerPress, base: &std::path::Path, tx: &mut rune::Tx) {
+    use crate::doc::paths;
+    let Some((path, _)) = paths::parse_target(url) else { return };
+    let menu = rune::PopupMenu::new().item(rune::PopupItem::new("reveal", "Show in Finder")).separator().item(rune::PopupItem::new("relative", "Copy Relative Path")).item(rune::PopupItem::new("full", "Copy Full Path"));
+    let rel = paths::relative(&path, base);
+    let full = path.to_string_lossy().trim_end_matches('/').to_owned();
+    tx.popup_menu(menu, press, move |_: &mut S, picked, tx| match picked {
+        Some("reveal") => paths::open_with_system(&path, true),
+        Some("relative") => tx.copy(rel),
+        Some("full") => tx.copy(full),
+        _ => {}
+    });
+}
+
+/// A path name's weight (mockup `colori`: 500).
+const PATH_WEIGHT: f32 = 500.0;
+/// Between a link's icon and its text, in em (mockup `colori`: .24 em).
+pub const PATH_ICON_GAP: f32 = 0.24;
 
 /// The level of a block that is an ATX heading (`#` … `######`). The kit folds levels from 4 down
 /// into one, in `muted`: for their block the view gives them the font and color of the real level.
@@ -1752,8 +1799,8 @@ mod tests {
         assert_eq!([h3.1, h4.1, h5.1, h6.1], [Some(t.body), Some(t.body), Some(t.fg2), Some(t.fg3)]);
     }
 
-    /// Paths (record 2026-11-16-paths-name-and-link): without backticks, in monospace; one that
-    /// exists is a link that opens the file at the line; one that does not exist is not; in code, nothing.
+    /// Paths (decision 2026-11-23-t3-style-paths): one that exists shows its base name and `L31`
+    /// and is a link that opens the file at the line; one that does not exist is not; in code, nothing.
     #[test]
     fn paths_show_as_links_that_open_the_file_at_the_line() {
         let t = std::env::temp_dir().join(format!("runemd-paths-view-{}", std::process::id()));
@@ -1772,7 +1819,7 @@ mod tests {
         rt.frame(0.0);
         settle(&mut rt);
         let texts: Vec<String> = rt.elements().into_iter().filter_map(|e| e.text).map(|x| x.replace(['\u{200B}', '\u{2066}', '\u{2069}', '\u{202F}'], "")).collect();
-        assert!(texts.iter().any(|x| x.contains("Vedi src/live/below.rs:31, src/live/below.rs e src/old/gone.rs.")), "{texts:?}");
+        assert!(texts.iter().any(|x| x.contains("Vedi below.rs L31, below.rs e src/old/gone.rs.")), "{texts:?}");
         assert!(texts.iter().any(|x| x.contains("cat src/live/below.rs")), "the code stays: {texts:?}");
         let url = crate::doc::paths::open_target(&t.join("src/live/below.rs").canonicalize().unwrap(), Some(31));
         rt.update(|s, tx| s.open_link(&url, tx));
@@ -1808,7 +1855,8 @@ mod tests {
         let reg = texts.iter().find(|x| x.starts_with("Task 1: BASE root")).unwrap_or_else(|| panic!("{texts:?}"));
         assert!(reg.contains("Implementer a382e1858b685d390.\nRuling: keychain"), "{reg:?}");
         assert!(reg.contains("review clean)\nTask 2: BASE 0095282."), "{reg:?}");
-        let preamble = texts.iter().find(|x| x.starts_with("Spec: docs/spec.md")).unwrap();
+        // `docs/spec.md` exists beside the test's working folder: it shows as its base name.
+        let preamble = texts.iter().find(|x| x.starts_with("Spec: spec.md")).unwrap_or_else(|| panic!("{texts:?}"));
         assert!(preamble.contains("push).\nRuling: lavoro"), "two lines, both labelled: {preamble:?}");
     }
 

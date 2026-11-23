@@ -1167,7 +1167,8 @@ impl App {
 
     /// A click on a link in the document. A path that exists (`runemd-open:`, `doc::paths`)
     /// opens the file in a pinned tab (or brings its tab to the front) and, with `:line`, puts the
-    /// block of that line at the top. `#heading` puts that heading at the top; a relative link to a file that
+    /// block of that line at the top; a folder opens in the sidebar tree; with Cmd the file opens
+    /// in its default app. `#heading` puts that heading at the top; a relative link to a file that
     /// exists opens it like a path; the others (`https:`, `mailto:`) are opened by the system.
     pub fn open_link(&mut self, url: &str, tx: &mut Tx) {
         if url.starts_with('#') {
@@ -1194,6 +1195,18 @@ impl App {
             }
         };
         let Some((path, line)) = crate::doc::paths::parse_target(&url) else { return };
+        // Cmd-click: the file in its default app, the folder in Finder.
+        if tx.mods().cmd {
+            crate::doc::paths::open_with_system(&path, false);
+            return;
+        }
+        // A folder opens in the sidebar tree; one outside every root is shown in Finder.
+        if path.is_dir() {
+            if !self.sidebar.reveal_dir(&path) {
+                crate::doc::paths::open_with_system(&path, true);
+            }
+            return;
+        }
         let before = self.tab().map(|t| t.doc.id);
         self.open_paths(vec![path.clone()]);
         if self.tab().map(|t| t.doc.id) != before {

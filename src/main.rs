@@ -116,6 +116,7 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
     // (and a bit darker in the light theme).
     let focus = ui::theme::focus_ring(cx.focus_color(), dark);
     cx.focus_ring(3.0, 0.0, focus);
+    cx.help_look(ui::theme::help_look(&theme));
     let hooks = ui::sidebar::Hooks { get: |s: &App| &s.sidebar, get_mut: |s: &mut App| &mut s.sidebar, open: App::open_from_sidebar, pin: App::pin_from_sidebar, ring: App::ring_of, query: App::requery_sidebar, create: App::create_from_sidebar, save: App::save_from_sidebar, unsave: App::unsave_from_sidebar, recent_collapsed: App::recent_collapsed, toggle_recent: App::toggle_recent };
     // With a file open the wordmark is not drawn: its handles go, so the cache frees the decoded
     // pixels (about 6 MB at 2×); going back to the empty screen decodes them again.

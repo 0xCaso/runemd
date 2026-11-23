@@ -101,6 +101,8 @@ pub fn style_with(theme: &Theme, face: Typeface) -> MarkdownStyle {
         .text(theme.body)
         .link(theme.fg)
         .link_underline(theme.fg3)
+        // A globe or GitHub's mark before web links, 1 em, like the path icons (mockup `colori`).
+        .link_icons(body.size, body.size * super::doc_view::PATH_ICON_GAP)
         .text_width(COLUMN)
         .muted(theme.fg3)
         .body_font(body)

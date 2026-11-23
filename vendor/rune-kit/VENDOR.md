@@ -14,5 +14,7 @@ Changes from the rev:
   any scheme; it replaces `MarkdownStyle::link_icons`' globe for the links it answers.
 - `Markdown::code_wrap` (`markdown.rs`, `markdown/render.rs`): code block `index` wraps its lines,
   or scrolls sideways (`Renderer::code_wrapped`).
+- `Markdown::code_header` (`markdown.rs`, `markdown/render.rs`): a row drawn on top of each code
+  block, inside its card (language, wrap and copy buttons).
 
 To drop the vendor: once Rune has equivalents, point `rune-kit` back at the git rev.

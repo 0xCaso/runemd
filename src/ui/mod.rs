@@ -8,6 +8,7 @@ pub mod forge;
 pub mod markdown_style;
 pub mod new_file;
 pub mod outline;
+pub mod path_icons;
 pub mod quick_open;
 pub mod relative_time;
 pub mod settings;

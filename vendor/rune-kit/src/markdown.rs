@@ -213,7 +213,11 @@ pub struct Markdown {
     on_image: Option<image::ImagePress>,
     link_icon: Option<link_icon::LinkIconWire>,
     code_wrap: Option<CodeWrapWire>,
+    code_header: Option<CodeHeaderWire>,
 }
+
+/// `Markdown::code_header`: the row on top of a code block, inside its card (RuneMD's local change).
+pub(super) type CodeHeaderWire = Rc<dyn Fn(&CodeFrame<'_>) -> El>;
 
 /// `Markdown::code_wrap`: whether code block `index` wraps its lines (RuneMD's local change).
 pub(super) type CodeWrapWire = Rc<dyn Fn(usize) -> bool>;
@@ -228,7 +232,7 @@ impl Markdown {
         Markdown { src: src.into(), style: None, block_keys: Vec::new(), highlights: Vec::new(), autolink: true, reveal: -1.0, streaming: false, on_link: None, on_link_secondary: None, link_look: None, link_help: None, link_ring: None, code_link: None,
             on_task: None, tasks_read_only: false, selectable: false, copy_source: false, scroll_wide: false, tentative: None, highlighter: Highlighter::builtin(),
             #[cfg(feature = "mermaid")]
-            diagram_frame: None, code_frame: None, quote_frame: None, link_favicon: None, images: None, on_image: None, link_icon: None, code_wrap: None }
+            diagram_frame: None, code_frame: None, quote_frame: None, link_favicon: None, images: None, on_image: None, link_icon: None, code_wrap: None, code_header: None }
     }
     /// Highlight UTF-8 byte ranges of the Markdown source string (see [`find`]).
     ///
@@ -396,6 +400,13 @@ impl Markdown {
     /// ```ignore
     /// Markdown::new(src).quote_frame(|quote, q| col().child(quote).child(copy_button(q.text)))
     /// ```
+    /// The row `f` draws on top of each code block, inside its card, above the code (RuneMD's
+    /// local change, vendor/rune-kit/VENDOR.md): language, wrap and copy buttons.
+    pub fn code_header(mut self, f: impl Fn(&CodeFrame<'_>) -> El + 'static) -> Self {
+        self.code_header = Some(Rc::new(f));
+        self
+    }
+
     /// Whether code block `index` (as [`CodeFrame::index`] counts) wraps its long lines; one
     /// that doesn't scrolls sideways (RuneMD's local change, vendor/rune-kit/VENDOR.md).
     pub fn code_wrap(mut self, f: impl Fn(usize) -> bool + 'static) -> Self {
@@ -454,6 +465,7 @@ impl Markdown {
             && self.on_image.is_none()
             && self.link_icon.is_none()
             && self.code_wrap.is_none()
+            && self.code_header.is_none()
             && !(cfg!(feature = "mermaid") && self.src.contains("mermaid"));
         if can_cache {
             let h = rune::memo::digest(&(
@@ -493,7 +505,7 @@ impl Markdown {
             highlighter: self.highlighter, sources, next_source: Cell::new(0), tasks, next_task: Cell::new(0),
             current_block_key: RefCell::new("b0".into()),
             #[cfg(feature = "mermaid")]
-            diagram_frame: self.diagram_frame, code_frame: self.code_frame, quote_frame: self.quote_frame, link_favicon: self.link_favicon, images: self.images, on_image: self.on_image, link_icon: self.link_icon, code_wrap: self.code_wrap, flow: Cell::default() };
+            diagram_frame: self.diagram_frame, code_frame: self.code_frame, quote_frame: self.quote_frame, link_favicon: self.link_favicon, images: self.images, on_image: self.on_image, link_icon: self.link_icon, code_wrap: self.code_wrap, code_header: self.code_header, flow: Cell::default() };
         // The document reads the way its first words do; until any arrive, the way it was asked.
         let root = bidi::directed(r.blocks(&blocks, &maps, &keys, true), bidi::blocks_dir(&blocks).or(self.tentative)).selection_group(self.selectable);
         if !(self.selectable && self.copy_source) { return root; }
