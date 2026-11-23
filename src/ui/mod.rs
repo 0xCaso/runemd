@@ -17,3 +17,5 @@ pub mod sidebar;
 pub mod source;
 pub mod tabs;
 pub mod theme;
+#[cfg(test)]
+mod hand_tests;

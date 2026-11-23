@@ -477,6 +477,10 @@ impl<S: 'static> Runtime<S> {
             if let Some(c) = self.nodes[i].handlers.cursor {
                 return c;
             }
+            // A pressable element with a hover state shows the hand (RuneMD feedback F1).
+            if self.nodes[i].hand() {
+                return crate::el::Cursor::Pointer;
+            }
             let Some(parent) = self.nodes[i].parent else { return crate::el::Cursor::Default };
             i = parent;
         }
