@@ -586,6 +586,42 @@ mod tests {
             .collect()
     }
 
+    /// Review R3 (record 2026-11-23-t3-paths-review): scrolled so headings pass under the tab bar,
+    /// every heading's chrome stays inside the document's viewport, below the bar, as its text
+    /// does; before, it was drawn over the tab bar and the strip above the panel.
+    #[test]
+    fn heading_chrome_stays_under_the_tab_bar_when_scrolled() {
+        let mut app = crate::App::bare(crate::index::Library::load(Vec::new(), None));
+        app.forge_lab = crate::fx::doc_fx::Directions::parse(Some("engraved"));
+        app.open_paths(vec![PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("fixtures/headings.md")]);
+        let scale = 2.0;
+        let mut rt = rune::Runtime::new(app, crate::view, (900.0, 700.0), rune::Env::new(true, scale));
+        rt.track_marks = true;
+        rt.frame(0.0);
+        let doc = rt.elements().into_iter().find(|e| e.key.as_deref() == Some("doc")).expect("the document scroll").rect;
+        // Small steps, so that at some frame a heading straddles the viewport's top edge.
+        let mut straddled = false;
+        for _ in 0..60 {
+            rt.wheel(doc[0] + 100.0, doc[1] + 200.0, -23.0);
+            rt.frame(1.0 / 120.0);
+            // The clip the compositor draws each slot in (`fx::Scopes`).
+            let mut scopes = crate::fx::Scopes::default();
+            for (n, i) in rt.instances.iter().enumerate() {
+                let clip = scopes.clip(i);
+                if i.params[1] != rune::render::KIND_EFFECT || rt.marks.get(n).copied() != Some(crate::fx::Mark::DocFx.id()) {
+                    continue;
+                }
+                if crate::fx::doc_fx::read(i.uv).map(|(p, _)| p) != Some(crate::fx::doc_fx::Piece::Chrome) {
+                    continue;
+                }
+                let top = doc[1] * scale;
+                straddled |= i.rect[1] < top && i.rect[1] + i.rect[3] > top;
+                assert!(clip[1] >= top - 0.5, "a chrome slot at {:?} clips at {clip:?}, above the document's top {top}", i.rect);
+            }
+        }
+        assert!(straddled, "no heading crossed the top edge: the test scrolled too little");
+    }
+
     /// Full forge off: no forge slot in the document, so nothing is drawn differently.
     #[test]
     fn full_forge_off_draws_no_forge_piece() {

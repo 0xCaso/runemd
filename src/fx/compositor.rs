@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use rune::compose::{Compositor, Frame};
-use rune::render::{EffectPhase, EffectSite, Instance, KIND_EFFECT, KIND_GLYPH};
+use rune::render::{EffectPhase, EffectSite, Instance, KIND_EFFECT, KIND_GLYPH, KIND_LAYER, KIND_LAYER_END};
 use rune_fx::{FxBlend, FxFrame, FxLayer, FxOptions, FxRenderer, FxSlot, Rect};
 
 use super::marks::Mark;
@@ -55,6 +55,34 @@ pub fn heading_glyphs(instances: &[Instance], at: usize, out: &mut Vec<Instance>
         }
         out.push(Instance { fill: [1.0; 4], ..*i });
     }
+}
+
+/// The clips of the layers open at a point of the instance stream. Rune applies a layer's clip (a
+/// scroll view's, for one: the document's rows are a layer cut at the view's edges) when it
+/// composites the layer, and the instances inside keep only the clips of their ancestors outside
+/// it. rune-fx draws a slot straight into the pass inside its own clip, so a slot cut only by its
+/// own clip painted past the view: a heading's chrome over the tab bar (review R3,
+/// docs/decisions/2026-11-23-t3-paths-review.md).
+#[derive(Default)]
+pub struct Scopes(Vec<[f32; 4]>);
+
+impl Scopes {
+    /// Steps past `i` (instances in drawing order) and gives its clip cut by every layer it sits in.
+    pub fn clip(&mut self, i: &Instance) -> [f32; 4] {
+        let cut = self.0.last().map_or(i.clip, |c| intersect(*c, i.clip));
+        if i.params[1] == KIND_LAYER {
+            self.0.push(cut);
+        } else if i.params[1] == KIND_LAYER_END {
+            self.0.pop();
+        }
+        cut
+    }
+}
+
+/// The overlap of two device-pixel clips `[x0, y0, x1, y1]` (empty when they do not meet).
+fn intersect(a: [f32; 4], b: [f32; 4]) -> [f32; 4] {
+    let (x0, y0) = (a[0].max(b[0]), a[1].max(b[1]));
+    [x0, y0, a[2].min(b[2]).max(x0), a[3].min(b[3]).max(y0)]
 }
 
 /// A slot's rect in pt.
@@ -241,7 +269,9 @@ impl Compositor<App> for FxCompositor {
         let mut tip_layer: Option<FxLayer> = None;
         let mut metal = false;
         let mut mask: Vec<Instance> = Vec::new();
+        let mut scopes = Scopes::default();
         for (n, i) in f.rt.instances.iter().enumerate() {
+            let clip = scopes.clip(i);
             if i.params[1] != KIND_EFFECT {
                 continue;
             }
@@ -315,7 +345,7 @@ impl Compositor<App> for FxCompositor {
             let blend = if mark == Mark::DocFx.id() { doc_fx::blend_of(i.uv) } else { FxBlend::Normal };
             at.push(n as u32);
             layers.push(layer);
-            let slot = FxSlot::default().scale(i.params[3]).clip(i.clip, i.fade).blend(blend);
+            let slot = FxSlot::default().scale(i.params[3]).clip(clip, i.fade).blend(blend);
             slots.push(slot);
             if let Some(tips) = tip_layer.take() {
                 at.push(n as u32);
