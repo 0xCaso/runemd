@@ -3,3 +3,4 @@ build/
 .superpowers/
 bench/results/*
 !bench/results/writes-*.log
+__pycache__/
