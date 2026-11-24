@@ -21,7 +21,13 @@ fn markdown(source: &str) -> Vec<String> {
     for (event, range) in Parser::new_ext(source, opts).into_offset_iter() {
         match event {
             Event::Start(_) => {
-                if depth == 0 { start = range.start; }
+                // The parser starts an indented code block after its indent: take the line from
+                // its start, or on its own the block becomes a paragraph (ledger
+                // `2026-11-24-indented-code`).
+                if depth == 0 {
+                    let line = source[..range.start].rfind('\n').map_or(0, |i| i + 1);
+                    start = if source[line..range.start].bytes().all(|b| b == b' ' || b == b'\t') { line } else { range.start };
+                }
                 depth += 1;
             }
             Event::End(_) => {
@@ -46,6 +52,14 @@ mod tests {
     }
 
     /// The frontmatter at byte 0 is a block of its own, as it is; the rest is split as always.
+    /// Scrawl 1795533537078 (ledger `2026-11-24-indented-code`): an indented code block keeps its
+    /// indent, so on its own it is still code and not a paragraph with links.
+    #[test]
+    fn an_indented_code_block_keeps_its_indent() {
+        let src = "Build:\n\n    make app    # builds build/RuneMD.app\n    open build/RuneMD.app\n\n## Next\n";
+        assert_eq!(super::split(src), ["Build:", "    make app    # builds build/RuneMD.app\n    open build/RuneMD.app", "## Next"]);
+    }
+
     #[test]
     fn frontmatter_is_one_block_as_written() {
         let src = "---\nname: RuneMD\ncolors:\n  fg: \"x\"\n---\n\n# Design\n\nText.\n";
