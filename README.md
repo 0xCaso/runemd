@@ -1,4 +1,4 @@
-<p align="center"><img src="docs/images/runemd-wordmark.png" alt="RuneMD wordmark: a liquid chrome plate with RuneMD cut in, fire inside the letters" width="420"></p>
+<p align="center"><img src="docs/images/runemd-wordmark.png" alt="RuneMD wordmark: a liquid chrome plate with RuneMD cut in, fire inside the letters" width="439"></p>
 
 <p align="center">A native Markdown reader for macOS that shows what your agents write, live.</p>
 
