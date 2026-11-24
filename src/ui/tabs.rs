@@ -166,7 +166,7 @@ pub fn thumb(offset: f32, max: f32, viewport: f32) -> [f32; 4] {
     [x, 0.0, w, SCROLL_BAR]
 }
 
-/// The bar: `TAB_BAR_H` tall on the `tab_bar` tint, with a 0.5 line at the bottom. The tabs scroll sideways under the buttons on the right. `hover`: the pointer is a fine one
+/// The bar: `TAB_BAR_H` tall plus an empty 0.5 strip, over the `tab_bar` tint that `main` lays behind the bar and the document. The tabs scroll sideways under the buttons on the right. `hover`: the pointer is a fine one
 /// and can hover.
 pub fn view(s: &App, hooks: Hooks<App>, theme: &Theme, reduced: bool, hover: bool) -> El {
     let motion = Motion { reduced, hover };
@@ -201,10 +201,12 @@ pub fn view(s: &App, hooks: Hooks<App>, theme: &Theme, reduced: bool, hover: boo
     let end = row().key("bar-end").h(TAB_BAR_H).pt(TAB_TOP).pb(MID_PAD).ml(-FADE_W).pl(FADE_W + ROW_GAP).pr(TAB_BAR_PAD_X).center_y()
         .backdrop_blur(if s.tabs_overflow { FADE_BLUR } else { 0.0 }).fill(bar_color.alpha(FADE_TINT)).clip_fade_linear(FADE_W, 0.0, 0.0, 0.0)
         .children(find).child(tools);
-    let line = el().key("tab-bar-line").pin(Some(0.0), None, Some(0.0), Some(0.0)).h(HAIRLINE).fill(theme.line);
+    // No visible line under the bar (scrawl 1795528129903): the document's round corners mark the
+    // edge. The empty strip keeps the bar's height and the room under the front tab's ring.
+    let line = el().key("tab-bar-line").pin(Some(0.0), None, Some(0.0), Some(0.0)).h(HAIRLINE);
     // The bar moves the window like a title bar (`main`: `Chrome::drag_regions`); its tabs and buttons
     // keep their presses, so a double click on a tab pins it and does not zoom the window.
-    row().key("tab-bar").window_drag().w_full().h(TAB_BAR_H + HAIRLINE).fill(theme.tab_bar()).child(line).child(strip_box).child(end)
+    row().key("tab-bar").window_drag().w_full().h(TAB_BAR_H + HAIRLINE).child(line).child(strip_box).child(end)
 }
 
 /// The strip's tabs (`which` 0) or viewport (1) laid out `w` wide: the view runs again only when the
@@ -807,6 +809,20 @@ mod tests {
         let dividers = rt.elements().iter().filter(|e| e.key.as_deref() == Some("tab-divider")).count();
         assert_eq!(dividers, 2);
         assert!(find(&rt, "tab-bar-line").is_some(), "the bar's line runs under every tab");
+    }
+
+    /// Scrawl 1795528129903 (ledger `2026-11-24-panel-corners`): the document is a solid card under
+    /// the bar with the panel's radius on its top corners too (P1), and no line between them (P2).
+    #[test]
+    fn the_document_has_round_top_corners_and_no_bar_line() {
+        let rt = tabs(&["alpha.md", "beta.md"]);
+        let body = find(&rt, "body").expect("body");
+        let bar = find(&rt, "tab-bar").expect("bar");
+        assert_eq!(body.radius, R_PANEL, "the document's top corners match the panel's bottom ones");
+        assert_eq!(body.fill.a, 1.0, "the document is solid, so the bar's tint shows around its corners");
+        assert_eq!(bar.fill.a, 0.0, "the tint sits behind the bar and the document, not on the bar");
+        assert!(find(&rt, "tab-bar-line").is_none_or(|l| l.fill.a == 0.0), "no line under the bar");
+        assert!((body.rect[1] - (bar.rect[1] + bar.rect[3])).abs() < 0.01, "the document starts at the bar's bottom");
     }
 
     /// Hovering a back tab shows its × in the slot it always had: no tab moves or changes width.
