@@ -131,9 +131,9 @@ pub fn style_with(theme: &Theme, face: Typeface) -> MarkdownStyle {
         .table_open_end(true)
         .table_rules(theme.line)
         // Items that wrap stand 12 apart, one-line items 4 (feedback 2026-11-24, G6). Measured
-        // against the default text column: in a narrower one a list can wrap and keep 4.
+        // against the default text column inside the row padding, like `diagram_max_width`.
         .list(LIST_INDENT, LIST_GAP)
-        .list_wrap(LIST_WRAP_GAP, super::theme::COLUMN)
+        .list_wrap(LIST_WRAP_GAP, COLUMN - 2.0 * ROW_PAD_X)
         .rule(theme.line)
         // Task list checkboxes like the Settings one (DESIGN.md, "Contrast"):
         // off is empty with a 1 border in `fg3`, on is filled `fg2` with the check in `panel`.
