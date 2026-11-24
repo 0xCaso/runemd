@@ -1052,8 +1052,9 @@ mod tests {
     }
 
     /// Decision 2026-11-17-doc-fire-at-rest: the fire is a choice of three (Brief, Always, Off), Off
-    /// chosen by default (feedback 2026-11-24, G4); the note on the CPU sits right under Always; a click picks and saves; the
-    /// room above the fire stays for Brief and Always, not for Off (constraints 1, 3, 7).
+    /// chosen by default (feedback 2026-11-24, G4); the note on the CPU sits right under Always; a
+    /// click picks and saves; the room above the fire stays for Brief and Always, not for Off
+    /// (constraints 1, 3, 7).
     #[test]
     fn the_fire_is_a_choice_of_three_with_a_note_under_always() {
         let mut rt = open("# Title\n\nText.\n", true);

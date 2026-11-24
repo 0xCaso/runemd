@@ -25,7 +25,6 @@ fn log_dir() -> Option<PathBuf> {
     std::env::var_os("HOME").map(|h| PathBuf::from(h).join("Library/Logs/RuneMD"))
 }
 
-/// The text of the log.
 fn report(info: &PanicHookInfo<'_>, backtrace: &str) -> String {
     let message = info
         .payload()
