@@ -46,10 +46,13 @@ const BRANCH_ICON: f32 = 12.0;
 /// Above "Add folder", 8 (mockup A, `.sep`).
 const SEP_BOTTOM: f32 = 8.0;
 
-/// The maximum height of Recent in a sidebar `sidebar_h` tall: `RECENT_SHARE`, rounded
-/// down to the point.
+/// The maximum height of Recent in a sidebar `sidebar_h` tall: at most `RECENT_SHARE`, cut down to
+/// whole rows plus the rings' room above and below, so Recent never stops on a row cut in half
+/// (ledger `2026-11-24-sidebar-recent`, R2). At least one row.
 pub fn recent_cap(sidebar_h: f32) -> f32 {
-    (sidebar_h * RECENT_SHARE).floor()
+    let share = (sidebar_h * RECENT_SHARE).floor();
+    let rows = ((share - 2.0 * RING_ROOM + RECENT_GAP) / (RECENT_ROW + RECENT_GAP)).floor().max(1.0);
+    2.0 * RING_ROOM + rows * RECENT_ROW + (rows - 1.0) * RECENT_GAP
 }
 
 /// The repo: a book with the spine on the left (mockup A), drawn like the kit icons
@@ -723,7 +726,7 @@ pub fn view<S: 'static>(s: &S, hooks: Hooks<S>, width: f32, theme: &Theme, reduc
     }
     if !sb.folders.is_empty() {
         // "Favourites": the favourite roots, and the open file's root when it is not one.
-        side = side.child(section("Favourites", theme)).child(tree(sb, hooks, width, theme, motion));
+        side = side.child(section("Favourites", theme).pt(SECTION_PAD_TOP + FAVOURITES_EXTRA)).child(tree(sb, hooks, width, theme, motion));
     } else {
         side = side.child(el().grow(1.0).min_h(0.0));
     }
@@ -765,12 +768,13 @@ fn no_access<S: 'static>(root: &Path, sb: &Sidebar, hooks: Hooks<S>, theme: &The
 /// a click collapses Recent so only the trees show, and expands it again. Remembered across launches.
 fn recent_title<S: 'static>(sb: &Sidebar, hooks: Hooks<S>, collapsed: bool, theme: &Theme, motion: Motion) -> El {
     let chevron = icon(&glyphs::CHEVRON_DOWN, RECENT_CHEVRON).color(theme.fg3).icon_rotation(if collapsed { -std::f32::consts::FRAC_PI_2 } else { 0.0 });
+    // The hover box is a row tall with the label in its middle, like the other rows; the section's
+    // room above it stays outside (ledger `2026-11-24-sidebar-recent`, R1).
     let e = row()
         .key("section-recent")
         .w_full()
-        .pt(SECTION_PAD_TOP)
+        .h(ROW)
         .px(ROW_PAD)
-        .pb(SECTION_PAD_BOTTOM)
         .gap(4.0)
         .center_y()
         .role("button")
@@ -780,8 +784,14 @@ fn recent_title<S: 'static>(sb: &Sidebar, hooks: Hooks<S>, collapsed: bool, them
         .child(text("Recent").key("Recent").font(small_font()).color(theme.fg3).a11y_hidden())
         .child(chevron)
         .on_press(move |s: &mut S| (hooks.toggle_recent)(s));
-    pressable(e, "section-recent".into(), sb, hooks, theme, motion, true).key("section-recent")
+    let e = pressable(e, "section-recent".into(), sb, hooks, theme, motion, true).key("section-recent");
+    // The label stays where it was (about 14 below the room's top, 6 above the rows): a 12 pt label
+    // is about 15 tall, so the row's own padding is about 6.5 on each side.
+    col().w_full().pt(SECTION_PAD_TOP - SECTION_PAD_BOTTOM).child(e)
 }
+
+/// Extra room above "Favourites", so it stands apart from Recent (ledger `2026-11-24-sidebar-recent`, R3).
+const FAVOURITES_EXTRA: f32 = 6.0;
 
 /// The chevron after "Recent", pt.
 const RECENT_CHEVRON: f32 = 10.0;
@@ -1073,14 +1083,15 @@ mod tests {
     fn recent_row_height_maths() {
         let pad = (RECENT_ROW - RECENT_NAME_LH - RECENT_LINE_GAP - RECENT_META_LH) / 2.0;
         assert_eq!(pad, 5.5);
-        assert_eq!((recent_cap(616.0), recent_cap(800.0), recent_cap(1000.5)), (246.0, 320.0, 400.0));
+        // 40 % (246, 320, 400) cut down to whole rows plus 2 × RING_ROOM (R2).
+        assert_eq!((recent_cap(616.0), recent_cap(800.0), recent_cap(1000.5)), (237.0, 284.0, 378.0));
         // The mockup window (sidebar 616 tall), an 800 window and a short 600 one.
         assert_eq!(recent_rows_in(recent_cap(616.0)), 5);
         assert_eq!(recent_rows_in(recent_cap(800.0)), 6);
         assert_eq!(recent_rows_in(recent_cap(600.0)), 5);
         assert_eq!(recent_rows_in(recent_cap(560.0)), 4);
         let old = |cap: f32| ((cap + RECENT_GAP) / (ROW + RECENT_GAP)).floor() as usize;
-        assert_eq!(old(recent_cap(616.0)), 8, "before: 28 pt rows");
+        assert_eq!(old((616.0 * RECENT_SHARE).floor()), 8, "before: 28 pt rows");
         assert_eq!(recent_rows_in(0.0), 0);
     }
 
@@ -1207,6 +1218,36 @@ mod tests {
         assert_eq!(docs.first().map(String::as_str), Some("0:"), "the repo first: {docs:?}");
         assert!(docs.len() <= 2, "at most the root and one folder: {docs:?}");
         assert_eq!(sticky_at(&mut sb, at("0:docs/deep/c.md") - 1), ["0:", "0:docs/deep"], "the rows under the sticky ones decide");
+    }
+
+    /// Ledger `2026-11-24-sidebar-recent`: the "Recent" title's hover box is a row tall (`ROW`) with the
+    /// label in its middle, like the other hovers (R1); a long Recent stops on a whole row, never on
+    /// one cut in half (R2).
+    #[test]
+    fn the_recent_title_is_a_row_and_recent_ends_on_a_whole_row() {
+        let files: Vec<String> = (1..=20).map(|n| format!("docs/note-{n}.md")).collect();
+        let refs: Vec<&str> = files.iter().map(String::as_str).collect();
+        let (_d, root) = repo_with(&refs);
+        for h in [700.0, 800.0, 937.0] {
+            let mut app = crate::App::bare(crate::index::Library::load(vec![root.clone()], None));
+            app.library.index = Index::from_entries(files.iter().enumerate().map(|(i, f)| entry(&root.join(f), i as u64)).collect());
+            app.open_paths(vec![root.join(&files[0])]);
+            app.sidebar.refresh(&app.library.index, &[], SystemTime::now());
+            let mut rt = rune::Runtime::new(app, crate::view, (1280.0, h), rune::Env::new(true, 2.0));
+            rt.frame(0.0);
+            for _ in 0..400 {
+                if !rt.frame(1.0 / 120.0) { break; }
+            }
+            let find = |key: &str| rt.elements().into_iter().find(|e| e.key.as_deref() == Some(key) && !e.exiting);
+            let title = find("section-recent").expect("title").rect;
+            let label = find("Recent").expect("label").rect;
+            assert!((title[3] - ROW).abs() < 0.01, "{h}: the hover box is a row tall: {title:?}");
+            assert!(((label[1] + label[3] / 2.0) - (title[1] + title[3] / 2.0)).abs() < 0.51, "{h}: the label in the middle: {label:?} in {title:?}");
+            let list = find("recent").expect("list").rect;
+            let inner = list[3] - 2.0 * RING_ROOM + RECENT_GAP;
+            let step = RECENT_ROW + RECENT_GAP;
+            assert!((inner / step - (inner / step).round()).abs() < 0.01, "{h}: Recent {list:?} ends on a whole row");
+        }
     }
 
     /// Feedback group 3, item 7: a click on "Recent" collapses it (no rows, the tree moves up and gets
