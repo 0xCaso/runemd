@@ -20,7 +20,7 @@ use rune_kit::glyphs;
 
 use super::sidebar::{self, Hooks, Motion};
 use super::theme::{
-    HAIRLINE, ICON, OUTLINE_PAD_X, ROW, ROW_GAP, ROW_PAD, SECTION_PAD_BOTTOM,
+    HAIRLINE, ICON, OUTLINE_PAD_X, ROW, ROW_GAP, ROW_PAD,
     SECTION_PAD_TOP, SIDEBAR, Theme, UI_SMALL, UI_STRONG_WEIGHT, UI_TEXT,
     UI_WEIGHT,
 };
@@ -87,7 +87,14 @@ const FONT_ROWS: f32 = 8.5;
 /// A font row's name in its own face (feedback group 3, item 10), a point above the UI text.
 const FONT_PREVIEW: f32 = UI_TEXT + 1.0;
 /// Between sections (feedback group 3, item 9): a line, then the title.
-const SECTION_GAP: f32 = 14.0;
+const SECTION_GAP: f32 = 16.0;
+/// Above a section's rule, so the last row's text sits as far from the rule as the next title does
+/// (feedback 2026-11-24, G10): a row's text leaves about `SECTION_GAP - RULE_ABOVE` free under it.
+const RULE_ABOVE: f32 = 11.0;
+/// Under a section title, before its first row (G11: the chosen row's fill sat right under it).
+const TITLE_BELOW: f32 = 8.0;
+/// Above and below a wrapped switch label.
+const SWITCH_PAD_Y: f32 = 4.0;
 /// Below the last setting, over the fire at the bottom of the panel (item 12): the lit fire at the
 /// chosen height, so scrolled to the end the last row sits above the flames, also when they rise.
 pub fn bottom_room(fire: bool, height: f32) -> f32 {
@@ -466,7 +473,6 @@ pub fn view(s: &App, hooks: Hooks<App>, theme: &Theme, reduced: bool, hover: boo
 
     body = body
         .child(section(FIRE_SECTION, theme))
-        .child(sub_label(FIRE, theme))
         .child(fire_modes(s, hooks, theme, motion))
         .child(fire_look(s, hooks, theme, motion));
 
@@ -657,10 +663,10 @@ fn section_at(label: &'static str, first: bool, theme: &Theme) -> El {
         .color(theme.fg2)
         .pt(if first { SECTION_PAD_TOP } else { SECTION_GAP })
         .px(ROW_PAD)
-        .pb(SECTION_PAD_BOTTOM);
+        .pb(TITLE_BELOW);
     let mut e = col().key(format!("section-{label}")).w_full();
     if !first {
-        e = e.mt(SECTION_GAP - SECTION_PAD_TOP).child(el().key(format!("rule-{label}")).w_full().h(HAIRLINE).fill(theme.line));
+        e = e.mt(RULE_ABOVE).child(el().key(format!("rule-{label}")).w_full().h(HAIRLINE).fill(theme.line));
     }
     e.child(title)
 }
@@ -813,21 +819,61 @@ fn still_option(key: String, label: &str, chosen: bool, theme: &Theme) -> El {
         )
 }
 
-/// The charged edge switch: a row like an option (check mark when on), a checkbox for VoiceOver, with
-/// its CPU note in `fg3` under it, aligned with the label.
+/// The charged edge switch (decision 2026-11-24-settings-visual-details, item 2): the label left, a
+/// switch right, the whole row pressable and read as a switch; its CPU note in `fg3` under it.
 fn electric_switch(s: &App, hooks: Hooks<App>, theme: &Theme, motion: Motion) -> El {
     let on = s.settings.electric;
-    let row = option(s, hooks, "set-electric".to_owned(), ELECTRIC, on, theme, motion, move |s: &mut App| s.set_electric(!on)).role("checkbox");
+    let control = switch_track(on, theme, motion).key("set-electric-switch");
+    // The label wraps rather than cut: next to the switch the narrow panel fits about 160 points.
+    let row = row()
+        .w_full()
+        .min_h(ROW)
+        .py(SWITCH_PAD_Y)
+        .px(ROW_PAD)
+        .gap(ROW_GAP)
+        .center_y()
+        .role("switch")
+        .label(ELECTRIC)
+        .checked(on)
+        .child(
+            text(ELECTRIC)
+                .font(ui_font())
+                .color(theme.fg)
+                .wrap()
+                .grow(1.0)
+                .shrink()
+                .min_w(0.0)
+                .a11y_hidden(),
+        )
+        .child(control)
+        .on_press(move |s: &mut App| s.set_electric(!on));
+    let row = sidebar::pressable(row, "set-electric".to_owned(), &s.sidebar, hooks, theme, motion, true).key("set-electric");
     let note = text(ELECTRIC_NOTE)
         .key("set-electric-note")
         .font(TextStyle::new(UI_SMALL, UI_WEIGHT))
         .color(theme.fg3)
         .wrap()
         .w_full()
-        .pl(ROW_PAD + ICON + ROW_GAP)
-        .pr(ROW_PAD)
+        .px(ROW_PAD)
         .pb(ROW_GAP);
     col().key("set-electric-group").w_full().child(row).child(note)
+}
+
+/// An `NSSwitch`-sized track (36 × 16, knob 21 × 14) in theme tokens: off `fg3` with a white knob,
+/// on `fg` with a `panel` knob, so both states read in both themes (rune-kit's neutral off track
+/// nearly vanishes on the light panel). The knob slides with the kit's control spring.
+fn switch_track(on: bool, theme: &Theme, motion: Motion) -> El {
+    const TW: f32 = 36.0;
+    const TH: f32 = 16.0;
+    const KW: f32 = 21.0;
+    const KH: f32 = 14.0;
+    const INSET: f32 = 1.0;
+    let (track, knob) = if on { (theme.fg, theme.panel) } else { (theme.fg3, rune::Color::WHITE) };
+    let mut thumb = el().key("thumb").size(KW, KH).absolute(if on { TW - INSET - KW } else { INSET }, INSET).radius(KH / 2.0).fill(knob);
+    if !motion.reduced {
+        thumb = thumb.motion(rune_kit::Kit::neutral(theme.dark).motion.control);
+    }
+    el().size(TW, TH).radius(TH / 2.0).fill(track).a11y_hidden().child(thumb)
 }
 
 /// The fire choices (Brief, Always, Off) like the theme ones, with the CPU note in `fg3` right under
@@ -967,6 +1013,23 @@ mod tests {
         }
     }
 
+    /// Feedback 2026-11-24, G10 and G11: each rule sits as far below the last row's text as the next
+    /// title's text sits below it, and the title is closer to its first row than to the rule.
+    #[test]
+    fn a_section_rule_sits_midway_and_the_title_hugs_its_rows() {
+        let mut rt = open("# Title\n\nText.\n", true);
+        cmd(&mut rt, ',');
+        let find = |k: &str| rt.elements().into_iter().find(|e| e.key.as_deref() == Some(k)).unwrap_or_else(|| panic!("missing {k}"));
+        let row = find("set-theme-Dark").rect;
+        let rule = find(&format!("rule-{EFFECTS_SECTION}")).rect;
+        let title = find(EFFECTS_SECTION).rect;
+        // A row's text is centred in `ROW`, a title's text sits at the bottom of its top padding.
+        let above = rule[1] - (row[1] + row[3] / 2.0 + UI_TEXT / 2.0);
+        let below = title[1] + SECTION_GAP - (rule[1] + rule[3]);
+        assert!((above - below).abs() <= 3.0, "rule midway: {above} above, {below} below");
+        assert!(TITLE_BELOW < below, "the title hugs its rows: {TITLE_BELOW} under it, {below} over it");
+    }
+
     /// Feedback group 3, item 12: with the fire on, the panel ends with room as tall as the lit fire, so
     /// scrolled to the end its last row sits above the flames; with the fire off, the usual margin.
     #[test]
@@ -1038,8 +1101,13 @@ mod tests {
         let find = |rt: &Runtime<App>, k: &str| rt.elements().into_iter().find(|e| e.key.as_deref() == Some(k)).unwrap_or_else(|| panic!("missing {k}"));
         let theme = crate::ui::theme::Theme::for_mode(true);
         let e = find(&rt, "set-electric");
-        assert_eq!(e.role, "checkbox");
+        assert_eq!(e.role, "switch");
         assert!(!rt.state.settings.electric && e.fill != theme.sel, "off by default");
+        // Decision 2026-11-24-settings-visual-details, item 2: a switch at the row's right end, knob left when off.
+        let track = find(&rt, "set-electric-switch").rect;
+        assert!((track[0] + track[2] - (e.rect[0] + e.rect[2] - ROW_PAD)).abs() < 0.5, "the switch ends at the row's padding: {track:?} in {:?}", e.rect);
+        let knob_x = |rt: &Runtime<App>| rt.elements().into_iter().find(|x| x.key.as_deref() == Some("thumb") && x.parent.is_some_and(|p| rt.elements()[p].key.as_deref() == Some("set-electric-switch"))).expect("the knob").target[0];
+        assert!(knob_x(&rt) < track[0] + 2.0, "knob left when off");
         assert!(!rt.state.forge().electric);
         let note = find(&rt, "set-electric-note").rect;
         assert!(note[1] >= e.rect[1] + e.rect[3] - 0.5, "the note under the switch: {note:?}");
@@ -1058,6 +1126,8 @@ mod tests {
             assert_eq!(rt.state.settings.electric, want);
             assert_eq!(rt.state.forge().electric, want);
             assert_eq!(charged(&rt), want, "the Warning callout's charged edge");
+            let track = find(&rt, "set-electric-switch").rect;
+            assert_eq!(knob_x(&rt) > track[0] + 2.0, want, "knob right when on: {} in {track:?}", knob_x(&rt));
         }
     }
 
@@ -1073,7 +1143,7 @@ mod tests {
             "the panel takes the outline's place"
         );
         for label in [
-            ROOTS, FONT, SIZE, THEME, "System", "Light", "Dark", FIRE, "Brief", "Always", "Off", FIRE_ALWAYS_NOTE, ADD_ROOT, "Inter",
+            ROOTS, FONT, SIZE, THEME, "System", "Light", "Dark", FIRE_SECTION, "Brief", "Always", "Off", FIRE_ALWAYS_NOTE, ADD_ROOT, "Inter",
             "SF Pro", "15.5 pt",
         ] {
             assert!(
@@ -1082,6 +1152,7 @@ mod tests {
                 texts(&rt)
             );
         }
+        assert!(!texts(&rt).iter().any(|t| t == FIRE), "no sub-label under Fire (decision 2026-11-24-settings-visual-details, item 3)");
         cmd(&mut rt, ',');
         assert!(!has(&rt, "settings"));
         cmd(&mut rt, ',');

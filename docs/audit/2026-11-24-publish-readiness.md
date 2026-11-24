@@ -25,4 +25,5 @@ Already in place: MIT `LICENSE`, user `README.md`, recovery copies, startup p50 
   - The empty window still shows "⌘E source" and the ↔ width button, with no document to act on.
   - "Charged edge on warnings" has no visible off state: with no check mark it does not read as a switch.
   - In the Fire group the "Fire at the bottom of the panel" line sits right on the Off row, with less space than the other groups.
+- The three items above are fixed (decision `docs/decisions/2026-11-24-settings-visual-details.md`).
 - **Fixed in this branch:** watched-folder path cut at the end (now middle), fire choices not starting with the default (now Off first).
