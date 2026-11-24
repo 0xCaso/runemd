@@ -1,4 +1,4 @@
-.PHONY: check app
+.PHONY: check app release
 
 check:
 	cargo clippy --profile perf --all-targets -- -D warnings
@@ -8,3 +8,6 @@ check:
 app:
 	cargo build --profile perf
 	scripts/make_app.sh
+
+release:
+	scripts/make_release.sh

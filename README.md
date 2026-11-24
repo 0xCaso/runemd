@@ -42,6 +42,14 @@ Then build the app and open a file:
     make app                                # builds build/RuneMD.app, signed "RuneMD Local"
     open build/RuneMD.app --args file.md
 
+## Release package
+
+    make release    # build/RuneMD-<version>.zip (ad hoc signed) and build/RuneMD-<version>-notes.md
+
+It does not tag or publish. The notes come from `assets/release-notes.md` and explain how to open an app
+without a Developer ID. `make release` replaces `build/RuneMD.app` with the ad hoc build: run `make app`
+afterwards to get the local one back.
+
 ## Opening files
 
 - Finder, "Open With" or `open -a RuneMD file.md`: Launch Services delivers the files with

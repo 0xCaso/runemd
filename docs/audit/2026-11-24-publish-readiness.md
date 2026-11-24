@@ -7,7 +7,7 @@ Answers G1 and G2 of `docs/feedback/2026-11-24-publish-ui-review.md`. Branch `fi
 | # | Gap | Evidence | Needs |
 |---|---|---|---|
 | 1 | **Signing and notarization.** The app is signed with the self-made "RuneMD Local" certificate; Gatekeeper rejects it, so on another Mac it does not open with a double click. | `scripts/make_app.sh:15-17`; `spctl -a -vv build/RuneMD.app` → `rejected`, `TeamIdentifier=not set` | Apple Developer Program account (Matteo), Developer ID Application certificate, `notarytool` + `stapler` in `make_app.sh` |
-| 2 | **Release package.** No DMG or zip, no git tag, no GitHub Release; version `0.0.1`. | `Cargo.toml:3`, `git tag` empty | A `make release` target: build, sign, notarize, zip/DMG, tag |
+| 2 | **Release package.** No DMG or zip, no git tag, no GitHub Release; version `0.0.1`. | `Cargo.toml:3`, `git tag` empty | Done for the unsigned path: `make release` (`scripts/make_release.sh`) builds the ad hoc signed zip and the notes; tag and publish stay manual, with Matteo's OK |
 | 3 | **Where people download it.** The repo is private; there is no download page. | `gh repo view` → `PRIVATE` | Matteo: public repo or a site, and when |
 | 4 | **Updates.** No update check: users stay on the version they downloaded. | no updater in `Cargo.toml` or `src` | v1 can ship without one; a simple "new version on GitHub Releases" check later |
 | 5 | **Crash trace.** No panic hook: a panic closes the window with no log for the user to send. Save errors already keep a recovery copy. | no `panic::set_hook` in `src`; `src/edit/recovery.rs` | Done: `src/crash.rs` writes `~/Library/Logs/RuneMD/panic-<stamp>.log` |
