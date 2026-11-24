@@ -19,7 +19,7 @@ colors:
   glass-light: "oklch(0.965 0.004 260 / 0.60)"
   glass-dark: "oklch(0.18 0.01 260 / 0.60)"
   line-light: "oklch(0 0 0 / 0.09)"
-  line-dark: "oklch(1 0 0 / 0.14)"
+  line-dark: "oklch(1 0 0 / 0.20)"
   sel-light: "oklch(0 0 0 / 0.06)"
   sel-dark: "oklch(1 0 0 / 0.12)"
   field-light: "oklch(1 0 0 / 0.55)"
@@ -172,7 +172,7 @@ A scale of OKLCH grays with very low chroma, in two themes. In Rune they are wri
 | `fg-2` | 0.36 | 0.82 | Table headers, "Open file" field |
 | `fg-3` | 0.45 | 0.72 | Branch, section labels, file meta (outside rows with hover: there `fg-2`) |
 | `glass` | 0.965 / 60 % | 0.18 / 60 % | Tint over the system glass, on frame and sidebar (Matteo's choice, 2026-11-14) |
-| `line` | black 9 % | white 14 % | Decorative lines only: table rows, tree guides, field borders |
+| `line` | black 9 % | white 20 % | Decorative lines only: table rows, tree guides, field borders |
 | `sel` | black 6 % | white 12 % | Selected row, hover, selection, fill of Find results |
 | `mark` | light `fg-3` at 70 % | dark `fg-3` at 65 % | Marks with a meaning: ring of Find results, "changed" mark |
 
