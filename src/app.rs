@@ -412,10 +412,13 @@ pub(crate) fn rearm(wake: &mut Option<Wake>, left: Option<Duration>, clock: f64,
     next
 }
 
-/// The document styles for the light and the dark theme, with the font and size of `s`.
+/// The document styles for the light and the dark theme, with the font, size and column of `s`.
 fn styles_for(s: &Settings) -> [MarkdownStyle; 2] {
     let typeface = crate::fonts::Typeface::of(&s.font, s.size);
-    [false, true].map(|dark| ui::markdown_style::style_with(&ui::theme::Theme::for_mode(dark), typeface))
+    [false, true].map(|dark| {
+        let style = ui::markdown_style::style_with(&ui::theme::Theme::for_mode(dark), typeface);
+        ui::markdown_style::with_column(style, s.column)
+    })
 }
 
 /// The answers to the "Save changes to …?" row (Cmd+W with unsaved changes).
@@ -666,7 +669,11 @@ impl App {
         if self.settings.column == column || !crate::settings::valid_column(column) {
             return false;
         }
+        let wrap = ui::markdown_style::list_wrap_width(self.settings.column) != ui::markdown_style::list_wrap_width(column);
         self.settings.column = column;
+        if wrap {
+            self.styles = styles_for(&self.settings);
+        }
         // Without this Rune holds its own anchor, the first row it reports as visible: often the
         // row above the edge, so the reader's line moves by the rewrap of the rows in between.
         if let Some(tab) = self.tab_mut().filter(|t| matches!(t.mode, Mode::Read))

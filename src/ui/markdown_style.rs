@@ -131,9 +131,9 @@ pub fn style_with(theme: &Theme, face: Typeface) -> MarkdownStyle {
         .table_open_end(true)
         .table_rules(theme.line)
         // Items that wrap stand 12 apart, one-line items 4 (feedback 2026-11-24, G6). Measured
-        // against the default text column inside the row padding, like `diagram_max_width`.
+        // against the default column here; `with_column` sets the user's.
         .list(LIST_INDENT, LIST_GAP)
-        .list_wrap(LIST_WRAP_GAP, COLUMN - 2.0 * ROW_PAD_X)
+        .list_wrap(LIST_WRAP_GAP, list_wrap_width(COLUMN))
         .rule(theme.line)
         // Task list checkboxes like the Settings one (DESIGN.md, "Contrast"):
         // off is empty with a 1 border in `fg3`, on is filled `fg2` with the check in `panel`.
@@ -154,6 +154,20 @@ pub fn style_with(theme: &Theme, face: Typeface) -> MarkdownStyle {
 const LIST_INDENT: f32 = 32.0;
 const LIST_GAP: f32 = 4.0;
 const LIST_WRAP_GAP: f32 = 12.0;
+
+/// The width a list item must pass to count as wrapping, for the text column `column` (pt, or
+/// "Full"): the column's step of `COLUMNS` (so dragging the slider rebuilds the style at most once
+/// per 80 pt), inside the row padding. "Full" counts as the widest step.
+pub fn list_wrap_width(column: f32) -> f32 {
+    let step = crate::settings::COLUMNS.iter().copied().rfind(|&c| c != crate::settings::COLUMN_FULL && c <= column);
+    let step = if column == crate::settings::COLUMN_FULL { crate::settings::COLUMN_MAX } else { step.unwrap_or(COLUMN) };
+    step - 2.0 * ROW_PAD_X
+}
+
+/// `style` with its wrapping lists measured against the text column `column`.
+pub fn with_column(style: MarkdownStyle, column: f32) -> MarkdownStyle {
+    style.list_wrap(LIST_WRAP_GAP, list_wrap_width(column))
+}
 
 /// A task list checkbox starts 8 pt inside the gutter column (like the kit).
 const TASK_LEFT: f32 = 8.0;
@@ -262,6 +276,20 @@ mod tests {
         assert_eq!(base, h(&style_with(&t, Typeface::of("Inter", 15.5))));
         assert_ne!(base, h(&style_with(&t, Typeface::of("New York", 15.5))));
         assert_ne!(base, h(&style_with(&t, Typeface::of("Inter", 17.0))));
+    }
+
+    /// Review finding (fresh-review 2026-11-24): the wrapping test follows the user's text width,
+    /// in steps of 80 pt, and "Full" counts as the widest step.
+    #[test]
+    fn list_wrap_width_follows_the_column() {
+        use crate::settings::{COLUMN_FULL, COLUMN_MAX};
+        assert_eq!(list_wrap_width(COLUMN), COLUMN - 2.0 * ROW_PAD_X);
+        assert_eq!(list_wrap_width(1100.0), 1080.0 - 2.0 * ROW_PAD_X);
+        assert_eq!(list_wrap_width(1240.0), COLUMN_MAX - 2.0 * ROW_PAD_X);
+        assert_eq!(list_wrap_width(COLUMN_FULL), COLUMN_MAX - 2.0 * ROW_PAD_X);
+        let t = Theme::for_mode(true);
+        assert_ne!(h(&with_column(style(&t, BODY_TEXT), 1240.0)), h(&style(&t, BODY_TEXT)));
+        assert_eq!(h(&with_column(style(&t, BODY_TEXT), 700.0)), h(&style(&t, BODY_TEXT)));
     }
 
     /// The diagram takes its text from the theme: the style changes if the diagram text changes.

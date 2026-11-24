@@ -16,7 +16,8 @@ A native Markdown reader for macOS that shows what your agents write, live.
 4. After that it opens normally. To open `.md` files with it: in Finder, "Get Info" on a `.md` file,
    "Open with" RuneMD, "Change All…".
 
-If it crashes, the log is in `~/Library/Logs/RuneMD/`: please attach it to an issue.
+If it crashes, the log is in `~/Library/Logs/RuneMD/`: please attach it to an issue. Read it first: the
+error message can quote a few lines of the file you had open.
 
 ## Checksum
 

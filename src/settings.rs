@@ -555,8 +555,8 @@ mod tests {
         }
     }
 
-    /// The text width: 680 by default; the shortcuts step by 80 up to 1240 and then "Full" (0), also from
-    /// a width between two steps; the slider is continuous per pt (feedback group 3, item 5).
+    /// Feedback 2026-11-24, G4: a Brief saved before the Off default reads as Off once; a Brief
+    /// saved after it stays.
     #[test]
     fn prefs_saved_before_the_off_default_start_off_once() {
         let mut prefs = Prefs::memory();
@@ -570,6 +570,8 @@ mod tests {
         assert_eq!(Settings::load(&prefs).fire, FireMode::Brief, "a choice saved after it stays");
     }
 
+    /// The text width: 680 by default; the shortcuts step by 80 up to 1240 and then "Full" (0), also from
+    /// a width between two steps; the slider is continuous per pt (feedback group 3, item 5).
     #[test]
     fn text_width_steps_from_680_to_full() {
         let mut s = Settings::default();

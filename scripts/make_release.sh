@@ -4,8 +4,10 @@
 set -eu
 cd "$(dirname "$0")/.."
 version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
-plist=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' assets/Info.plist)
-[ "$version" = "$plist" ] || { echo "Cargo.toml $version and Info.plist $plist differ" >&2; exit 1; }
+for key in CFBundleShortVersionString CFBundleVersion; do
+    plist=$(/usr/libexec/PlistBuddy -c "Print :$key" assets/Info.plist)
+    [ "$version" = "$plist" ] || { echo "Cargo.toml $version and Info.plist $key $plist differ" >&2; exit 1; }
+done
 cargo build --profile perf
 SIGN=adhoc scripts/make_app.sh
 codesign --verify --strict build/RuneMD.app
