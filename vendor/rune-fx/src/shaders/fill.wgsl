@@ -172,6 +172,16 @@ fn mask_at(i: Inst, p: vec2f) -> f32 {
     return textureSampleLevel(source, samp, (p - i.aux2.xy) / max(i.aux2.zw, vec2f(1e-3)), 0.0).a;
 }
 
+// The mask eroded by `w` pt (the least alpha on a ring of 8 samples): 1 deep inside a glyph.
+fn mask_core(i: Inst, p: vec2f, w: f32) -> f32 {
+    var a = 1.0;
+    for (var k = 0; k < 8; k++) {
+        let r = f32(k) * 0.7853982;
+        a = min(a, mask_at(i, p + vec2f(cos(r), sin(r)) * w));
+    }
+    return a;
+}
+
 fn liquid_metal(i: Inst, c: Ctx, m: f32, px: vec2f) -> vec4f {
     let flow = i.p0.x;
     let sc = max(i.p0.y, 1.0);
@@ -548,7 +558,11 @@ fn shade(in: VOut) -> vec4f {
     let c = ctx(i, px);
     var m = fill_mask(c, i.aux.x);
     // aux.z = 1: clipped to the source texture's alpha (FillParams::mask), covering aux2.
-    if (i.aux.z > 0.5) { m *= mask_at(i, c.p); }
+    if (i.aux.z > 0.5) {
+        m *= mask_at(i, c.p);
+        // aux.w > 0: only the band that wide inside each glyph's edge (FillParams::rim).
+        if (i.aux.w > 0.0 && m > 0.0) { m *= 1.0 - mask_core(i, c.p, i.aux.w); }
+    }
     if (m <= 0.0) { return vec4f(0.0); }
     switch c.variant {
         case 0: { return liquid_metal(i, c, m, px); }

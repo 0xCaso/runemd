@@ -367,6 +367,8 @@ the code comes out in Inter). Tabular figures everywhere (`tnum`).
 Bold in the body is weight 620 in `fg`. Headings are not huge: the hierarchy comes from weight and color. Headings
 1 to 4 have the body color; 5 goes down to `fg-2` and 6 to `fg-3`: each level stands apart from the one before, and
 3 does not weigh like a bold line.
+The letters of every heading carry a 0.9 pt rim of moving chrome (`doc_fx::HEADING_RIM`, Engraved); the inside
+keeps the heading's color, so it reads like text (record `2026-11-24-heading-metal-rim`).
 
 A word longer than the line (a path, a file name) wraps after `/`, `-`, `_` or `.`, so the line ends with the
 separator and the next one starts with the piece after it; only a run without separators wider than a line (a

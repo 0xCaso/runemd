@@ -608,7 +608,7 @@ fn block_body<S: 'static>(source: &str, style: &MarkdownStyle, notes: &crate::do
     };
     // Ember: every link underlined in ember (paths keep their own look).
     let style = if forge.on.ember { Cow::Owned(style.into_owned().link_underline(crate::fx::doc_fx::ember(forge.look.dark))) } else { style };
-    // Engraved: liquid chrome inside every heading's letters (round 2, constraint 2), drawn over
+    // Engraved: liquid chrome on the rim of every heading's letters (round 2, constraint 2), drawn over
     // the heading and clipped to its glyphs by the compositor (`Piece::Chrome`).
     let chrome = (forge.on.engraved && level.is_some()).then(|| heading_chrome(forge.look));
     let md = rune_kit::Markdown::new(shown).highlights(hits).selectable(true);

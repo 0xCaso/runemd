@@ -27,7 +27,7 @@ pub struct Directions {
     pub steel: bool,
     /// 2 · Forged: the gunmetal edge, wider, on tables and images too.
     pub forged: bool,
-    /// 3 · Engraved: liquid chrome inside every heading's letters; the rule a chrome rod.
+    /// 3 · Engraved: liquid chrome on the rim of every heading's letters; the rule a chrome rod.
     pub engraved: bool,
     /// 4 · Ember: links underlined in ember; the rule a still strip of fire.
     pub ember: bool,
@@ -238,8 +238,9 @@ pub enum Piece {
     TubeFill,
     /// A charged edge around the element: amber, or red with `red` (Warning, Caution).
     Electric { red: bool },
-    /// Liquid chrome inside a heading's letters: it fills the element, and the compositor clips it
-    /// to the glyphs drawn before the slot (`FillParams::masked`). It moves on `ring::METAL_FRAME`.
+    /// Liquid chrome on the rim of a heading's letters: it fills the element, and the compositor clips
+    /// it to a band inside the edge of the glyphs drawn before the slot (`FillParams::masked_rim`).
+    /// It moves on `ring::METAL_FRAME`.
     Chrome,
 }
 
@@ -364,6 +365,10 @@ pub const HEADING_SPEED: f32 = 1.2;
 /// The rolled rim of a heading's letters, pt.
 pub const HEADING_BEVEL: f32 = 1.0;
 
+/// The chrome is only a band this wide (pt) inside each glyph's edge; the letter's inside keeps
+/// the text colour (M1, Matteo chose the outline over a full chrome fill or none).
+pub const HEADING_RIM: f32 = 0.9;
+
 /// A piece is a heading's chrome: the compositor builds its glyph mask.
 pub fn is_chrome(data: [f32; 4]) -> bool {
     matches!(read(data), Some((Piece::Chrome, _)))
@@ -433,7 +438,7 @@ pub fn layer(rect: Rect, radius: f32, data: [f32; 4], clock: f64, active: bool) 
         Piece::Chrome => {
             let frozen = look.reduced || !active;
             let t = if frozen { 0.0 } else { clock.max(0.0).rem_euclid(3600.0) as f32 };
-            let fill = rune_fx::FillParams::from(heading_metal(look.dark)).masked();
+            let fill = rune_fx::FillParams::from(heading_metal(look.dark)).masked_rim(HEADING_RIM);
             let l = Fx::fill(fill).on(Shape::rounded(rect.x, rect.y, rect.w, rect.h, 0.0)).at(t).reduced(frozen);
             return Some((l, true));
         }
@@ -656,6 +661,8 @@ mod tests {
         let (l, paced) = layer(rect, 0.0, data(Piece::Chrome, moving), 12.5, true).unwrap();
         assert!(l.is_animating() && paced, "it moves on the metal's wake-ups, not the display link");
         assert!(l.fx.cost().source, "clipped to the glyph mask");
+        let rune_fx::Fx::Fill(fill) = l.fx else { panic!("a fill") };
+        assert!(fill.mask && fill.rim == HEADING_RIM, "only the rim of the letters (M1)");
         assert!(is_chrome(data(Piece::Chrome, moving)) && !is_chrome(data(Piece::Rod, moving)));
         let (l, _) = layer(rect, 0.0, data(Piece::Chrome, Look { dark: false, reduced: true }), 12.5, true).unwrap();
         assert!(!l.is_animating(), "still with reduce motion");
