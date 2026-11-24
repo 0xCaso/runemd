@@ -458,8 +458,8 @@ pub fn shown(source: &str, places: &Places, labels: &Labels) -> Option<Shown> {
                 let help = if hit.dir {
                     format!("{short}/{ROW}Click shows it in the sidebar")
                 } else {
-                    let hint = external_app(&hit.path).map(|app| format!("    ⌘-click opens in {app}")).unwrap_or_default();
-                    format!("{short}{ROW}{}{hint}", size(hit.len))
+                    // Only the full path (Matteo, Waggle c_856970ee; ledger `2026-11-24-link-hint`).
+                    short
                 };
                 helps.insert(target.clone(), help);
                 if f.link {
@@ -557,33 +557,6 @@ pub fn relative(path: &Path, base: &Path) -> String {
     let path = path.to_string_lossy();
     let path = Path::new(path.strip_suffix('/').unwrap_or(&path));
     path.strip_prefix(base).ok().filter(|r| !r.as_os_str().is_empty()).unwrap_or(path).display().to_string()
-}
-
-/// The app ⌘-click opens `file` with (its default app on this Mac), by name. `None` when there is
-/// none, or when it is RuneMD itself: a plain click already opens the file here (ledger
-/// `2026-11-24-link-hint`, L1). Asked once per extension.
-pub fn external_app(file: &Path) -> Option<String> {
-    let ext = file.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
-    APPS.with_borrow_mut(|m| m.entry(ext).or_insert_with(|| default_app(file)).clone())
-}
-
-thread_local! { static APPS: std::cell::RefCell<std::collections::HashMap<String, Option<String>>> = std::cell::RefCell::new(std::collections::HashMap::new()); }
-
-#[cfg(not(test))]
-fn default_app(file: &Path) -> Option<String> {
-    use objc2_foundation::{NSString, NSURL};
-    let url = NSURL::fileURLWithPath(&NSString::from_str(&file.to_string_lossy()));
-    let app = objc2_app_kit::NSWorkspace::sharedWorkspace().URLForApplicationToOpenURL(&url)?;
-    let name = app.path()?.to_string();
-    let name = Path::new(&name).file_stem()?.to_string_lossy().into_owned();
-    (name != "RuneMD").then_some(name)
-}
-
-/// Tests: Markdown opens in RuneMD, everything else in "TextEdit".
-#[cfg(test)]
-fn default_app(file: &Path) -> Option<String> {
-    let md = file.extension().is_some_and(|e| e == "md" || e == "markdown");
-    (!md).then(|| "TextEdit".to_owned())
 }
 
 /// Opens `path` with `open`: in its default app, or in Finder with `reveal`. Tests record the
@@ -794,16 +767,13 @@ mod tests {
     }
 
     #[test]
-    fn the_popover_has_the_full_path_and_the_size() {
+    fn the_popover_has_only_the_full_path() {
         let (t, p) = tree();
         std::fs::write(t.join("home/notes/big.json"), vec![b'x'; 2458]).unwrap();
         let sh = shown("`~/notes/big.json` and `~/notes`", &p, &Labels::default()).unwrap();
         let file = t.join("home/notes/big.json");
         let help = sh.helps.get(&open_target(&file, None)).unwrap();
-        assert_eq!(help, &format!("~/notes/big.json{ROW}2.4 KB    ⌘-click opens in TextEdit"), "the app ⌘-click opens it with, by name");
-        let md = shown("see `~/notes/a.md`", &p, &Labels::default()).expect("a link");
-        let help = md.helps.get(&open_target(&t.join("home/notes/a.md"), None)).unwrap();
-        assert_eq!(help, &format!("~/notes/a.md{ROW}1 B"), "no ⌘-click hint when RuneMD is the default app");
+        assert_eq!(help, "~/notes/big.json", "only the full path");
         let dir = sh.helps.get(&format!("{OPEN}{}/", t.join("home/notes").display())).unwrap();
         assert_eq!(dir, &format!("~/notes/{ROW}Click shows it in the sidebar"));
         assert_eq!(size(812), "812 B");
