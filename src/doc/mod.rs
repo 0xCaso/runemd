@@ -9,6 +9,7 @@ pub mod footnotes;
 pub mod document;
 pub mod frontmatter;
 pub mod ids;
+pub mod json;
 pub mod labels;
 pub mod paths;
 pub mod select_all;

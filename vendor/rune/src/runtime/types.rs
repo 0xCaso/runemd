@@ -223,6 +223,13 @@ impl Node {
         self.vis.hover_motion.as_deref().or(self.hover_within.as_deref()).copied()
     }
 
+    /// Pressable with a hover state of its own (a hover colour or a hover group): the cursor
+    /// over it is the hand when nothing on the way up sets another.
+    #[inline]
+    pub(super) fn hand(&self) -> bool {
+        self.handlers.on_press.is_some() && (self.vis.hover().a > 0.0 || self.vis_flags.hover_group())
+    }
+
     #[inline]
     pub(super) fn is_moved_stub(&self) -> bool {
         self.moved_stub

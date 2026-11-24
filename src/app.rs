@@ -9,6 +9,7 @@
 use std::collections::BTreeMap;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use rune::{TextEdit, Tx};
@@ -86,11 +87,41 @@ pub struct Tab {
     /// italics, replaced by the next single click. At most one. It becomes pinned with a double click
     /// (on the row or on the tab), an edit in the source or Cmd+S (`App::pin`).
     pub(crate) preview: bool,
+    /// The block and bytes of the line a `:line` link opened this code file at (`App::open_link`).
+    pub(crate) goto: Option<(u64, std::ops::Range<usize>)>,
+    /// A JSON file's fold state (`doc::json::Folds`), from the first fold; until then the default.
+    pub(crate) folds: Option<crate::doc::json::Folds>,
+    /// The visible JSON lines, for the document revision and fold generation they were made for.
+    json_rows: std::cell::RefCell<Option<JsonRows>>,
 }
 
+/// The visible JSON lines and the (document revision, fold generation) they were made for.
+type JsonRows = ((u64, u64), Arc<[crate::doc::json::Shown]>);
+
 impl Tab {
+    /// The fold generation (the JSON view's rows version).
+    pub(crate) fn folds_generation(&self) -> u64 {
+        self.folds.as_ref().map_or(0, |f| f.generation)
+    }
+
+    /// The JSON lines the folds leave visible (`ui::json_view`), cached; empty without a tree.
+    pub(crate) fn json_rows(&self) -> Arc<[crate::doc::json::Shown]> {
+        let Some(tree) = self.doc.json.as_ref() else { return Arc::from([]) };
+        let key = (self.doc.revision, self.folds_generation());
+        let mut cache = self.json_rows.borrow_mut();
+        if let Some((_, rows)) = cache.as_ref().filter(|(k, _)| *k == key) {
+            return rows.clone();
+        }
+        let rows = match &self.folds {
+            Some(f) => ui::json_view::rows(tree, f),
+            None => ui::json_view::rows(tree, &crate::doc::json::Folds::new(tree)),
+        };
+        *cache = Some((key, rows.clone()));
+        rows
+    }
+
     pub(crate) fn new(doc: Document, follow: Follow) -> Tab {
-        Tab { doc, mode: Mode::Read, below: Below::default(), changed: Changed::default(), follow, visible_last: 0, visible_first: 0, fire_since: None, fire_armed: None, mark_wake: None, caret_since: None, caret_at: None, visible_start: 0, visible_end: 0, outline: ui::outline::Cache::default(), viewport: [0.0; 4], page: [0.0; 4], reading: None, hold: None, at_bottom: false, picked: None, not_utf8: false, preview: false }
+        Tab { doc, mode: Mode::Read, below: Below::default(), changed: Changed::default(), follow, visible_last: 0, visible_first: 0, fire_since: None, fire_armed: None, mark_wake: None, caret_since: None, caret_at: None, visible_start: 0, visible_end: 0, outline: ui::outline::Cache::default(), viewport: [0.0; 4], page: [0.0; 4], reading: None, hold: None, at_bottom: false, picked: None, not_utf8: false, preview: false, goto: None, folds: None, json_rows: Default::default() }
     }
 
     /// The file as FSEvents reports it (canonical): the key of the rings.
@@ -324,6 +355,27 @@ const HOLD_TRIES: u8 = 8;
 /// row may not be mounted: `scroll_center_in_instant` mounts it, then `scroll_key_to` puts it
 /// at the top, measuring again after layout; Rune makes the two requests in the same frame, in
 /// this order (`App::restore_view`, `App::go_to_heading`).
+/// The key of the mark on the line a `:line` link opened a code file at.
+fn goto_key(row_key: &str) -> String {
+    format!("{row_key}/goto-line")
+}
+
+/// Room above that line once it is scrolled to: the lines before it show.
+const GOTO_ABOVE: f32 = 60.0;
+
+/// The bytes of code line `line` (from 1) in a code file's fenced block (its first line is the fence).
+fn code_line(block: &str, line: u32) -> Option<std::ops::Range<usize>> {
+    let mut at = 0;
+    for (n, l) in block.split_inclusive('\n').enumerate() {
+        if n == line as usize {
+            let l = l.trim_end_matches('\n');
+            return Some(at..at + l.len().max(1).min(block.len() - at));
+        }
+        at += l.len();
+    }
+    None
+}
+
 fn scroll_block_to_top(tab: &Tab, i: usize, tx: &mut Tx) {
     let key = ui::doc_view::row_key(i, &tab.doc);
     tx.scroll_center_in_instant("doc", key.clone());
@@ -884,6 +936,11 @@ impl App {
                 self.tabs[i].preview = false;
                 continue;
             }
+            // PDF, binaries and unknown non-text files: the system app, no tab.
+            if !crate::open::kind::of(path).in_app() {
+                crate::doc::paths::open_with_system(path, false);
+                continue;
+            }
             match Document::load(path) {
                 Ok(doc) => {
                     let follow = self.live.follow(path);
@@ -907,6 +964,10 @@ impl App {
         let canonical = path.canonicalize().unwrap_or_else(|_| path.clone());
         if let Some(i) = self.tabs.iter().position(|t| t.path() == canonical || t.doc.path == path) {
             self.active = i;
+        } else if !crate::open::kind::of(&path).in_app() {
+            // PDF, binaries and unknown non-text files: the system app, no tab.
+            crate::doc::paths::open_with_system(&path, false);
+            return false;
         } else {
             let doc = match Document::load(&path) {
                 Ok(doc) => doc,
@@ -1231,7 +1292,19 @@ impl App {
         if self.tab().map(|t| t.doc.id) != before {
             self.restore_view(tx);
         }
-        let (Some(line), Ok(text)) = (line, std::fs::read_to_string(&path)) else { return };
+        let Some(line) = line else { return };
+        // A code file is one block: the line is marked in it and brought to the top.
+        if let Some(tab) = self.tab_mut().filter(|t| matches!(t.mode, Mode::Read) && matches!(t.doc.kind, crate::open::kind::FileKind::Code(_)))
+            && let Some(b) = tab.doc.blocks.first()
+        {
+            let Some(range) = code_line(&b.source, line) else { return };
+            tab.goto = Some((b.id, range));
+            let key = goto_key(&ui::doc_view::row_key(0, &tab.doc));
+            tx.scroll_center_in_instant("doc", key.clone());
+            tx.scroll_key_to(key, GOTO_ABOVE);
+            return;
+        }
+        let Ok(text) = std::fs::read_to_string(&path) else { return };
         let Some(tab) = self.tab_mut().filter(|t| matches!(t.mode, Mode::Read)) else { return };
         let i = crate::doc::paths::block_of_line(&text, tab.doc.blocks.iter().map(|b| &*b.source), line);
         scroll_block_to_top(tab, i, tx);
@@ -1318,7 +1391,9 @@ impl App {
     /// Cmd+F: the Find bar opens with focus, and the Cmd+P and Cmd+N fields close. Only
     /// in reading: in the source (Cmd+E) and without tabs it does nothing. True if it opened.
     pub fn open_find(&mut self) -> bool {
-        if !self.tab().is_some_and(|t| matches!(t.mode, Mode::Read)) {
+        // The JSON viewer and the image view draw no Find marks: no bar there.
+        let own_view = |t: &Tab| t.doc.json.is_some() || t.doc.kind == crate::open::kind::FileKind::Image;
+        if !self.tab().is_some_and(|t| matches!(t.mode, Mode::Read) && !own_view(t)) {
             return false;
         }
         self.sidebar.quick.close();
@@ -1461,7 +1536,12 @@ impl App {
 
     /// The Find marks of block `block` of the front tab, in row `row_key`.
     pub fn find_hits(&self, block: &crate::doc::document::Block, row_key: &str) -> ui::find::Marks {
-        self.find.highlights(block.id, block.hash, row_key)
+        let mut hits = self.find.highlights(block.id, block.hash, row_key);
+        // The line a `:line` link opened a code file at: an invisible mark to scroll to.
+        if let Some((_, range)) = self.tab().and_then(|t| t.goto.clone()).filter(|(id, r)| *id == block.id && r.end <= block.source.len()) {
+            hits.push((vec![range], rune_kit::markdown::Highlight::new().bg(rune::Color::TRANSPARENT).ring(rune::Color::TRANSPARENT, 1.0).key(goto_key(row_key))));
+        }
+        hits
     }
 
     /// Whether block `id` of the front tab has the "what changed" mark.
@@ -1475,6 +1555,55 @@ impl App {
         let path = crate::fx::doc_fx::image_path(doc, src)?;
         let cache = self.images.as_ref()?;
         Some(self.doc_images.borrow_mut().entry(path.clone()).or_insert_with(|| cache.file(&path, DOC_IMAGE_PT, DOC_IMAGE_SCALE)).clone())
+    }
+
+    /// A click on the arrow of JSON line `line` in the tab of document `doc`: the node folds or
+    /// unfolds; with `subtree` (Alt) everything inside it too.
+    pub fn fold_json(&mut self, doc: u64, line: usize, subtree: bool) {
+        let Some(tab) = self.tab_of(doc) else { return };
+        let Some(tree) = tab.doc.json.clone() else { return };
+        tab.folds.get_or_insert_with(|| crate::doc::json::Folds::new(&tree)).toggle(&tree, line, subtree);
+    }
+
+    /// Folds the front tab's JSON nodes at `places` (`/settings`; `!/settings` with its subtree):
+    /// the `RUNEMD_FOLD` photo hook.
+    pub fn fold_places(&mut self, places: &[String]) {
+        let Some(id) = self.tab().map(|t| t.doc.id) else { return };
+        let Some(tree) = self.tab().and_then(|t| t.doc.json.clone()) else { return };
+        for place in places {
+            let (subtree, place) = match place.strip_prefix('!') {
+                Some(p) => (true, p),
+                None => (false, place.as_str()),
+            };
+            if let Some(i) = tree.lines.iter().position(|l| l.node.as_ref().is_some_and(|n| n.path == place)) {
+                self.fold_json(id, i, subtree);
+            }
+        }
+    }
+
+    /// Expand all (`folded` false) or Collapse all in the JSON tab of document `doc`.
+    pub fn fold_all_json(&mut self, doc: u64, folded: bool) {
+        let Some(tab) = self.tab_of(doc) else { return };
+        let Some(tree) = tab.doc.json.clone() else { return };
+        tab.folds.get_or_insert_with(|| crate::doc::json::Folds::new(&tree)).set_all(&tree, folded);
+    }
+
+    /// The picture of an image tab and its pixels per point (`ui::file_view::image_pane`): a raster
+    /// file at 1, an SVG rasterized at its own size at 2. `None` without a cache (tests).
+    pub fn file_image(&self, path: &std::path::Path) -> Option<(rune::Image, f32)> {
+        let cache = self.images.as_ref()?;
+        let svg = path.extension().is_some_and(|e| e.eq_ignore_ascii_case("svg"));
+        let scale = if svg { 2.0 } else { 1.0 };
+        let image = self.doc_images.borrow_mut().entry(path.to_owned()).or_insert_with(|| {
+            let side = if svg {
+                let text = std::fs::read_to_string(path).unwrap_or_default();
+                ui::file_view::svg_size(&text).map_or(ui::file_view::SVG_DEFAULT, |[w, h]| w.max(h)).clamp(16.0, ui::file_view::SVG_MAX)
+            } else {
+                DOC_IMAGE_PT
+            };
+            cache.file(path, side, scale)
+        }).clone();
+        Some((image, scale))
     }
 
     /// How many document pictures have decoded (the rows build again when it changes).
@@ -2597,6 +2726,29 @@ mod tests {
             app.poll_tabs(1.0, Instant::now());
             std::thread::sleep(Duration::from_millis(5));
         }
+    }
+
+    /// A PDF, a binary or an unknown non-text file goes to the system app and opens no tab, from
+    /// a link, Finder or the sidebar (decision 2026-11-23-open-non-markdown).
+    #[test]
+    fn pdf_and_binaries_open_with_the_system_and_make_no_tab() {
+        let dir = tempfile::tempdir().unwrap();
+        let pdf = dir.path().join("paper.pdf");
+        let blob = dir.path().join("blob.weird");
+        let md = dir.path().join("a.md");
+        fs::write(&pdf, b"%PDF-1.4\n").unwrap();
+        fs::write(&blob, b"ab\0cd").unwrap();
+        fs::write(&md, "# a\n").unwrap();
+        crate::doc::paths::system_opened();
+        let mut app = empty_app();
+        app.open_paths(vec![pdf.clone(), blob.clone()]);
+        assert!(app.tabs.is_empty(), "no tab for a PDF or a binary");
+        assert!(!app.open_preview(pdf.clone()), "nor from the sidebar");
+        assert!(app.tabs.is_empty());
+        assert_eq!(crate::doc::paths::system_opened(), vec![(pdf.clone(), false), (blob, false), (pdf, false)]);
+        app.open_paths(vec![md]);
+        assert_eq!(app.tabs.len(), 1, "Markdown still opens in a tab");
+        assert!(crate::doc::paths::system_opened().is_empty());
     }
 
     fn tab_of(source: &str) -> Tab {

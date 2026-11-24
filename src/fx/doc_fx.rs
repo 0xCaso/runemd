@@ -349,12 +349,17 @@ pub fn chrome(dark: bool) -> LiquidMetalParams {
 /// a dark chrome, so the letters keep their contrast on the light panel (remap `0.6 L`).
 /// Each glyph's rim is `HEADING_BEVEL` pt wide (the mask's slope, `FillParams::masked`).
 pub fn heading_metal(dark: bool) -> LiquidMetalParams {
-    let chrome = LiquidMetalParams { bevel: HEADING_BEVEL, ..LiquidMetalParams::chrome() };
+    let chrome =
+        LiquidMetalParams { bevel: HEADING_BEVEL, speed: HEADING_SPEED, ..LiquidMetalParams::chrome() };
     if dark {
         return chrome;
     }
     LiquidMetalParams { tint: rune_fx::rgb(0xb4b9c0), light: rune_fx::rgb(0xc8ccd2), contrast: 0.7, ..chrome }
 }
+
+/// How fast the heading chrome flows at rest. The edges' 0.35 reads as still on a heading, which
+/// moved only while scrolling (feedback F4); Matteo picked "lento", 1.2, from the 2026-11-23 videos.
+pub const HEADING_SPEED: f32 = 1.2;
 
 /// The rolled rim of a heading's letters, pt.
 pub const HEADING_BEVEL: f32 = 1.0;
@@ -501,6 +506,16 @@ pub fn image_path(doc: &std::path::Path, src: &str) -> Option<std::path::PathBuf
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn heading_chrome_flows_visibly_faster_than_the_edges() {
+        for dark in [false, true] {
+            let heading = super::heading_metal(dark);
+            assert_eq!(heading.speed, super::HEADING_SPEED);
+            assert!(heading.speed >= 3.0 * rune_fx::LiquidMetalParams::chrome().speed);
+            assert!(heading.flow > 0.0, "a heading with no flow would not move at rest");
+        }
+    }
+
     use super::*;
 
     #[test]

@@ -631,6 +631,19 @@ panel stays at least 400 wide). The snap learns like Snappy: when you let go of 
 last 4); passing within 8 of a remembered one, or of the default, the edge stops there. Double click: the default. Esc
 during the drag: as it was. The widths stay after a restart.
 
+**Files that are not Markdown** (docs/decisions/2026-11-23-open-non-markdown.md, -json-viewer.md, mockup
+`design/mockups/2026-11-23-json-viewer/` direction `codice`). One function (`open::kind`) says how a path opens. Over
+every such view: the file name (28/680, `fg`) and a meta line (folder, size, lines/records/pixel size; 12/500 `fg-3`,
+16 apart), 20 above the content. Code and data files: one code card (the document's, header with the file's name and
+icon, wrap, copy), no Markdown inside. JSON: the same card with 21 pt lines, 36 pt line numbers in 12 `fg-3`, a 22 pt
+arrow column (10 pt chevron in `fg-3`, `sel` hover, hand), 2-character indent guides in `line`; keys `Property`,
+strings `String`, numbers `Number`, `true/false/null` `Keyword`, brackets `Punctuation` of the code theme. A node shows
+its count (12/500 `fg-3`) 12 after the bracket; folded, `{` + a `…` pill (`sel`, 0.5 `line` edge, radius 4) + `}` and
+the first string inside in `fg-2`. Header: icon + `json`/`jsonl`, "Expand all", "Collapse all" (ghost, 12/500 `fg-2`),
+a 1×14 `line` rule, Copy File. JSONL: one row per line, folded past 20 lines. Invalid JSON: a Caution callout with
+line, column and reason over the raw text's code card. Images: centred, fitted to the column, never past 1 image px
+per pt, radius 4; an error line in `fg-2` if it cannot be decoded. PDF, HEIC and binaries: the system app, no tab.
+
 **Live signals (Rune GPU effects).** Each has one meaning only, and no other element uses it.
 
 | Effect | Meaning | Where | Start | End |

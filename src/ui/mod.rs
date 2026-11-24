@@ -3,7 +3,9 @@
 #[cfg(test)]
 pub(crate) mod contrast;
 pub mod doc_view;
+pub mod file_view;
 pub mod find;
+pub mod json_view;
 pub mod forge;
 pub mod markdown_style;
 pub mod new_file;
@@ -17,3 +19,5 @@ pub mod sidebar;
 pub mod source;
 pub mod tabs;
 pub mod theme;
+#[cfg(test)]
+mod hand_tests;

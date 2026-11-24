@@ -1,5 +1,6 @@
 //! Opening files: from Finder / "Open With" (`odoc`), from `open -a`, from the command line.
 
+pub mod kind;
 pub mod odoc;
 pub mod queue;
 
@@ -44,11 +45,14 @@ pub fn install() {
     odoc::install();
 }
 
-/// Command-line arguments that are Markdown files (relative paths made absolute).
+/// Command-line arguments that are Markdown files, or other files that exist (`runemd data.json`;
+/// `App::open_paths` sends the ones the app does not draw to the system), relative paths made
+/// absolute.
 pub fn cli_paths(args: &[String]) -> Vec<PathBuf> {
     args.iter()
+        .filter(|a| !a.starts_with('-'))
         .map(PathBuf::from)
-        .filter(|p| is_markdown(p))
+        .filter(|p| is_markdown(p) || p.is_file())
         .map(|p| std::path::absolute(&p).unwrap_or(p))
         .collect()
 }
@@ -67,8 +71,9 @@ mod tests {
     }
 
     #[test]
-    fn cli_keeps_only_markdown() {
-        let got = cli_paths(&["/tmp/a.md".into(), "--flag".into(), "/tmp/b.txt".into()]);
-        assert_eq!(got, vec![PathBuf::from("/tmp/a.md")]);
+    fn cli_keeps_markdown_and_existing_files() {
+        let json = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/open-files/state.json");
+        let got = cli_paths(&["/tmp/a.md".into(), "--flag".into(), "/tmp/missing-b.json".into(), json.into()]);
+        assert_eq!(got, vec![PathBuf::from("/tmp/a.md"), PathBuf::from(json)]);
     }
 }
