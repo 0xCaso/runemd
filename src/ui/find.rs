@@ -471,8 +471,10 @@ pub fn field(s: &App, theme: &Theme) -> El {
         .on_edit(|s: &mut App| &mut s.find.edit)
         .on_input_change(|s: &mut App, _: &mut Tx| s.find_changed())
         .on_input_key(on_key);
+    // Opened and closed from the keyboard many times a day: no fade (Emil, G3 of feedback 2026-11-24).
     let mut e = row()
         .key("find")
+        .transition(rune::Transition::none())
         .w(FIND_W)
         .h(FIELD_H)
         .px(ROW_PAD)
@@ -705,6 +707,20 @@ mod tests {
                 ..Mods::default()
             },
         );
+    }
+
+    /// G3 (feedback 2026-11-24, Emil: no animation on keyboard actions): ⌘F shows the bar whole
+    /// on the first frame, and Esc takes it away on the next one.
+    #[test]
+    fn cmd_f_opens_and_closes_without_a_fade() {
+        let mut rt = open(&[("a.md", "# A\n\nword\n")]);
+        rt.key(KeyEvent { key: Key::Command('f'), mods: Mods { cmd: true, logo: true, ..Mods::default() } });
+        rt.frame(1.0 / 120.0);
+        let bar = rt.elements().into_iter().find(|e| e.key.as_deref() == Some("find")).expect("find bar");
+        assert_eq!(bar.opacity, 1.0, "no enter fade");
+        rt.key(KeyEvent { key: Key::Escape, mods: Mods::default() });
+        rt.frame(1.0 / 120.0);
+        assert!(rt.elements().iter().all(|e| e.key.as_deref() != Some("find")), "no exit fade");
     }
 
     /// Like the app `poll`: waits for and applies the results of the search thread.
