@@ -4,3 +4,16 @@ build/
 bench/results/*
 !bench/results/writes-*.log
 __pycache__/
+
+# Local working notes, kept out of the public history
+CLAUDE.md
+DECISIONS.md
+skills-eval.md
+docs/feedback/
+docs/proof/
+docs/decisions/
+docs/plan.md
+docs/agent-writes.md
+docs/audit/2026-11-16-markdown-formatting/
+docs/spec-brief/
+design/mockups/
