@@ -412,10 +412,13 @@ pub(crate) fn rearm(wake: &mut Option<Wake>, left: Option<Duration>, clock: f64,
     next
 }
 
-/// The document styles for the light and the dark theme, with the font and size of `s`.
+/// The document styles for the light and the dark theme, with the font, size and column of `s`.
 fn styles_for(s: &Settings) -> [MarkdownStyle; 2] {
     let typeface = crate::fonts::Typeface::of(&s.font, s.size);
-    [false, true].map(|dark| ui::markdown_style::style_with(&ui::theme::Theme::for_mode(dark), typeface))
+    [false, true].map(|dark| {
+        let style = ui::markdown_style::style_with(&ui::theme::Theme::for_mode(dark), typeface);
+        ui::markdown_style::with_column(style, s.column)
+    })
 }
 
 /// The answers to the "Save changes to …?" row (Cmd+W with unsaved changes).
@@ -666,7 +669,11 @@ impl App {
         if self.settings.column == column || !crate::settings::valid_column(column) {
             return false;
         }
+        let wrap = ui::markdown_style::list_wrap_width(self.settings.column) != ui::markdown_style::list_wrap_width(column);
         self.settings.column = column;
+        if wrap {
+            self.styles = styles_for(&self.settings);
+        }
         // Without this Rune holds its own anchor, the first row it reports as visible: often the
         // row above the edge, so the reader's line moves by the rewrap of the rows in between.
         if let Some(tab) = self.tab_mut().filter(|t| matches!(t.mode, Mode::Read))
@@ -2085,6 +2092,7 @@ mod tests {
     fn a_background_reload_does_not_light_the_front_tab() {
         let (_dir, p) = files(&["a.md", "b.md"]);
         let mut app = empty_app();
+        app.settings.fire = FireMode::Brief;
         app.open_paths(p);
         // `a` was in front and showed its first block.
         app.select(0);
@@ -2119,11 +2127,12 @@ mod tests {
     fn brief_app() -> (tempfile::TempDir, App) {
         let (dir, p) = files(&["a.md", "b.md"]);
         let mut app = empty_app();
+        app.settings.fire = FireMode::Brief;
         app.open_paths(p);
         (dir, app)
     }
 
-    /// Brief, the default: the resting fire shows for 5 s and its fade (on the display link, not
+    /// Brief, the old default: the resting fire shows for 5 s and its fade (on the display link, not
     /// paced wake-ups), then the view drops the slot and nothing wakes for it any more (constraint 2).
     #[test]
     fn the_brief_fire_rests_for_five_seconds_then_fades_and_stops_waking() {

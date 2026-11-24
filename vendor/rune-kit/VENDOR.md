@@ -24,5 +24,8 @@ Changes from the rev:
 - `MarkdownStyle::code_look` (`markdown/style.rs`): fill, font, text colour and token colours of a
   code block, read back so the JSON viewer (decision 2026-11-23-json-viewer) draws its own code
   card with the same look.
+- `MarkdownStyle::list_wrap` (`markdown/style.rs`, `markdown/render.rs`): a wider gap between the
+  items of a list whose paragraphs wrap (feedback 2026-11-24 G6, record
+  2026-11-24-label-tables-list-spacing); one-line lists keep `list`'s gap.
 
 To drop the vendor: once Rune has equivalents, point `rune-kit` back at the git rev.

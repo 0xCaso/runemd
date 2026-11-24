@@ -694,7 +694,10 @@ impl Renderer {
                     (false, [f, ..]) => collapsed(f, s, 0, true).0,
                     _ => 0.0,
                 };
-                let gap = |k: usize| if k == 0 { 0.0 } else { s.list_gap.max(edge(&items[k - 1], true)).max(edge(&items[k], false)) };
+                // A list whose items wrap takes `list_wrap`'s wider gap, so its items stand apart.
+                let wraps = |[_, width]: [f32; 2]| items.iter().flatten().any(|b| matches!(b, Block::Para(p) if rune::text::measure(&p.text, &[], s.body, None).0 > width - indent));
+                let base = s.list_wrap.filter(|&w| wraps(w)).map_or(s.list_gap, |[g, _]| g);
+                let gap = |k: usize| if k == 0 { 0.0 } else { base.max(edge(&items[k - 1], true)).max(edge(&items[k], false)) };
                 for (k, item) in items.iter().enumerate() {
                     let imap = item_maps.get(k).map_or(&[][..], Vec::as_slice);
                     let task_idx = self.next_task.get();

@@ -257,7 +257,7 @@ impl Theme {
                 fg2: oklcha(0.82, 0.006, 270.0, 1.0),
                 fg3: oklcha(0.72, 0.008, 270.0, 1.0),
                 glass: oklcha(0.18, 0.01, 260.0, 0.60),
-                line: oklcha(1.0, 0.0, 0.0, 0.14),
+                line: oklcha(1.0, 0.0, 0.0, 0.20),
                 sel: oklcha(1.0, 0.0, 0.0, 0.12),
                 field: oklcha(0.0, 0.0, 0.0, 0.22),
                 mark: oklcha(0.72, 0.008, 270.0, 0.65),
@@ -294,7 +294,7 @@ mod tests {
         let dark = Theme::for_mode(true);
         assert_eq!(dark.fg2, oklcha(0.82, 0.006, 270.0, 1.0));
         assert_eq!(dark.fg3, oklcha(0.72, 0.008, 270.0, 1.0));
-        assert_eq!(dark.line, oklcha(1.0, 0.0, 0.0, 0.14));
+        assert_eq!(dark.line, oklcha(1.0, 0.0, 0.0, 0.20));
         assert_eq!(dark.sel, oklcha(1.0, 0.0, 0.0, 0.12));
         assert_eq!(dark.mark, oklcha(0.72, 0.008, 270.0, 0.65));
         assert_eq!(Theme::for_mode(false).mark, oklcha(0.45, 0.008, 270.0, 0.70));

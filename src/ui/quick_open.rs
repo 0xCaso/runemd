@@ -433,7 +433,8 @@ pub fn panel<S: 'static>(s: &S, hooks: Hooks<S>, list: Option<[f32; 4]>, left: f
     // window the box shrinks and the list scrolls.
     let slot = col().key("quick-slot").w_full().max_w(QUICK_W).h(FULL_H).shrink().min_h(0.0).items_center().child(host);
     let area = col().key("quick-area").pin(Some(left), Some(FRAME), Some(FRAME), Some(FRAME)).items_center().justify_center().padding(QUICK_SIDE).child(slot);
-    let veil = el().key("quick-scrim").absolute(0.0, 0.0).w_full().h_full().fill(theme.panel.alpha(SCRIM)).child(area);
+    // Opened and closed from the keyboard many times a day: no fade (Emil, G3 of feedback 2026-11-24).
+    let veil = el().key("quick-scrim").transition(rune::Transition::none()).absolute(0.0, 0.0).w_full().h_full().fill(theme.panel.alpha(SCRIM)).child(area);
     vec![veil]
 }
 
@@ -607,7 +608,10 @@ mod tests {
             use crate::lab::{LabState, LabTuning, fire_at, publish, ring_at};
             let _lab = crate::lab::test_lab();
             let (_d, mut rt) = open();
-            rt.update(|s: &mut App, _| s.motion_env = Some(true));
+            rt.update(|s: &mut App, _| {
+                s.motion_env = Some(true);
+                s.settings.fire = crate::settings::FireMode::Brief;
+            });
             settle(&mut rt);
             let mut fx = crate::fx::FxCompositor::default();
             let at = |rt: &mut Runtime<App>, t: f64, seq: u64| {
@@ -770,6 +774,20 @@ mod tests {
 
         fn tabs(rt: &Runtime<App>) -> Vec<(String, bool)> {
             rt.state.tabs.iter().map(|t| (t.title(), t.preview)).collect()
+        }
+
+        /// G3 (feedback 2026-11-24, Emil: no animation on keyboard actions): ⌘P shows the panel
+        /// whole on the first frame, and Esc takes it away on the next one.
+        #[test]
+        fn cmd_p_opens_and_closes_without_a_fade() {
+            let (_d, mut rt) = open();
+            rt.key(cmd_p());
+            rt.frame(1.0 / 120.0);
+            let scrim = rt.elements().into_iter().find(|e| e.key.as_deref() == Some("quick-scrim")).expect("panel");
+            assert_eq!(scrim.opacity, 1.0, "no enter fade");
+            rt.key(KeyEvent { key: Key::Escape, mods: Mods::default() });
+            rt.frame(1.0 / 120.0);
+            assert!(rt.elements().iter().all(|e| e.key.as_deref() != Some("quick-scrim")), "no exit fade");
         }
 
         /// Constraints 1, 3, 6: ⌘P opens a 560-wide panel in the middle of the window, above the

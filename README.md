@@ -20,7 +20,7 @@ Written in Rust with [Rune](https://github.com/anomalyco/rune). It starts in und
 - An editable source view (⌘E), with a save that checks for conflicts with the file on disk. If a save
   fails when you quit, the text goes into a recovery copy in
   `~/Library/Application Support/RuneMD/Recovered/` and opens again at the next start.
-- Settings (⌘,): watched folders, font, size, theme, the bottom fire (Brief, Always or Off).
+- Settings (⌘,): watched folders, font, size, theme, the bottom fire (Off by default, Brief or Always).
 
 ## Requirements
 
@@ -41,6 +41,14 @@ Then build the app and open a file:
 
     make app                                # builds build/RuneMD.app, signed "RuneMD Local"
     open build/RuneMD.app --args file.md
+
+## Release package
+
+    make release    # build/RuneMD-<version>.zip (ad hoc signed) and build/RuneMD-<version>-notes.md
+
+It does not tag or publish. The notes come from `assets/release-notes.md` and explain how to open an app
+without a Developer ID. `make release` replaces `build/RuneMD.app` with the ad hoc build: run `make app`
+afterwards to get the local one back.
 
 ## Opening files
 

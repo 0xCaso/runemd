@@ -41,6 +41,7 @@ pub struct MarkdownStyle {
     pub(super) code_block_pad: [f32; 2],
     pub(super) list_indent: f32,
     pub(super) list_gap: f32,
+    pub(super) list_wrap: Option<[f32; 2]>,
     pub(super) strong_weight: f32,
     pub(super) table_outline: Option<Color>,
     pub(super) table_rule: Color,
@@ -197,6 +198,7 @@ impl MarkdownStyle {
             code_block_pad: [12.0, 12.0],
             list_indent: 32.0,
             list_gap: 4.0,
+            list_wrap: None,
             strong_weight: 670.0,
             table_outline: Some(c.border_muted),
             table_rule: c.border_muted,
@@ -318,6 +320,12 @@ impl MarkdownStyle {
     pub fn list(mut self, indent: f32, gap: f32) -> Self {
         self.list_indent = indent;
         self.list_gap = gap;
+        self
+    }
+    /// `gap` between the items of a list whose items wrap: one with a paragraph wider than
+    /// `width` less the indent, on one line in the body font. Other lists keep [`Self::list`]'s gap.
+    pub fn list_wrap(mut self, gap: f32, width: f32) -> Self {
+        self.list_wrap = Some([gap, width]);
         self
     }
     pub fn quote_rule(mut self, c: Color) -> Self {
@@ -606,6 +614,7 @@ impl std::hash::Hash for MarkdownStyle {
             code_block_pad,
             list_indent,
             list_gap,
+            list_wrap,
             strong_weight,
             table_outline,
             table_rule,
@@ -648,7 +657,7 @@ impl std::hash::Hash for MarkdownStyle {
             diagram,
         } = *self;
         (text, muted, accent, link_underline, code_bg, code_block_fill, code_block_border, quote_rule, rule).hash(state);
-        (body, headings, code_block, (code_text, plain_code_text), shell, link_hover, list_outside, list_nested.map(|n| n.map(f32_bits)), table_align).hash(state);
+        (body, headings, code_block, (code_text, plain_code_text), shell, link_hover, list_outside, list_nested.map(|n| n.map(f32_bits)), table_align, list_wrap.map(|w| w.map(f32_bits))).hash(state);
         (f32_bits(quote.width), f32_bits(quote.pad), quote.text).hash(state);
         [inline_code_scale, inline_code_weight, inline_code_pad, code_block_pad[0], code_block_pad[1], list_indent, list_gap, strong_weight, table_min_column]
             .map(f32_bits)

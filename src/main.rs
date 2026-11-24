@@ -27,6 +27,7 @@
 //! and the settings.
 
 mod app;
+mod crash;
 mod doc;
 mod edit;
 mod fonts;
@@ -524,6 +525,7 @@ fn window_chrome() -> rune::Chrome {
 }
 
 fn main() {
+    crash::install();
     open::install();
     rune::prewarm_gpu();
     probe::mark_start();
@@ -573,6 +575,7 @@ mod tests {
         use rune::render::{KIND_EFFECT, KIND_LAYER, KIND_LAYER_END};
         let mut app = crate::App::bare(crate::index::Library::load(Vec::new(), None));
         app.settings.theme = crate::settings::ThemePref::Light;
+        app.settings.fire = crate::settings::FireMode::Brief;
         app.open_paths(vec![PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("fixtures/normal.md")]);
         let mut rt = rune::Runtime::new(app, crate::view, (1280.0, 800.0), rune::Env::new(true, 2.0));
         rt.poll = Some(crate::poll);

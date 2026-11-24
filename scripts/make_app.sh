@@ -1,5 +1,6 @@
 #!/bin/sh
 # Packages target/perf/runemd into build/RuneMD.app, signed "RuneMD Local", and registers it with Launch Services.
+# SIGN=adhoc signs ad hoc instead and skips Launch Services: the build for other Macs (scripts/make_release.sh).
 set -eu
 cd "$(dirname "$0")/.."
 app=build/RuneMD.app
@@ -8,6 +9,11 @@ cp target/perf/runemd "$app/Contents/MacOS/runemd"
 cp assets/Info.plist "$app/Contents/Info.plist"
 cp assets/fonts/* "$app/Contents/Resources/Fonts/"
 cp assets/RuneMD.icns "$app/Contents/Resources/RuneMD.icns"
+if [ "${SIGN:-local}" = adhoc ]; then
+    codesign -s - --force "$app"
+    echo "$app"
+    exit 0
+fi
 KC="$HOME/Library/Keychains/runemd.keychain-db"
 [ -f "$KC" ] || { echo "$KC missing: run scripts/make_cert.sh" >&2; exit 1; }
 security unlock-keychain -p runemd "$KC"

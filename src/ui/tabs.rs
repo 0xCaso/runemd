@@ -190,7 +190,10 @@ pub fn view(s: &App, hooks: Hooks<App>, theme: &Theme, reduced: bool, hover: boo
         .child(text(SOURCE_KEY).font(TextStyle::new(KBD_TEXT, KBD_WEIGHT)).color(theme.fg3));
     // Find (Cmd+F): the field sits in the bar, right of the tabs, so the document does not move.
     let find = s.find.open.then(|| super::find::field(s, theme).mr(ROW_GAP));
-    let tools = row().key("bar-tools").gap(TOOL_GAP).center_y().child(super::shortcuts::button(s, theme, motion)).child(width_button(s, theme, motion)).child(key.ml(SOURCE_GAP - TOOL_GAP));
+    // With no file open, ↔ and ⌘E act on nothing: only the shortcuts button stays
+    // (decision 2026-11-24-settings-visual-details, item 1).
+    let doc_tools = (n > 0).then(|| [width_button(s, theme, motion), key.ml(SOURCE_GAP - TOOL_GAP)]).into_iter().flatten();
+    let tools = row().key("bar-tools").gap(TOOL_GAP).center_y().child(super::shortcuts::button(s, theme, motion)).children(doc_tools);
     // The buttons' backdrop: the bar's own colour, a little see-through over a blur, fading in over
     // `FADE_W` on the left, laid over the strip's end (`ml(-FADE_W)`). The blur only while the tabs
     // overflow: otherwise only the flat bar is under it, and it would cost every metal frame ~1 ms.
@@ -935,5 +938,20 @@ mod tests {
         one.key(ctrl_tab(true));
         settle(&mut one);
         assert_eq!((one.state.active, one.state.tabs.len()), (0, 1), "one tab: nothing moves");
+    }
+
+    /// Decision 2026-11-24-settings-visual-details, item 1: with no file open the bar keeps only the
+    /// shortcuts button; ↔ and "⌘E source" come back with the first tab.
+    #[test]
+    fn with_no_file_only_the_shortcuts_button_stays() {
+        let state = App::bare(crate::index::Library::load(Vec::new(), None));
+        let mut rt = Runtime::new(state, crate::view, (1200.0, 900.0), Env::new(true, 2.0));
+        rt.frame(0.0);
+        settle(&mut rt);
+        assert!(find(&rt, "bar-tools").is_some());
+        assert!(find(&rt, "width-button-glyph").is_none() && find(&rt, "source-key").is_none(), "no ↔ or ⌘E with no file");
+        rt.update(|s: &mut App, _| s.push_tab(Document::from_source(Path::new("t.md"), "# T\n")));
+        settle(&mut rt);
+        assert!(find(&rt, "width-button-glyph").is_some() && find(&rt, "source-key").is_some(), "back with a tab");
     }
 }

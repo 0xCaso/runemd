@@ -116,11 +116,11 @@ impl ThemePref {
 pub enum FireMode {
     /// About 5 s when the window becomes active with a document and when a document comes to the
     /// front, and after the lit fire calms; then it fades out and the app stops waking for it.
-    #[default]
     Brief,
     /// Always at rest while reading (v1.1): about 8–10 % CPU while the window is active.
     Always,
-    /// No flames; the "N new paragraphs below" label stays.
+    /// No flames; the "N new paragraphs below" label stays. The default (feedback 2026-11-24, G4).
+    #[default]
     Off,
 }
 
@@ -178,7 +178,7 @@ impl Default for Settings {
             font: DEFAULT_FONT.to_owned(),
             size: DEFAULT_SIZE,
             theme: ThemePref::System,
-            fire: FireMode::Brief,
+            fire: FireMode::Off,
             fire_strength: 1.0,
             fire_height: 1.0,
             fire_speed: 1.0,
@@ -211,6 +211,10 @@ const THEME: &str = "theme";
 /// The old on/off switch: still read when `fire_mode` is missing, and still written for older versions.
 const FIRE: &str = "fire";
 const FIRE_MODE: &str = "fire_mode";
+/// Set by every save since the fire went Off by default (feedback 2026-11-24, G4). Prefs without it
+/// were saved before, when every save wrote Brief whether chosen or not: their Brief reads as Off once.
+/// Always and Off were always chosen, so they stay.
+const FIRE_OFF_DEFAULT: &str = "fire_off_default";
 const FIRE_STRENGTH: &str = "fire_strength";
 const FIRE_HEIGHT: &str = "fire_height";
 const FIRE_SPEED: &str = "fire_speed";
@@ -241,6 +245,7 @@ impl Settings {
             fire: prefs
                 .get(FIRE_MODE)
                 .or_else(|| prefs.get(FIRE).map(FireMode::from_switch))
+                .filter(|m| *m != FireMode::Brief || prefs.get::<bool>(FIRE_OFF_DEFAULT).is_some())
                 .unwrap_or(d.fire),
             fire_strength: step_or(prefs, FIRE_STRENGTH, &fire::STRENGTHS, d.fire_strength),
             fire_height: step_or(prefs, FIRE_HEIGHT, &fire::HEIGHTS, d.fire_height),
@@ -265,6 +270,7 @@ impl Settings {
         prefs.set(SIZE, &self.size)?;
         prefs.set(THEME, &self.theme)?;
         prefs.set(FIRE_MODE, &self.fire)?;
+        prefs.set(FIRE_OFF_DEFAULT, &true)?;
         prefs.set(FIRE, &self.fire.shows())?;
         prefs.set(FIRE_STRENGTH, &self.fire_strength)?;
         prefs.set(FIRE_HEIGHT, &self.fire_height)?;
@@ -440,7 +446,7 @@ mod tests {
         assert_eq!(s.font, "Inter");
         assert_eq!(s.size, 15.5);
         assert_eq!(s.theme, ThemePref::System);
-        assert_eq!(s.fire, FireMode::Brief, "the fire shows briefly by default");
+        assert_eq!(s.fire, FireMode::Off, "the fire is off by default");
         let home = PathBuf::from(std::env::var_os("HOME").unwrap());
         assert_eq!(s.roots, vec![home.join("Desktop/GitHub")]);
     }
@@ -519,31 +525,49 @@ mod tests {
 
     /// Decision 2026-11-17-doc-fire-at-rest, constraint 1: the old on/off switch (`fire`) reads as
     /// Brief (on) and Off (off); the new key wins over it, a value that cannot be read takes the
-    /// default (Brief), and saving keeps the old key for older versions (on unless Off).
+    /// default (Off), and saving keeps the old key for older versions (on unless Off).
     #[test]
     fn the_old_fire_switch_becomes_brief_or_off() {
         let old = |v: bool| {
             let mut prefs = Prefs::memory();
+            prefs.set(FIRE_OFF_DEFAULT, &true).unwrap();
             prefs.set(FIRE, &v).unwrap();
             Settings::load(&prefs).fire
         };
         assert_eq!(old(true), FireMode::Brief);
         assert_eq!(old(false), FireMode::Off);
         let mut prefs = Prefs::memory();
+        prefs.set(FIRE_OFF_DEFAULT, &true).unwrap();
         prefs.set(FIRE, &false).unwrap();
         prefs.set(FIRE_MODE, &FireMode::Always).unwrap();
         assert_eq!(Settings::load(&prefs).fire, FireMode::Always, "the new key wins");
         prefs.set(FIRE_MODE, &"Sometimes").unwrap();
         assert_eq!(Settings::load(&prefs).fire, FireMode::Off, "unreadable: the old key");
         let mut prefs = Prefs::memory();
+        prefs.set(FIRE_OFF_DEFAULT, &true).unwrap();
         prefs.set(FIRE_MODE, &"Sometimes").unwrap();
-        assert_eq!(Settings::load(&prefs).fire, FireMode::Brief, "neither: the default");
+        assert_eq!(Settings::load(&prefs).fire, FireMode::Off, "neither: the default");
         for (mode, on) in [(FireMode::Brief, true), (FireMode::Always, true), (FireMode::Off, false)] {
             let mut prefs = Prefs::memory();
             Settings { fire: mode, ..Settings::default() }.save(&mut prefs).unwrap();
             assert_eq!(prefs.get::<bool>(FIRE), Some(on), "{mode:?}: the old key for older versions");
             assert_eq!(Settings::load(&prefs).fire, mode);
         }
+    }
+
+    /// Feedback 2026-11-24, G4: a Brief saved before the Off default reads as Off once; a Brief
+    /// saved after it stays.
+    #[test]
+    fn prefs_saved_before_the_off_default_start_off_once() {
+        let mut prefs = Prefs::memory();
+        prefs.set(FIRE_MODE, &FireMode::Brief).unwrap();
+        prefs.set(FIRE, &true).unwrap();
+        let s = Settings::load(&prefs);
+        assert_eq!(s.fire, FireMode::Off, "old prefs: Brief reads as Off");
+        let mut again = s.clone();
+        again.fire = FireMode::Brief;
+        again.save(&mut prefs).unwrap();
+        assert_eq!(Settings::load(&prefs).fire, FireMode::Brief, "a choice saved after it stays");
     }
 
     /// The text width: 680 by default; the shortcuts step by 80 up to 1240 and then "Full" (0), also from
