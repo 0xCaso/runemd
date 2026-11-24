@@ -45,11 +45,12 @@ pub const THEMES: [(ThemePref, &str); 3] = [
     (ThemePref::Dark, "Dark"),
 ];
 pub const FIRE: &str = "Fire at the bottom of the panel";
-/// Its three choices (decision `2026-11-17-doc-fire-at-rest`), Brief first (the default).
+/// Its three choices (decision `2026-11-17-doc-fire-at-rest`), the default first: Off since feedback
+/// 2026-11-24 G4. Always stays last, so its CPU note closes the group.
 pub const FIRE_MODES: [(FireMode, &str); 3] = [
+    (FireMode::Off, "Off"),
     (FireMode::Brief, "Brief"),
     (FireMode::Always, "Always"),
-    (FireMode::Off, "Off"),
 ];
 /// The note under Always (measured: 8.2–9.9 % CPU, `docs/perf-memory-2026-11-16.md`).
 pub const FIRE_ALWAYS_NOTE: &str = "Uses about 8–10 % CPU while the window is active.";
@@ -716,7 +717,7 @@ fn root_row(
             text(label)
                 .font(ui_font())
                 .color(theme.fg2)
-                .truncate()
+                .truncate_middle()
                 .grow(1.0)
                 .shrink()
                 .min_w(0.0),
@@ -1002,8 +1003,9 @@ mod tests {
             assert_eq!(e.role, "radio");
             assert_eq!(e.fill == theme.sel, mode == FireMode::Off, "{label}: only Off chosen");
         }
-        let (always, note, off) = (find(&rt, "set-fire-Always").rect, find(&rt, "set-fire-always-note").rect, find(&rt, "set-fire-Off").rect);
-        assert!(note[1] >= always[1] + always[3] - 0.5 && note[1] + note[3] <= off[1] + 0.5, "the note between Always {always:?} and Off {off:?}: {note:?}");
+        let (off, brief, always, note) = (find(&rt, "set-fire-Off").rect, find(&rt, "set-fire-Brief").rect, find(&rt, "set-fire-Always").rect, find(&rt, "set-fire-always-note").rect);
+        assert!(off[1] < brief[1] && brief[1] < always[1], "the default first: Off {off:?}, Brief {brief:?}, Always {always:?}");
+        assert!(note[1] >= always[1] + always[3] - 0.5, "the note under Always {always:?}: {note:?}");
         assert!(texts(&rt).iter().any(|t| t == FIRE_ALWAYS_NOTE));
         let column = find(&rt, "settings-scroll").rect;
         assert!(note[0] + note[2] <= column[0] + column[2] + 0.5, "the note wraps inside the panel: {note:?} in {column:?}");
