@@ -502,8 +502,9 @@ accent: caret `fg`, selection `sel`. No results: "No files" in `fg-3`.
 
 **Tab.** VS Code's shape (record `2026-11-18-vscode-tabs`; the `c6b02b5` version with 8 between tabs read as "troppo
 spazio"). The bar is 44 tall (`tab-bar`) on the `tab-bar` tint over `panel` (black 4 % light, 40 % dark: a shade off the
-page), 8 before the first tab (`tab-bar-lead`), 10 margin on the right (`tab-bar-pad`), a 0.5 line in `line` at the
-bottom. Tabs sit edge to edge, as wide as the file name up to 240 (`tab-max`, D5; beyond that, the name is cut in the
+page), 8 before the first tab (`tab-bar-lead`), 10 margin on the right (`tab-bar-pad`), no line at the
+bottom: the document below is a solid `panel` card on the same tint, its top corners rounded like the panel's
+(`R_PANEL`, scrawl 1795528129903). Tabs sit edge to edge, as wide as the file name up to 240 (`tab-max`, D5; beyond that, the name is cut in the
 middle), from 8 below the bar's top (`tab-top`) down to the document, UI text 13 px with 12 before the name
 (`tab-pad`). Back tabs: no fill, `fg-2` text, hover `sel` in the front tab's pill shape (the same 24 tall, corners 5,
 place and insets; review R4, record `2026-11-23-t3-paths-review`; the dividers on both sides fade out with it), pressed
@@ -512,7 +513,7 @@ scale 0.98, and a 1 px divider in `line`
 inside the bar, as in the installed app (record `2026-11-18-tab-bar-style`): the tab's width less 3 on each side
 (`PILL_X`, so neighbouring pills keep at least 4 of bar between them, ring included: review R5, record
 `2026-11-23-t3-paths-review-2`), 24 tall (`PILL_H`),
-corners of 5 (`PILL_R`, half the page panel's `R_PANEL`: Matteo, 2026-11-18, constraint 5), `sel` fill and `fg` text; the bar's line runs on under it. A closed metal
+corners of 5 (`PILL_R`, half the page panel's `R_PANEL`: Matteo, 2026-11-18, constraint 5), `sel` fill and `fg` text. A closed metal
 ring goes all round the pill (`RING_W` outside it, concentric: outer radius 7, the moving chrome at 8 steps a second, still with Reduce Motion or an
 inactive window), wholly inside the bar with the same room above it and below it, 8 (`RING_GAP`) to the bar's top and to
 its line (Matteo, 2026-11-18: it had 12 above and sat on the line). The names, the × and the buttons on the right sit on

@@ -198,8 +198,12 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
     // The settings panel (Cmd+,) right of the document. The container is always there,
     // so opening it does not move the document in the tree and does not lose its scroll.
     let aside = s.settings_panel.open.then(|| ui::settings::view(s, hooks, &theme, reduced, !cx.hover_none()));
-    let body = rune::row().key("body").w_full().grow(1.0).min_h(0.0).child(el().grow(1.0).min_w(0.0).h_full().child(body)).children(aside);
-    let content = rune::col().w_full().h_full().child(bar).child(body);
+    // The document is a solid card on the bar's tint, with the panel's radius on its top corners
+    // too (scrawl 1795528129903); the panel's clip rounds its bottom ones.
+    let r = ui::theme::R_PANEL;
+    let body = rune::row().key("body").w_full().grow(1.0).min_h(0.0).fill(theme.panel).corners([r, r, 0.0, 0.0])
+        .child(el().grow(1.0).min_w(0.0).h_full().child(body)).children(aside);
+    let content = rune::col().w_full().h_full().fill(theme.tab_bar()).child(bar).child(body);
     let mut panel = el().w_full().h_full().fill(theme.panel).radius(ui::theme::R_PANEL).clip_rounded(ui::theme::R_PANEL).child(content);
     // The front tab's fire: always in reading mode, a strip at the bottom of the panel above
     // the document, low at rest; with new text below the view it rises and carries the label.
