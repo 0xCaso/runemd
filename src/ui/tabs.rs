@@ -34,7 +34,7 @@ pub const SOURCE_KEY: &str = "⌘E source";
 pub const WIDTH_BUTTON: &str = "width-button";
 pub const WIDTH_POPOVER: &str = "width-popover";
 /// The button glyph, pt.
-const WIDTH_GLYPH: f32 = 15.0;
+const WIDTH_GLYPH: f32 = 16.0;
 /// Between the button and the popover, pt.
 const POPOVER_GAP: f32 = 4.0;
 /// The tools on the right of the bar (feedback group 3, item 4): 4 pt between the gear and ↔ (their
@@ -78,8 +78,16 @@ pub fn step_key(key: &rune::KeyEvent, base: Option<char>) -> Option<isize> {
 
 /// The ↔ button: 28 × 28, radius `R_ROW`, glyph in `fg2`, hover `sel`; with the popover open
 /// it has the `sel` fill. Opens and closes the popover.
+/// The text width button's icon: lines of text between two bars, the column and its edges (Matteo,
+/// Waggle c_d50b27bd, option B; drawn like the kit icons: viewBox 16, stroke 1).
+static WIDTH_ICON: rune::Icon = rune::Icon {
+    name: "runemd-text-width",
+    view: 16.0,
+    body: r#"<path d="M2.5 2.5V13.5M13.5 2.5V13.5" stroke="currentColor" stroke-linecap="round"/><path d="M5 5.5H11M5 8H11M5 10.5H9" stroke="currentColor" stroke-linecap="round"/>"#,
+};
+
 fn width_button(s: &App, theme: &Theme, motion: Motion) -> El {
-    let glyph = text("↔").key("width-button-glyph").font(TextStyle::new(WIDTH_GLYPH, UI_WEIGHT)).color(theme.fg2).a11y_hidden();
+    let glyph = rune::icon(&WIDTH_ICON, WIDTH_GLYPH).key("width-button-glyph").color(theme.fg2).a11y_hidden();
     let mut b = el()
         .key(WIDTH_BUTTON)
         .size(ROW, ROW)

@@ -530,7 +530,7 @@ at least 24 wide) sits under the front tab's ring while the tabs overflow, and t
 changes (click, keys, a file opened, launch), clear of the fade. "⌘E source" on the right like the "⌘P" key, in
 `fg-3`.
 
-**Text width (↔ button).** In the tab bar, just left of "⌘E source": 28 × 28 (`row`), radius 6, glyph "↔" 15 in
+**Text width (↔ button).** In the tab bar, just left of "⌘E source": 28 × 28 (`row`), radius 6, icon 16 (lines of text between two bars, `WIDTH_ICON`; Matteo, Waggle c_d50b27bd) in
 `fg-2`, hover `sel`; with the popover open it has the `sel` fill. Label "Text width". A click opens under the button,
 aligned to its right edge and 4 lower, a popover 248 wide (`sidebar`): `panel` fill, radius 10, 0.5 border at `ink`
 10 % and the panel's shadow (the same as the only depth there is); inside "Text width" (UI 13 in `fg-2`), the same
