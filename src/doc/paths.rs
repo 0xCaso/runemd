@@ -408,9 +408,6 @@ pub fn code_head(word: &str) -> (String, Kind) {
     }
 }
 
-/// Between the rows of a popover (Rune's `help_row`).
-pub const ROW: char = '\u{1e}';
-
 /// A size as Finder writes it, with one decimal from KB on.
 pub fn size(len: u64) -> String {
     match len {
@@ -455,12 +452,8 @@ pub fn shown(source: &str, places: &Places, labels: &Labels) -> Option<Shown> {
             Some(hit) => {
                 let target = if hit.dir { format!("{OPEN}{}/", hit.path.display()) } else { open_target(&hit.path, f.line) };
                 let short = places.short(&hit.path);
-                let help = if hit.dir {
-                    format!("{short}/{ROW}Click shows it in the sidebar")
-                } else {
-                    // Only the full path (Matteo, Waggle c_856970ee; ledger `2026-11-24-link-hint`).
-                    short
-                };
+                // Only the full path, for files and folders (Matteo, Waggle c_856970ee; ledger `2026-11-24-link-hint`).
+                let help = if hit.dir { format!("{short}/") } else { short };
                 helps.insert(target.clone(), help);
                 if f.link {
                     format!("<{target}>")
@@ -775,7 +768,7 @@ mod tests {
         let help = sh.helps.get(&open_target(&file, None)).unwrap();
         assert_eq!(help, "~/notes/big.json", "only the full path");
         let dir = sh.helps.get(&format!("{OPEN}{}/", t.join("home/notes").display())).unwrap();
-        assert_eq!(dir, &format!("~/notes/{ROW}Click shows it in the sidebar"));
+        assert_eq!(dir, "~/notes/", "only the path for a folder too");
         assert_eq!(size(812), "812 B");
         assert_eq!(size(3 * 1024 * 1024 + 100), "3.0 MB");
         std::fs::remove_dir_all(&t).unwrap();

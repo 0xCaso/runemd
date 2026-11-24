@@ -390,7 +390,7 @@ link drawn as T3 Code draws it: the type icon (1 em, gap .24 em, color from "Pat
 name, body font, weight 500, in `fg`, no background. A line number shows as `L88` (a range as `L42–64`) after the
 name, in `fg-3`. Two files with the same name in one document show, in `fg-3`, the shortest folder tail that tells
 them apart (at least two levels, as T3 Code). Hover: a 1 underline in `fg-2` and, at once (no delay), a popover with
-the full path (home as `~`) and the size, or for a folder "Click shows it in the sidebar"; popover: `panel` fill,
+only the full path (home as `~`; a folder ends in `/`; Matteo, Waggle c_856970ee); popover: `panel` fill,
 0.5 ring in `line`, radius 8, 10 × 7 inside, 12/450 in `fg-2`, max 520 wide, the panel's shadow. Rune's tooltip look
 is global, so the other tooltips (tabs, shortcuts) also open at once. Click: a file opens in a tab (at the line), a
 folder opens in the sidebar tree (in Finder if no sidebar root holds it); ⌘-click opens the file in its default app.
