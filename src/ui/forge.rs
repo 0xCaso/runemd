@@ -23,10 +23,10 @@ pub const LETTERS_SVG: &[u8] = include_bytes!("../../assets/wordmark/letters.svg
 #[cfg(test)]
 pub const PLATE_SVG: &[u8] = include_bytes!("../../assets/wordmark/plate.svg");
 /// `plate.svg` rendered by headless Chrome at 2x `PLATE_W` (resvg loses its displacement filter).
-pub const PLATE_PNG: &[u8] = include_bytes!("../../assets/wordmark/plate.png");
+pub static PLATE_PNG: &[u8] = include_bytes!("../../assets/wordmark/plate.png");
 
 /// `plate.svg` rendered by headless Chrome at `PLATE_W` px: the strip at 1x, or a narrow strip at 2x.
-pub const PLATE_PNG_1X: &[u8] = include_bytes!("../../assets/wordmark/plate-1x.png");
+pub static PLATE_PNG_1X: &[u8] = include_bytes!("../../assets/wordmark/plate-1x.png");
 
 /// The strip in SVG units (`viewBox`).
 pub const STRIP: [f32; 2] = [1360.0, 400.0];

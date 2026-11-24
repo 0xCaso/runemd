@@ -2085,6 +2085,7 @@ mod tests {
     fn a_background_reload_does_not_light_the_front_tab() {
         let (_dir, p) = files(&["a.md", "b.md"]);
         let mut app = empty_app();
+        app.settings.fire = FireMode::Brief;
         app.open_paths(p);
         // `a` was in front and showed its first block.
         app.select(0);
@@ -2119,11 +2120,12 @@ mod tests {
     fn brief_app() -> (tempfile::TempDir, App) {
         let (dir, p) = files(&["a.md", "b.md"]);
         let mut app = empty_app();
+        app.settings.fire = FireMode::Brief;
         app.open_paths(p);
         (dir, app)
     }
 
-    /// Brief, the default: the resting fire shows for 5 s and its fade (on the display link, not
+    /// Brief, the old default: the resting fire shows for 5 s and its fade (on the display link, not
     /// paced wake-ups), then the view drops the slot and nothing wakes for it any more (constraint 2).
     #[test]
     fn the_brief_fire_rests_for_five_seconds_then_fades_and_stops_waking() {

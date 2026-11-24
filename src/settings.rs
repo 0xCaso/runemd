@@ -116,11 +116,11 @@ impl ThemePref {
 pub enum FireMode {
     /// About 5 s when the window becomes active with a document and when a document comes to the
     /// front, and after the lit fire calms; then it fades out and the app stops waking for it.
-    #[default]
     Brief,
     /// Always at rest while reading (v1.1): about 8–10 % CPU while the window is active.
     Always,
-    /// No flames; the "N new paragraphs below" label stays.
+    /// No flames; the "N new paragraphs below" label stays. The default (feedback 2026-11-24, G4).
+    #[default]
     Off,
 }
 
@@ -178,7 +178,7 @@ impl Default for Settings {
             font: DEFAULT_FONT.to_owned(),
             size: DEFAULT_SIZE,
             theme: ThemePref::System,
-            fire: FireMode::Brief,
+            fire: FireMode::Off,
             fire_strength: 1.0,
             fire_height: 1.0,
             fire_speed: 1.0,
@@ -440,7 +440,7 @@ mod tests {
         assert_eq!(s.font, "Inter");
         assert_eq!(s.size, 15.5);
         assert_eq!(s.theme, ThemePref::System);
-        assert_eq!(s.fire, FireMode::Brief, "the fire shows briefly by default");
+        assert_eq!(s.fire, FireMode::Off, "the fire is off by default");
         let home = PathBuf::from(std::env::var_os("HOME").unwrap());
         assert_eq!(s.roots, vec![home.join("Desktop/GitHub")]);
     }
@@ -519,7 +519,7 @@ mod tests {
 
     /// Decision 2026-11-17-doc-fire-at-rest, constraint 1: the old on/off switch (`fire`) reads as
     /// Brief (on) and Off (off); the new key wins over it, a value that cannot be read takes the
-    /// default (Brief), and saving keeps the old key for older versions (on unless Off).
+    /// default (Off), and saving keeps the old key for older versions (on unless Off).
     #[test]
     fn the_old_fire_switch_becomes_brief_or_off() {
         let old = |v: bool| {
@@ -537,7 +537,7 @@ mod tests {
         assert_eq!(Settings::load(&prefs).fire, FireMode::Off, "unreadable: the old key");
         let mut prefs = Prefs::memory();
         prefs.set(FIRE_MODE, &"Sometimes").unwrap();
-        assert_eq!(Settings::load(&prefs).fire, FireMode::Brief, "neither: the default");
+        assert_eq!(Settings::load(&prefs).fire, FireMode::Off, "neither: the default");
         for (mode, on) in [(FireMode::Brief, true), (FireMode::Always, true), (FireMode::Off, false)] {
             let mut prefs = Prefs::memory();
             Settings { fire: mode, ..Settings::default() }.save(&mut prefs).unwrap();

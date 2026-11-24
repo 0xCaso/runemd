@@ -607,7 +607,10 @@ mod tests {
             use crate::lab::{LabState, LabTuning, fire_at, publish, ring_at};
             let _lab = crate::lab::test_lab();
             let (_d, mut rt) = open();
-            rt.update(|s: &mut App, _| s.motion_env = Some(true));
+            rt.update(|s: &mut App, _| {
+                s.motion_env = Some(true);
+                s.settings.fire = crate::settings::FireMode::Brief;
+            });
             settle(&mut rt);
             let mut fx = crate::fx::FxCompositor::default();
             let at = |rt: &mut Runtime<App>, t: f64, seq: u64| {

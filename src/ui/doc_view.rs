@@ -1086,6 +1086,8 @@ mod tests {
 
     fn open_doc(document: Document) -> Runtime<Doc> {
         let mut state = Doc::bare(crate::index::Library::load(Vec::new(), None));
+        // These tests watch the fire, which is off by default.
+        state.settings.fire = crate::settings::FireMode::Brief;
         state.set_style(MarkdownStyle::neutral(true));
         state.push_tab(document);
         let mut rt = Runtime::new(state, crate::view, VIEWPORT, Env::new(true, 2.0));

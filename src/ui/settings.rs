@@ -987,8 +987,8 @@ mod tests {
         assert!(bottom_room(true, 5.5) > bottom_room(true, 1.0));
     }
 
-    /// Decision 2026-11-17-doc-fire-at-rest: the fire is a choice of three (Brief, Always, Off), Brief
-    /// chosen by default; the note on the CPU sits right under Always; a click picks and saves; the
+    /// Decision 2026-11-17-doc-fire-at-rest: the fire is a choice of three (Brief, Always, Off), Off
+    /// chosen by default (feedback 2026-11-24, G4); the note on the CPU sits right under Always; a click picks and saves; the
     /// room above the fire stays for Brief and Always, not for Off (constraints 1, 3, 7).
     #[test]
     fn the_fire_is_a_choice_of_three_with_a_note_under_always() {
@@ -1000,7 +1000,7 @@ mod tests {
         for (mode, label) in FIRE_MODES {
             let e = find(&rt, &format!("set-fire-{label}"));
             assert_eq!(e.role, "radio");
-            assert_eq!(e.fill == theme.sel, mode == FireMode::Brief, "{label}: only Brief chosen");
+            assert_eq!(e.fill == theme.sel, mode == FireMode::Off, "{label}: only Off chosen");
         }
         let (always, note, off) = (find(&rt, "set-fire-Always").rect, find(&rt, "set-fire-always-note").rect, find(&rt, "set-fire-Off").rect);
         assert!(note[1] >= always[1] + always[3] - 0.5 && note[1] + note[3] <= off[1] + 0.5, "the note between Always {always:?} and Off {off:?}: {note:?}");
@@ -1213,6 +1213,7 @@ mod tests {
     #[test]
     fn fire_off_keeps_the_label_and_draws_no_flames() {
         let mut rt = open("# Title\n\nText.\n", true);
+        rt.update(|s, _| s.settings.fire = FireMode::Brief);
         rt.update(|s, _| s.tabs[0].fire_since = Some(0.0));
         settle_some(&mut rt);
         assert!(
@@ -1351,6 +1352,7 @@ mod tests {
     #[test]
     fn fire_look_controls_change_settings_and_go_dim_when_off() {
         let mut rt = open("# Title\n\nText.\n", true);
+        rt.update(|s, _| s.settings.fire = FireMode::Brief);
         cmd(&mut rt, ',');
         for label in [FIRE_STRENGTH, FIRE_HEIGHT, FIRE_SPEED, FIRE_COLOR, "Fire", "Blue", "Violet", "Green", "System accent", "100 %", "110 pt", "1×"] {
             assert!(texts(&rt).iter().any(|t| t == label), "missing {label}: {:?}", texts(&rt));
