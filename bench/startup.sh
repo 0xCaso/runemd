@@ -9,7 +9,7 @@ CACHE=$(getconf DARWIN_USER_CACHE_DIR)
 mkdir -p "$W/logs"
 now() { python3 -c 'import time;print(f"{time.time()*1000:.1f}")'; }
 clear_shaders() {
-  id=dev.matteo.runemd
+  id=io.github.0xcaso.runemd
   rm -rf "$CACHE/com.apple.metal/$id" "$CACHE/$id/com.apple.metal" "$CACHE/$id/com.apple.metalfe" "$CACHE/$id/com.apple.gpuarchiver"
 }
 run() { # file

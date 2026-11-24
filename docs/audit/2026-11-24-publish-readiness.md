@@ -12,7 +12,7 @@ Answers G1 and G2 of `docs/feedback/2026-11-24-publish-ui-review.md`. Branch `fi
 | 4 | **Updates.** No update check: users stay on the version they downloaded. | no updater in `Cargo.toml` or `src` | v1 can ship without one; a simple "new version on GitHub Releases" check later |
 | 5 | **Crash trace.** No panic hook: a panic closes the window with no log for the user to send. Save errors already keep a recovery copy. | no `panic::set_hook` in `src`; `src/edit/recovery.rs` | Done: `src/crash.rs` writes `~/Library/Logs/RuneMD/panic-<stamp>.log` |
 | 6 | **Finder "Open With".** Info.plist claims only `.md` / `.markdown`, but the app also reads JSON and text. | `assets/Info.plist:19-20` | Add `public.json` and `public.plain-text` as Viewer (Alternate rank), if wanted |
-| 7 | **Bundle id.** `dev.matteo.runemd` is personal; changing it after release loses users' Launch Services links. The prefs folder is `RuneMD/`, not tied to the id. | `assets/Info.plist:4`, `src/settings.rs:2` | Matteo: keep it or pick the final one before the first release |
+| 7 | **Bundle id.** `dev.matteo.runemd` is personal; changing it after release loses users' Launch Services links. The prefs folder is `RuneMD/`, not tied to the id. | `assets/Info.plist:4`, `src/settings.rs:2` | Done: `io.github.0xcaso.runemd` (`docs/decisions/2026-11-24-bundle-id.md`) |
 | 8 | **Audience.** macOS 26 or later only. | `assets/Info.plist:12` | Conscious choice; say it on the download page |
 
 Already in place: MIT `LICENSE`, user `README.md`, recovery copies, startup p50 293–297 ms against a 350 ms budget (`docs/perf.md:13-14`).
