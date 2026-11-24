@@ -27,6 +27,7 @@
 //! and the settings.
 
 mod app;
+mod crash;
 mod doc;
 mod edit;
 mod fonts;
@@ -524,6 +525,7 @@ fn window_chrome() -> rune::Chrome {
 }
 
 fn main() {
+    crash::install();
     open::install();
     rune::prewarm_gpu();
     probe::mark_start();
