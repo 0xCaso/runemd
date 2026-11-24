@@ -32,19 +32,25 @@ Written in Rust with [Rune](https://github.com/anomalyco/rune). It starts in und
 
 The first time, create the local signing certificate "RuneMD Local":
 
-    scripts/make_cert.sh
+```sh
+scripts/make_cert.sh
+```
 
 It goes into its own keychain (`~/Library/Keychains/runemd.keychain-db`), because in the login keychain
 `codesign` waits for a dialog and blocks.
 
 Then build the app and open a file:
 
-    make app    # builds build/RuneMD.app, signed "RuneMD Local"
-    open build/RuneMD.app --args file.md
+```sh
+make app    # builds build/RuneMD.app, signed "RuneMD Local"
+open build/RuneMD.app --args file.md
+```
 
 ## Release package
 
-    make release    # build/RuneMD-<version>.zip (ad hoc signed) and build/RuneMD-<version>-notes.md
+```sh
+make release    # build/RuneMD-<version>.zip (ad hoc signed) and build/RuneMD-<version>-notes.md
+```
 
 It does not tag or publish. The notes come from `assets/release-notes.md` and explain how to open an app
 without a Developer ID. `make release` replaces `build/RuneMD.app` with the ad hoc build: run `make app`
@@ -61,7 +67,9 @@ afterwards to get the local one back.
 
 ## Development
 
-    make check    # clippy, tests, gitleaks
+```sh
+make check    # clippy, tests, gitleaks
+```
 
 Run it before every commit. Measurements: `bench/startup.sh`, `bench/scroll.sh`, `bench/memory.sh` and
 `bench/edit_big.sh` (test files in `fixtures/`). Headless checks: `bench/reduce_motion.sh`
