@@ -34,7 +34,7 @@ pub static GEAR_ICON: Icon = Icon {
     body: r#"<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" fill="none"/><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.6" fill="none"/>"#,
 };
 
-/// The app's shortcuts, in the mockup's groups (design/mockups/2026-11-15-scorciatoie/scorciatoie.md).
+/// The app's shortcuts, in the mockup's groups (`shortcuts.md`, from the mockup design/mockups/2026-11-15-scorciatoie/).
 pub const GROUPS: &[(&str, &[(&str, &str)])] = &[
     ("File", &[("Open file", "⌘P"), ("Open the selected file", "↑↓  ↵"), ("New file", "⌘N"), ("Save (in source)", "⌘S"), ("Close tab", "⌘W")]),
     ("Tabs", &[("Go to tab", "⌘1 … ⌘8"), ("Last tab", "⌘9"), ("Next tab", "⌘⇧]  ⌃⇥"), ("Previous tab", "⌘⇧[  ⌃⇧⇥")]),
@@ -164,17 +164,17 @@ mod tests {
         settle(rt);
     }
 
-    /// Every row of scorciatoie.md (except Esc, which the mockup writes as "Chiudi popover e
+    /// Every row of shortcuts.md (except Esc, which the mockup writes as "Chiudi popover e
     /// ricerca") has its keys in the list.
     #[test]
     fn the_list_is_the_apps_list() {
-        let md = include_str!("../../design/mockups/2026-11-15-scorciatoie/scorciatoie.md");
+        let md = include_str!("shortcuts.md");
         let caps: Vec<&str> = GROUPS.iter().flat_map(|(_, k)| k.iter().map(|(_, c)| *c)).collect();
         for want in ["⌘P", "⌘N", "⌘S", "⌘W", "⌘1 … ⌘8", "⌘9", "⌘E", "⌘F", "⌘A", "⌘,", "Esc", "↑↓  ↵", "⌘⇧]  ⌃⇥", "⌘⇧[  ⌃⇧⇥", "↵  ⇧↵", "⌘⌥+  ⌘⌥−"] {
             assert!(caps.contains(&want), "missing {want}");
         }
         for k in ["⌘P", "⌘N", "⌘S", "⌘W", "⌘9", "⌘E", "⌘F", "⌘A", "⌘,"] {
-            assert!(md.contains(k), "{k} is not in scorciatoie.md");
+            assert!(md.contains(k), "{k} is not in shortcuts.md");
         }
         let groups: Vec<&str> = GROUPS.iter().map(|(g, _)| *g).collect();
         assert_eq!(groups, ["File", "Tabs", "Reading", "App"], "mockup groups");
