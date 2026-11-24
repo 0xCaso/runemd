@@ -733,11 +733,14 @@ pub struct FillParams {
     /// Paint only where the layer's source texture (`FxLayer::source`) has alpha: its coverage
     /// times the shape's. A glyph mask makes text out of any fill (RuneMD vendor change).
     pub mask: bool,
+    /// With `mask`: above 0 paints only a band this wide (pt) inside each glyph's edge, an outline
+    /// over the text under it (RuneMD vendor change).
+    pub rim: f32,
 }
 
 impl FillParams {
     pub fn new(style: FillStyle) -> FillParams {
-        FillParams { style, border: 0.0, intensity: 1.0, mask: false }
+        FillParams { style, border: 0.0, intensity: 1.0, mask: false, rim: 0.0 }
     }
     pub fn border(mut self, width: f32) -> FillParams {
         self.border = width;
@@ -750,6 +753,12 @@ impl FillParams {
     /// Clipped to the alpha of the layer's source texture (`FillParams::mask`).
     pub fn masked(mut self) -> FillParams {
         self.mask = true;
+        self
+    }
+    /// Masked, and only a band `width` pt wide inside the mask's edge (`FillParams::rim`).
+    pub fn masked_rim(mut self, width: f32) -> FillParams {
+        self.mask = true;
+        self.rim = width;
         self
     }
 
@@ -816,7 +825,7 @@ impl FillParams {
             }
             FillStyle::Plastic(_) => (0, 0),
         };
-        FxCost { passes: 1, samples: samples + 5 * u32::from(self.mask), alu, backdrop: self.needs_backdrop(), source: self.needs_source() }
+        FxCost { passes: 1, samples: samples + 5 * u32::from(self.mask) + if self.mask && self.rim > 0.0 { 8 } else { 0 }, alu, backdrop: self.needs_backdrop(), source: self.needs_source() }
     }
 
     /// Whether the fill draws nothing on a shape of this rect, at any time.
@@ -834,7 +843,7 @@ impl FillParams {
         // Looping styles settle on one pose under reduced motion, and fold large times to keep f32 precision.
         i.t[0] = if rm { CALM_T } else { cpu::fold_t(time) };
         i.t[2] = self.style.index() as f32;
-        i.aux = [self.border, self.intensity.min(1.0), f32::from(u8::from(self.mask)), 0.0];
+        i.aux = [self.border, self.intensity.min(1.0), f32::from(u8::from(self.mask)), if self.mask { fin(self.rim, 0.0).max(0.0) } else { 0.0 }];
         match self.style {
             FillStyle::LiquidMetal(p) => {
                 i.c0 = p.tint.v4();
@@ -972,6 +981,20 @@ mod tests {
 
     fn bits(i: &InstRaw) -> Vec<u32> {
         bytemuck::bytes_of(i).chunks(4).map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect()
+    }
+
+    #[test]
+    fn a_masked_rim_packs_its_width_and_only_with_the_mask() {
+        let metal = FillParams::from(LiquidMetalParams::chrome());
+        let (i, _) = packed(&Fx::fill(metal.masked_rim(0.9)).on(card())).unwrap();
+        assert_eq!(i.aux[2], 1.0, "masked");
+        assert_eq!(i.aux[3], 0.9, "the rim width");
+        let (i, _) = packed(&Fx::fill(metal.masked()).on(card())).unwrap();
+        assert_eq!(i.aux[3], 0.0, "a plain mask fills the glyphs");
+        let (i, _) = packed(&Fx::fill(FillParams { rim: 0.9, ..metal }).on(card())).unwrap();
+        assert_eq!(i.aux[3], 0.0, "no rim without the mask");
+        let (i, _) = packed(&Fx::fill(metal.masked_rim(f32::NAN)).on(card())).unwrap();
+        assert_eq!(i.aux[3], 0.0, "a bad width fills the glyphs");
     }
 
     #[test]
