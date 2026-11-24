@@ -39,7 +39,7 @@ It goes into its own keychain (`~/Library/Keychains/runemd.keychain-db`), becaus
 
 Then build the app and open a file:
 
-    make app                                # builds build/RuneMD.app, signed "RuneMD Local"
+    make app    # builds build/RuneMD.app, signed "RuneMD Local"
     open build/RuneMD.app --args file.md
 
 ## Release package
