@@ -2,7 +2,7 @@
 
 <p align="center">A native Markdown reader for macOS that shows what your agents write, live.</p>
 
-<p align="center"><img src="docs/images/screenshot-dark.png" alt="RuneMD in the dark theme: a sidebar with recent files and the repo folders, a release plan with a table and a Rust code block, and an outline on the right" width="900"></p>
+<p align="center"><img src="docs/images/screenshot-dark.png" alt="RuneMD in the dark theme reading its own README: a sidebar with recent files and the repo folders, and an outline on the right" width="900"></p>
 
 RuneMD opens any Markdown file and reads it with clean typography, tabs, an outline, Quick Open and
 Mermaid diagrams. When a coding agent edits a plan, a spec or a README, RuneMD shows the change as it
@@ -36,7 +36,7 @@ Requires macOS 26 or later on Apple silicon.
 - **Settings (⌘,).** Watched folders, font, size, light or dark theme, the bottom fire (Off, Brief or
   Always).
 
-<p align="center"><img src="docs/images/screenshot-light.png" alt="The same release plan in the light theme" width="900"></p>
+<p align="center"><img src="docs/images/screenshot-light.png" alt="The same README in the light theme" width="900"></p>
 
 ## Opening files
 
