@@ -31,7 +31,7 @@ pub struct Directions {
     pub engraved: bool,
     /// 4 · Ember: links underlined in ember; the rule a still strip of fire.
     pub ember: bool,
-    /// 5 · Glass: dithered callout bands, fluted glass quotes, glass image captions.
+    /// 5 · Glass: dithered callout bands, glass image captions (quotes stay plain since 2026-11-24).
     pub glass: bool,
     /// 6 · Tasks: chrome task beads and a metal progress tube.
     pub tasks: bool,

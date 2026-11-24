@@ -789,7 +789,7 @@ mod tests {
         assert!(alone("ember").iter().all(|p| *p == Piece::Fire) && alone("ember").len() == 2);
         let glass = alone("glass");
         assert_eq!(glass.iter().filter(|p| matches!(p, Piece::Dither { .. })).count(), 5, "{glass:?}");
-        assert!(glass.contains(&Piece::Fluted));
+        assert!(!glass.contains(&Piece::Fluted), "a quote stays plain: {glass:?}");
         let tasks = alone("tasks");
         assert_eq!(tasks.iter().filter(|p| matches!(p, Piece::Bead { .. })).count(), 4, "{tasks:?}");
         assert!(tasks.contains(&Piece::Tube) && tasks.contains(&Piece::TubeFill));

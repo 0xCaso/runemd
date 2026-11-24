@@ -634,7 +634,7 @@ fn block_body<S: 'static>(source: &str, style: &MarkdownStyle, notes: &crate::do
                 }
             })
     };
-    let md = if forge.on.any() { forge_markdown(md, callout.is_some(), forge) } else { md };
+    let md = if forge.on.any() { forge_markdown(md, forge) } else { md };
     // Every link opens (`App::open_link`): paths, URLs and `#heading`.
     let md = md.on_link_tx(move |s: &mut S, url, tx| open(s, url, tx));
     let body = md.render(&style).selection_group(false);
@@ -682,13 +682,11 @@ const CALLOUT_PAD_Y: f32 = 10.0;
 /// Glass: the dither band on a callout's side, pt (it covers the 2 pt quote line).
 const DITHER_W: f32 = 4.0;
 
-/// The kit's hooks for the forge directions that are on: code cards with an edge, quotes in
-/// fluted glass (not callouts: they have their own band).
-fn forge_markdown(md: rune_kit::Markdown, callout: bool, forge: Forge) -> rune_kit::Markdown {
-    use crate::fx::doc_fx::{BlockKind, Piece, slot};
-    let (on, look) = (forge.on, forge.look);
-    let md = if on.edge().is_some() { md.code_frame(move |card, _| framed(el().w_full().radius(CARD_RADIUS).child(card), BlockKind::Code, forge)) } else { md };
-    if on.glass && !callout { md.quote_frame(move |quote, _| slot(el().w_full().radius(IMAGE_RADIUS).child(quote), Piece::Fluted, look)) } else { md }
+/// The kit's hooks for the forge directions that are on: code cards with an edge. A quote keeps
+/// the kit's plain line in every direction (docs/decisions/2026-11-24-plain-quotes.md).
+fn forge_markdown(md: rune_kit::Markdown, forge: Forge) -> rune_kit::Markdown {
+    use crate::fx::doc_fx::BlockKind;
+    if forge.on.edge().is_some() { md.code_frame(move |card, _| framed(el().w_full().radius(CARD_RADIUS).child(card), BlockKind::Code, forge)) } else { md }
 }
 
 /// A picture, forged: an edge, and Glass's caption band on a tall one.
