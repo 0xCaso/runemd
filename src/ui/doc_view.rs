@@ -450,7 +450,11 @@ fn block_row<S: 'static>(source: &str, style: &MarkdownStyle, notes: &crate::doc
     let body = match crate::doc::labels::block(source) {
         _ if rule.is_some() => forged_rule(rule.unwrap_or(crate::fx::doc_fx::Rule::Engraved), forge.look),
         _ if tasks.is_some() => task_list(tasks.unwrap_or_default(), style, notes, places, open, fonts, meta, dress),
-        Some(lines) if columns => label_columns(source, &lines, hits, fonts, |src, hits| block_body(src, style, notes, places, None, open, fonts, meta, dress, hits)),
+        Some(lines) if columns => {
+            let rule = super::theme::Theme::for_mode(forge.look.dark).line;
+            let grid = label_columns(source, &lines, hits, fonts, rule, |src, hits| block_body(src, style, notes, places, None, open, fonts, meta, dress, hits));
+            framed(el().w_full().radius(CARD_RADIUS).child(grid), crate::fx::doc_fx::BlockKind::Table, forge)
+        }
         Some(lines) => {
             let e = crate::doc::labels::one_column(source, &lines);
             block_body(&e.text, style, notes, places, None, open, fonts, meta, dress, remap(hits, |r| e.map(r)))
@@ -483,11 +487,11 @@ fn clip(hits: &super::find::Marks, r: &Range<usize>) -> super::find::Marks {
 /// A label block on two columns (constraint 4 of the logs record, wide mockup t-mix):
 /// on the left the labels in bold without the `:`, as wide as the widest and at most
 /// 10 em, on the right the text, aligned row by row; a row without a label sits on the right.
-fn label_columns(source: &str, lines: &[crate::doc::labels::Line], hits: super::find::Marks, fonts: super::markdown_style::Fonts, body: impl Fn(&str, super::find::Marks) -> El) -> El {
+fn label_columns(source: &str, lines: &[crate::doc::labels::Line], hits: super::find::Marks, fonts: super::markdown_style::Fonts, rule: Color, body: impl Fn(&str, super::find::Marks) -> El) -> El {
     let bold = TextStyle { weight: LABEL_WEIGHT, ..fonts.body };
     let widest = lines.iter().filter_map(|l| l.name()).map(|r| rune::text::advance(&source[r], bold)).fold(0.0, f32::max);
     let width = widest.min(LABEL_MAX_EM * fonts.body.size).ceil();
-    col().w_full().children(lines.iter().map(|l| {
+    col().w_full().children(lines.iter().enumerate().flat_map(|(k, l)| {
         let label = match l.name() {
             Some(r) => {
                 let e = crate::doc::footnotes::Edited::new(&source[r.clone()], vec![(0..0, "**".to_owned()), (r.len()..r.len(), "**".to_owned())]);
@@ -497,9 +501,16 @@ fn label_columns(source: &str, lines: &[crate::doc::labels::Line], hits: super::
             None => el(),
         };
         let rest = l.rest(source);
-        rune::row().w_full().gap(LABEL_GAP).child(el().w(width).child(label)).child(el().grow(1.0).min_w(0.0).child(body(&source[rest.clone()], clip(&hits, &rest))))
+        let row = rune::row().w_full().gap(LABEL_GAP).child(el().w(width).child(label)).child(el().grow(1.0).min_w(0.0).child(body(&source[rest.clone()], clip(&hits, &rest))));
+        // Like a table row (feedback 2026-11-24, G5): the kit's cell padding and a 1 pt rule
+        // above every row but the first.
+        let line = (k > 0).then(|| el().w_full().h(1.0).fill(rule));
+        line.into_iter().chain([row.px(LABEL_TABLE_PAD[0]).py(LABEL_TABLE_PAD[1])])
     }))
 }
+
+/// The kit's table cell padding, pt.
+const LABEL_TABLE_PAD: [f32; 2] = [10.0, 6.0];
 
 /// Where a document's paths are looked up and the folders that tell its same-name files apart
 /// (`doc::paths`).
@@ -2155,6 +2166,38 @@ mod tests {
         let one: Vec<String> = narrow.elements().into_iter().filter_map(|e| e.text).filter(|t| t.starts_with("Task 2: BASE")).collect();
         assert_eq!(one.len(), 1, "one column: {one:?}");
         assert!(one[0].contains("abd1.\nRuling: task 2 commit"));
+    }
+
+    /// G5 (feedback 2026-11-24): a two-column label block reads as a table: a 1 pt `line` rule
+    /// between rows (none above the first) across the block, and the cell padding inside.
+    #[test]
+    fn a_label_block_is_drawn_as_a_table() {
+        for dark in [false, true] {
+            let line = crate::ui::theme::Theme::for_mode(dark).line;
+            let rt = open_themed("Data: 23 dicembre\nPersone: 18\nLuogo: da confermare\n", dark);
+            let els = rt.elements();
+            let rules: Vec<[f32; 4]> = els.iter().filter(|e| e.rect[3] == 1.0 && e.fill == line).map(|e| e.rect).collect();
+            assert_eq!(rules.len(), 2, "dark {dark}: rules {rules:?}");
+            let at = |s: &str| els.iter().find(|e| e.text.as_deref() == Some(s)).unwrap_or_else(|| panic!("missing {s}")).rect;
+            let (data, persone) = (at("Data"), at("Persone"));
+            assert!(rules[0][1] > data[1] + data[3] && rules[0][1] < persone[1], "rule between the rows: {rules:?} {data:?} {persone:?}");
+            assert!(data[0] - rules[0][0] >= super::LABEL_TABLE_PAD[0] - 0.5, "padded: {data:?} {rules:?}");
+        }
+    }
+
+    /// G6 (feedback 2026-11-24): items that wrap stand 12 pt apart, one-line items 4 pt.
+    #[test]
+    fn list_items_that_wrap_stand_further_apart() {
+        let long = "word ".repeat(40);
+        let source = format!("- one\n- two\n\npara\n\n- {long}\n- {long}\n");
+        let rt = open_themed(&source, false);
+        let els = rt.elements();
+        let items: Vec<[f32; 4]> = els.iter().filter(|e| e.role == "listitem").map(|e| e.rect).collect();
+        assert_eq!(items.len(), 4, "{items:?}");
+        let gap = |a: [f32; 4], b: [f32; 4]| b[1] - (a[1] + a[3]);
+        assert!((gap(items[0], items[1]) - 4.0).abs() < 0.5, "short: {items:?}");
+        assert!(items[2][3] > 40.0, "the long item wraps: {items:?}");
+        assert!((gap(items[2], items[3]) - 12.0).abs() < 0.5, "long: {items:?}");
     }
 
     /// DESIGN.md (paragraphs wrapped by hand, no log) comes out the same as it was without

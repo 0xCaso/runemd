@@ -130,6 +130,10 @@ pub fn style_with(theme: &Theme, face: Typeface) -> MarkdownStyle {
         // The box (`doc_view::framed`) closes the table: no rule of its own under the last row.
         .table_open_end(true)
         .table_rules(theme.line)
+        // Items that wrap stand 12 apart, one-line items 4 (feedback 2026-11-24, G6). Measured
+        // against the default text column: in a narrower one a list can wrap and keep 4.
+        .list(LIST_INDENT, LIST_GAP)
+        .list_wrap(LIST_WRAP_GAP, super::theme::COLUMN)
         .rule(theme.line)
         // Task list checkboxes like the Settings one (DESIGN.md, "Contrast"):
         // off is empty with a 1 border in `fg3`, on is filled `fg2` with the check in `panel`.
@@ -145,6 +149,11 @@ pub fn style_with(theme: &Theme, face: Typeface) -> MarkdownStyle {
         .highlight_current_fg(None)
         .highlight_current_ring(Some((theme.fg2, FIND_RING_ACTIVE)))
 }
+
+/// Bullet indent and the gap between items: one-line items, and items that wrap (G6).
+const LIST_INDENT: f32 = 32.0;
+const LIST_GAP: f32 = 4.0;
+const LIST_WRAP_GAP: f32 = 12.0;
 
 /// A task list checkbox starts 8 pt inside the gutter column (like the kit).
 const TASK_LEFT: f32 = 8.0;
