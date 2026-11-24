@@ -26,7 +26,7 @@ pub(super) fn inline_dir(inl: &Inline) -> Option<Direction> {
 /// block's, a table's.
 pub(super) fn blocks_dir(blocks: &[Block]) -> Option<Direction> {
     blocks.iter().find_map(|b| match b {
-        Block::Para(inl) | Block::Heading(_, inl) => inline_dir(inl),
+        Block::Para(inl) | Block::Heading(_, inl) | Block::HtmlText { text: inl, .. } => inline_dir(inl),
         Block::List { items, .. } => items.iter().find_map(|item| blocks_dir(item)),
         Block::Quote(inner) => blocks_dir(inner),
         Block::Table(t) => table_dir(t),

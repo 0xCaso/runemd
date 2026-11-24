@@ -18,6 +18,7 @@ fn shown(blocks: &[Block]) -> String {
                 }
                 Block::Code(c) | Block::Diff(c) | Block::Mermaid(c) => out.push(c.clone()),
                 Block::Image { alt, .. } => out.push(alt.clone()),
+                Block::HtmlText { text, .. } => out.push(text.text.clone()),
                 Block::Rule => {}
             }
         }

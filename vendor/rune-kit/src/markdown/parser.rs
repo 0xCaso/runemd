@@ -118,6 +118,10 @@ pub(super) struct Builder {
     image_ranges: Vec<(usize, usize)>,
     /// Each open image's source and title, beside `image_starts`.
     image_dests: Vec<(String, String)>,
+    /// The raw HTML of the HTML block being read, until it ends.
+    html: Option<String>,
+    /// The paragraph being read has lifted an image: one right after it joins its line.
+    lifted: bool,
     tail: Tail,
 }
 
@@ -311,15 +315,58 @@ impl Builder {
         }
     }
 
+    /// The HTML block just read: each whole `<img>` in it becomes a [`Block::Image`], the text
+    /// between them a [`Block::HtmlText`]; tags, comments and scripts stay unshown.
+    fn html_block(&mut self) {
+        use super::html_img::Piece;
+        let Some(html) = self.html.take() else { return };
+        let center = super::html_img::centered(&html);
+        let mut after_img = false;
+        for piece in super::html_img::pieces(&html) {
+            match piece {
+                Piece::Img(img) => {
+                    self.push(Block::Image { src: img.src, alt: img.alt, title: img.title, width: img.width, center, html: true, href: img.href, joined: after_img }, BlockMap::None);
+                    after_img = true;
+                }
+                Piece::Text(text) => {
+                    self.push(Block::HtmlText { text: Inline { text, ..Inline::default() }, center }, BlockMap::None);
+                    after_img = false;
+                }
+            }
+        }
+    }
+
+    /// An `<img>` inside a paragraph's line: an image block of its own, as `![alt](src)` is.
+    fn inline_img(&mut self, tag: &str) {
+        let Some(img) = super::html_img::imgs(tag).into_iter().next() else { return };
+        let inl = self.inline();
+        let start = inl.1.text.len();
+        inl.1.text.push_str(&img.alt);
+        let end = inl.1.text.len();
+        if !self.lift_image(start, end, img.src, img.title, img.width, true) {
+            self.image_ranges.push((start, end));
+        }
+    }
+
     /// Lifts the image whose alt text is `start..end` of the paragraph being read out into a
     /// [`Block::Image`] of its own, the text before it ending a paragraph and the text after it
-    /// starting one. An image in a heading, a table cell, a link or emphasis stays in the line.
-    fn lift_image(&mut self, start: usize, end: usize, src: String, title: String) -> bool {
+    /// starting one. An image in a heading, a table cell or emphasis stays in the line, and so
+    /// does one in a link that holds more than it; the image a link is all of takes its destination.
+    fn lift_image(&mut self, start: usize, end: usize, src: String, title: String, width: Option<f32>, html: bool) -> bool {
+        let lifted = self.lifted;
         let Some((InlineKind::Para, inl, open, map)) = self.inline.as_mut() else { return false };
         // An image still arriving (no source yet) stays its alt text until it is whole.
-        if !open.is_empty() || end > inl.text.len() || src.is_empty() {
+        if end > inl.text.len() || src.is_empty() {
             return false;
         }
+        let href = match open.as_slice() {
+            [] => None,
+            [link] if link.url.is_some() && link.start == start => link.url.clone(),
+            _ => return false,
+        };
+        // The link closes on nothing: its text went with the image.
+        open.clear();
+        let joined = lifted && inl.text[..start].trim().is_empty();
         let alt = inl.text[start..end].to_owned();
         let mut alt_map = SpanMap::default();
         for (src, out) in &map.0 {
@@ -342,8 +389,9 @@ impl Builder {
         });
         map.truncate_out(start);
         self.flush_inline();
-        self.push(Block::Image { src, alt, title }, BlockMap::Inline(alt_map));
+        self.push(Block::Image { src, alt, title, width, center: false, html, href, joined }, BlockMap::Inline(alt_map));
         self.inline = Some((InlineKind::Para, Inline::default(), Vec::new(), SpanMap::default()));
+        self.lifted = true;
         true
     }
 
@@ -461,6 +509,8 @@ pub(super) fn parse_doc_tail(src: &str, autolink: bool) -> (ParsedDoc, Tail) {
         image_starts: Vec::new(),
         image_ranges: Vec::new(),
         image_dests: Vec::new(),
+        html: None,
+        lifted: false,
         tail: Tail::None,
     };
     let opts = Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TABLES | Options::ENABLE_TASKLISTS;
@@ -493,6 +543,7 @@ pub(super) fn parse_doc_tail(src: &str, autolink: bool) -> (ParsedDoc, Tail) {
             Event::Start(tag) => match tag {
                 Tag::Paragraph => {
                     b.flush_inline();
+                    b.lifted = false;
                     if b.stack.len() == 1 {
                         b.last_root_para = Some(range);
                     }
@@ -565,6 +616,10 @@ pub(super) fn parse_doc_tail(src: &str, autolink: bool) -> (ParsedDoc, Tail) {
                     b.flush_inline();
                     b.inline = Some((InlineKind::Cell, Inline::default(), Vec::new(), SpanMap::default()));
                 }
+                Tag::HtmlBlock => {
+                    b.flush_inline();
+                    b.html = Some(String::new());
+                }
                 Tag::Strong => open(&mut b, Style::Strong, None),
                 Tag::Emphasis => open(&mut b, Style::Em, None),
                 Tag::Strikethrough => open(&mut b, Style::Strike, None),
@@ -599,11 +654,12 @@ pub(super) fn parse_doc_tail(src: &str, autolink: bool) -> (ParsedDoc, Tail) {
                 }
                 TagEnd::BlockQuote(_) | TagEnd::Item | TagEnd::List(_) | TagEnd::Table => b.pop_container(),
                 TagEnd::Strong | TagEnd::Emphasis | TagEnd::Strikethrough | TagEnd::Link => close(&mut b),
+                TagEnd::HtmlBlock => b.html_block(),
                 TagEnd::Image => {
                     if let Some(start) = b.image_starts.pop() {
                         let end = b.inline().1.text.len();
                         let (src, title) = b.image_dests.pop().unwrap_or_default();
-                        if !b.lift_image(start, end, src, title) {
+                        if !b.lift_image(start, end, src, title, None, false) {
                             b.image_ranges.push((start, end));
                         }
                     }
@@ -664,9 +720,17 @@ pub(super) fn parse_doc_tail(src: &str, autolink: bool) -> (ParsedDoc, Tail) {
                 b.flush_inline();
                 b.push(Block::Rule, BlockMap::None);
             }
+            Event::Html(t) => {
+                if let Some(html) = &mut b.html {
+                    html.push_str(&t);
+                }
+            }
+            Event::InlineHtml(t) => b.inline_img(&t),
             _ => {}
         }
     }
+    // An HTML block still arriving shows the images whose tags are whole.
+    b.html_block();
     b.flush_inline();
     if let Some((text, fence, map)) = b.code.take() {
         b.push_code(text, fence, map, true);

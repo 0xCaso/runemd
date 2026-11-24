@@ -45,6 +45,8 @@ ogg-audio = ["dep:symphonia", "dep:opuscule"]
 # SVG and SVGZ images (`ImageCache::svg`, `file`, `load_mime`, and `load` on sniffed SVG bytes), and
 # scalable Linux app icons, rasterized by resvg. Off, those images resolve to `Image::error`.
 svg = ["dep:resvg"]
+# Text in SVG images (a badge's label), set in the system's fonts, loaded once on first use.
+svg-text = ["svg", "resvg/text", "resvg/system-fonts", "resvg/memmap-fonts"]
 # AVIF images (`ImageCache::load` on AVIF bytes), decoded natively by rav1d, a Rust port of
 # dav1d; an animated AVIF shows its first frame. Building it for x86 needs NASM on the PATH for
 # rav1d's assembly. Off, AVIF bytes resolve to `Image::error`. No effect on web, where the

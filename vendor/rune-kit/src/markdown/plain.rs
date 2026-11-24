@@ -35,7 +35,7 @@ fn plain(blocks: &[Block], tasks: &[Option<(bool, usize)>], task: &mut usize, co
     for b in blocks {
         let here = lead.take();
         match b {
-            Block::Para(inl) | Block::Heading(_, inl) => {
+            Block::Para(inl) | Block::Heading(_, inl) | Block::HtmlText { text: inl, .. } => {
                 let text = unpadded(&inl.text);
                 out.push(match here {
                     Some((marker, before)) => Piece { breaks: [before, 1], text: marker + &text },

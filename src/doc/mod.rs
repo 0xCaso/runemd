@@ -12,5 +12,6 @@ pub mod ids;
 pub mod json;
 pub mod labels;
 pub mod paths;
+pub mod remote_images;
 pub mod select_all;
 pub mod table;

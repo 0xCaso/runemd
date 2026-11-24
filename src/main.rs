@@ -96,6 +96,7 @@ fn init() -> App {
 fn setup(s: &mut App, waker: Waker) {
     open::queue::set_waker(waker.clone());
     s.images = Some(rune::ImageCache::new(waker.clone()));
+    s.remote_images.set_waker(waker.clone());
     s.find.set_waker(waker.clone());
     s.live.start(waker.clone(), s.library.roots().to_vec());
     // `--lab` (debug builds only): the bridge with Animation Lab (`lab::watch`).
@@ -146,7 +147,7 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
             // Labelled blocks in two columns if the text column is wide (from the last
             // layout; Rune runs the view again when the threshold is crossed).
             let columns = cx.layout_with("rows", |r| r[2] - 2.0 * ui::theme::ROW_PAD_X >= ui::doc_view::TWO_COLUMNS).unwrap_or(false);
-            let signals = ui::doc_view::Signals { marked: App::is_marked, mark: theme.mark, caret, hits: App::find_hits, edge: App::doc_edge, meta: theme.meta(), fonts: ui::markdown_style::fonts(fonts::Typeface::of(&s.settings.font, s.settings.size)), open: App::open_link, columns, bottom: fx::fire::doc_bottom(s.settings.fire.shows(), s.settings.fire_height), forge: ui::doc_view::Forge { on: s.forge(), look: fx::doc_fx::Look { dark, reduced }, metal: s.metal_block }, image: App::doc_image, images_ready: if s.forge().any() { s.doc_images_ready() } else { 0 }, wraps: s.code_wraps.clone() };
+            let signals = ui::doc_view::Signals { marked: App::is_marked, mark: theme.mark, caret, hits: App::find_hits, edge: App::doc_edge, meta: theme.meta(), fonts: ui::markdown_style::fonts(fonts::Typeface::of(&s.settings.font, s.settings.size)), open: App::open_link, columns, bottom: fx::fire::doc_bottom(s.settings.fire.shows(), s.settings.fire_height), forge: ui::doc_view::Forge { on: s.forge(), look: fx::doc_fx::Look { dark, reduced }, metal: s.metal_block }, image: App::doc_image, images_ready: s.doc_images_ready(), wraps: s.code_wraps.clone() };
             let doc = match tab.doc.kind {
                 open::kind::FileKind::Image => {
                     let room = cx.layout_with("image-box", |r| r[2]);
@@ -488,7 +489,9 @@ fn poll(s: &mut App, clock: f64, tx: &mut Tx) -> bool {
     let wordmark = s.forge_images.borrow().next_ready();
     // A new `lab.json` (`--lab`): the view draws the new tuning, or the test state at the new time.
     let lab = lab::take_changed();
-    let changed = opened || quick || tabs || ring || side || blurred || found || wordmark || brief || lab || refocused;
+    // A document picture arrived from the internet or decoded: the rows take it.
+    let pictures = s.doc_images_moved();
+    let changed = opened || quick || tabs || ring || side || blurred || found || wordmark || brief || lab || refocused || pictures;
     // Only the fire at rest to redraw: the `REST_FRAME` wake-up commits to get a frame (a
     // resting window draws only for a poll that changed something; `Tx::live_only` does not hold
     // for `poll`). Inside a stream of frames (a scroll) the compositor already moves the flames

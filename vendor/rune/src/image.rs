@@ -462,7 +462,12 @@ fn linux_icon(path: &std::path::Path, px: u32) -> Result<(u32, u32, Vec<u8>), Im
 pub(crate) fn svg_rgba(bytes: &[u8], px: u32) -> Result<(u32, u32, Vec<u8>), ImageError> {
     use resvg::{tiny_skia, usvg};
     if bytes.len() > 32 << 20 { return Err(ImageError("SVG is too large".into())); }
-    let tree = usvg::Tree::from_data(bytes, &usvg::Options::default()).map_err(|e| ImageError(format!("SVG: {e}")))?;
+    let mut options = usvg::Options::default();
+    #[cfg(feature = "svg-text")]
+    if bytes.windows(5).any(|w| w == b"<text") {
+        options.fontdb = svg_fonts();
+    }
+    let tree = usvg::Tree::from_data(bytes, &options).map_err(|e| ImageError(format!("SVG: {e}")))?;
     let size = tree.size();
     let px = if px == 0 { (size.width().max(size.height()) * 2.0).ceil().clamp(1.0, 4096.0) as u32 } else { px };
     let k = px as f32 / size.width().max(size.height());
@@ -473,6 +478,17 @@ pub(crate) fn svg_rgba(bytes: &[u8], px: u32) -> Result<(u32, u32, Vec<u8>), Ima
         let c = p.demultiply();
         [c.red(), c.green(), c.blue(), c.alpha()]
     }).collect()))
+}
+
+/// The system's fonts, for text in SVGs: loaded once, on the first SVG with text.
+#[cfg(feature = "svg-text")]
+fn svg_fonts() -> std::sync::Arc<resvg::usvg::fontdb::Database> {
+    static FONTS: std::sync::OnceLock<std::sync::Arc<resvg::usvg::fontdb::Database>> = std::sync::OnceLock::new();
+    FONTS.get_or_init(|| {
+        let mut db = resvg::usvg::fontdb::Database::new();
+        db.load_system_fonts();
+        std::sync::Arc::new(db)
+    }).clone()
 }
 
 #[cfg(not(feature = "svg"))]

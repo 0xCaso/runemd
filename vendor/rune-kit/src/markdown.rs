@@ -54,6 +54,7 @@ mod bidi;
 mod cache;
 mod find;
 mod highlight;
+mod html_img;
 mod image;
 mod interrupt;
 mod link_icon;
@@ -125,8 +126,18 @@ pub enum Block {
     Mermaid(String),
     /// An image (`![alt](src "title")`) that stands as a block of its own, as `markdown.css`'s
     /// `img { display: block }` sets one: a paragraph around it splits into the text before
-    /// and after it. An image inside a link or emphasis stays its alt text in the line.
-    Image { src: String, alt: String, title: String },
+    /// and after it. An image inside emphasis stays its alt text in the line; one that is all a
+    /// link holds (a README's badge) is lifted, with the link's destination as `href`.
+    ///
+    /// An HTML `<img>` is one too, as GitHub shows a README's: `width` is its `width` attribute
+    /// in points, `center` whether its wrapper centres it (`<p align="center">`, `<center>`).
+    /// `html` says it came from `<img>`, whose alt text describes the picture and is no caption.
+    /// `joined`: only spaces stand between it and the image block before it, in the same
+    /// paragraph or HTML block (a row of badges), so it draws on that image's line.
+    Image { src: String, alt: String, title: String, width: Option<f32>, center: bool, html: bool, href: Option<String>, joined: bool },
+    /// The text of an HTML block, its tags left out (a README's `<p align="center">tagline</p>`),
+    /// drawn as a paragraph; `center` as for [`Block::Image`].
+    HtmlText { text: Inline, center: bool },
 }
 
 /// A GFM table. Rows may have fewer cells than there are columns.
@@ -210,6 +221,7 @@ pub struct Markdown {
     quote_frame: Option<QuoteWire>,
     link_favicon: Option<link_icon::FaviconWire>,
     images: Option<image::ImageWire>,
+    image_density: Option<image::ImageDensity>,
     on_image: Option<image::ImagePress>,
     link_icon: Option<link_icon::LinkIconWire>,
     code_wrap: Option<CodeWrapWire>,
@@ -232,7 +244,7 @@ impl Markdown {
         Markdown { src: src.into(), style: None, block_keys: Vec::new(), highlights: Vec::new(), autolink: true, reveal: -1.0, streaming: false, on_link: None, on_link_secondary: None, link_look: None, link_help: None, link_ring: None, code_link: None,
             on_task: None, tasks_read_only: false, selectable: false, copy_source: false, scroll_wide: false, tentative: None, highlighter: Highlighter::builtin(),
             #[cfg(feature = "mermaid")]
-            diagram_frame: None, code_frame: None, quote_frame: None, link_favicon: None, images: None, on_image: None, link_icon: None, code_wrap: None, code_header: None }
+            diagram_frame: None, code_frame: None, quote_frame: None, link_favicon: None, images: None, image_density: None, on_image: None, link_icon: None, code_wrap: None, code_header: None }
     }
     /// Highlight UTF-8 byte ranges of the Markdown source string (see [`find`]).
     ///
@@ -505,7 +517,7 @@ impl Markdown {
             highlighter: self.highlighter, sources, next_source: Cell::new(0), tasks, next_task: Cell::new(0),
             current_block_key: RefCell::new("b0".into()),
             #[cfg(feature = "mermaid")]
-            diagram_frame: self.diagram_frame, code_frame: self.code_frame, quote_frame: self.quote_frame, link_favicon: self.link_favicon, images: self.images, on_image: self.on_image, link_icon: self.link_icon, code_wrap: self.code_wrap, code_header: self.code_header, flow: Cell::default() };
+            diagram_frame: self.diagram_frame, code_frame: self.code_frame, quote_frame: self.quote_frame, link_favicon: self.link_favicon, images: self.images, image_density: self.image_density, on_image: self.on_image, link_icon: self.link_icon, code_wrap: self.code_wrap, code_header: self.code_header, flow: Cell::default() };
         // The document reads the way its first words do; until any arrive, the way it was asked.
         let root = bidi::directed(r.blocks(&blocks, &maps, &keys, true), bidi::blocks_dir(&blocks).or(self.tentative)).selection_group(self.selectable);
         if !(self.selectable && self.copy_source) { return root; }

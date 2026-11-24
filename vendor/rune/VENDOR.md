@@ -23,6 +23,9 @@ Changes from the rev:
 - `src/el/pills.rs`: `InlineIcon::advance`, the width an inline icon takes (size + gap), so
   rune-kit's tables count a path's icon in its column's width (review R1,
   docs/decisions/2026-11-23-t3-paths-review.md).
+- `Cargo.toml`, `src/image.rs` (`svg_rgba`, `svg_fonts`): feature `svg-text`, text in SVG images
+  (a README's shields.io badges) set in the system's fonts, loaded once (decision
+  2026-11-24-remote-images); without it resvg drops every `<text>`.
 
 Test: `tests/inline_icon_glyph_bytes.rs` (fails on the rev, passes here).
 

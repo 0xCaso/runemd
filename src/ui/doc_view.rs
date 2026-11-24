@@ -50,8 +50,8 @@ pub struct Signals<S> {
     pub bottom: f32,
     /// Full forge (`fx::doc_fx`): six directions on by default; off (`RUNEMD_FORGE=off`), nothing below changes.
     pub forge: Forge,
-    /// The picture for an image `src` of the document at the path (Forged and Glass only).
-    pub image: fn(&S, &std::path::Path, &str) -> Option<rune::Image>,
+    /// The picture for an image `src` of the document at the path, and its pixels per point.
+    pub image: fn(&S, &std::path::Path, &str) -> Option<(rune::Image, f32)>,
     /// How many of the document's pictures have decoded: the rows build again when it changes.
     pub images_ready: usize,
     /// The code blocks whose lines wrap (`code_key`); the others scroll sideways.
@@ -79,8 +79,8 @@ fn framed(e: El, kind: crate::fx::doc_fx::BlockKind, forge: Forge) -> El {
     }
 }
 
-/// A block's pictures, by `src` as written (`Forge`: Forged and Glass load them).
-type Pictures = std::rc::Rc<std::collections::HashMap<String, rune::Image>>;
+/// A block's pictures and their pixels per point, by `src` as written.
+type Pictures = std::rc::Rc<std::collections::HashMap<String, (rune::Image, f32)>>;
 
 /// From how wide the text column is (without the row margins) label blocks
 /// go on two columns (constraint 4 of the logs record, mockup t-mix).
@@ -270,11 +270,7 @@ pub fn view<S: 'static>(s: &S, doc_of: fn(&S) -> &Document, style: &MarkdownStyl
                     }
                     let progress = doc.tasks.get(&b.id).copied();
                     let forge = signals.forge;
-                    let pictures: Pictures = if forge.on.glass || forge.on.forged {
-                        std::rc::Rc::new(crate::fx::doc_fx::image_sources(&b.source).into_iter().filter_map(|src| Some((src.to_owned(), (signals.image)(s, &doc.path, src)?))).collect())
-                    } else {
-                        Pictures::default()
-                    };
+                    let pictures: Pictures = std::rc::Rc::new(crate::fx::doc_fx::image_sources(&b.source).into_iter().filter_map(|src| Some((src.to_owned(), (signals.image)(s, &doc.path, &src)?))).collect());
                     let dress = Dress { forge, pictures, wraps: signals.wraps.clone(), title: title.clone() };
                     let row = block_row(&b.source, &style, &doc.notes, &places, progress, signals.columns, signals.open, signals.fonts, signals.meta, &dress, (signals.marked)(s, b.id).then_some(signals.mark), hits);
                     match caret {
@@ -294,7 +290,7 @@ pub fn view<S: 'static>(s: &S, doc_of: fn(&S) -> &Document, style: &MarkdownStyl
                 })
             },
         )
-        .virtual_rows_version((rows_version(doc), signals.forge.on.any().then_some((signals.images_ready, signals.forge.on.electric)), wraps_version))
+        .virtual_rows_version((rows_version(doc), (signals.images_ready, signals.forge.on.electric), wraps_version))
         .on_visible_rows(move |s: &mut S, rows| on_rows(s, generation, rows));
     let bottom = col().w_full().h(signals.bottom);
     let edge = signals.edge;
@@ -618,7 +614,27 @@ fn block_body<S: 'static>(source: &str, style: &MarkdownStyle, notes: &crate::do
     };
     // Only blocks that may hold code get the hooks: with them the kit does not cache the block.
     let md = if has_code(source) { code_heads::<S>(md, source, &meta, &dress.wraps, dress.title.clone(), open) } else { md };
-    let md = if forge.on.any() { forge_markdown(md, dress, callout.is_some()) } else { md };
+    // Every image the block points to shows its picture, forged or not.
+    let md = if dress.pictures.is_empty() {
+        md
+    } else {
+        let (pictures, density) = (dress.pictures.clone(), dress.pictures.clone());
+        let forge = dress.forge;
+        md.images(move |src| pictures.get(src).map(|(image, _)| image.clone()))
+            .image_density(move |src| density.get(src).map_or(1.0, |(_, d)| *d))
+            .image_frame(move |picture, f| {
+                let picture = if forge.on.any() { forged_picture(picture, f, forge) } else { picture };
+                // A badge opens its link.
+                match f.href {
+                    Some(url) => {
+                        let url = url.to_owned();
+                        picture.on_press_tx(move |s: &mut S, tx: &mut rune::Tx| open(s, &url, tx))
+                    }
+                    None => picture,
+                }
+            })
+    };
+    let md = if forge.on.any() { forge_markdown(md, callout.is_some(), forge) } else { md };
     // Every link opens (`App::open_link`): paths, URLs and `#heading`.
     let md = md.on_link_tx(move |s: &mut S, url, tx| open(s, url, tx));
     let body = md.render(&style).selection_group(false);
@@ -658,6 +674,8 @@ const IMAGE_RADIUS: f32 = 4.0;
 /// Glass caption band over an image's bottom (mockup 5: about 40 pt, white text).
 const CAPTION_H: f32 = 40.0;
 const CAPTION_TEXT: f32 = 14.0;
+/// The shortest picture that gets the caption band: three bands tall.
+const CAPTION_MIN_H: f32 = 3.0 * CAPTION_H;
 /// Inside a forged callout: the room between its edge and its text.
 const CALLOUT_PAD_X: f32 = 12.0;
 const CALLOUT_PAD_Y: f32 = 10.0;
@@ -665,31 +683,28 @@ const CALLOUT_PAD_Y: f32 = 10.0;
 const DITHER_W: f32 = 4.0;
 
 /// The kit's hooks for the forge directions that are on: code cards with an edge, quotes in
-/// fluted glass (not callouts: they have their own band), pictures with an edge and a glass caption.
-fn forge_markdown(md: rune_kit::Markdown, dress: &Dress, callout: bool) -> rune_kit::Markdown {
+/// fluted glass (not callouts: they have their own band).
+fn forge_markdown(md: rune_kit::Markdown, callout: bool, forge: Forge) -> rune_kit::Markdown {
     use crate::fx::doc_fx::{BlockKind, Piece, slot};
-    let forge = dress.forge;
     let (on, look) = (forge.on, forge.look);
     let md = if on.edge().is_some() { md.code_frame(move |card, _| framed(el().w_full().radius(CARD_RADIUS).child(card), BlockKind::Code, forge)) } else { md };
-    let md = if on.glass && !callout { md.quote_frame(move |quote, _| slot(el().w_full().radius(IMAGE_RADIUS).child(quote), Piece::Fluted, look)) } else { md };
-    if dress.pictures.is_empty() {
-        return md;
+    if on.glass && !callout { md.quote_frame(move |quote, _| slot(el().w_full().radius(IMAGE_RADIUS).child(quote), Piece::Fluted, look)) } else { md }
+}
+
+/// A picture, forged: an edge, and Glass's caption band on a tall one.
+fn forged_picture(picture: El, f: &rune_kit::ImageFrame<'_>, forge: Forge) -> El {
+    use crate::fx::doc_fx::{BlockKind, Piece, slot};
+    let (glass, look) = (forge.on.glass, forge.look);
+    let wrap = el().radius(IMAGE_RADIUS).child(picture);
+    let mut wrap = if f.in_line { wrap.w(f.width).shrink() } else { wrap.w_full().max_w(f.width) };
+    // A badge or an icon is too short for the band: it would cover it.
+    let tall = f.image.size().is_some_and(|[w, h]| w > 0 && f.width * h as f32 / w as f32 >= CAPTION_MIN_H);
+    if glass && tall && !f.alt.is_empty() && !f.html {
+        let caption = rune::text(f.alt.to_owned()).truncate().font(TextStyle::new(CAPTION_TEXT, 500.0)).color(Color { r: 1.0, g: 1.0, b: 1.0, a: 1.0 }).selectable(false);
+        let band = rune::row().key("caption").pin(Some(0.0), None, Some(0.0), Some(0.0)).h(CAPTION_H).radius(IMAGE_RADIUS).px(CALLOUT_PAD_X).center_y().child(caption);
+        wrap = wrap.child(slot(band, Piece::Caption, look));
     }
-    let pictures = dress.pictures.clone();
-    let md = md.images(move |src| pictures.get(src).cloned());
-    let glass = on.glass;
-    md.image_frame(move |picture, f| {
-        let mut wrap = el().w_full().radius(IMAGE_RADIUS).child(picture);
-        if let Some([w, _]) = f.image.size() {
-            wrap = wrap.max_w(w as f32);
-        }
-        if glass && !f.alt.is_empty() {
-            let caption = rune::text(f.alt.to_owned()).font(TextStyle::new(CAPTION_TEXT, 500.0)).color(Color { r: 1.0, g: 1.0, b: 1.0, a: 1.0 }).selectable(false);
-            let band = rune::row().key("caption").pin(Some(0.0), None, Some(0.0), Some(0.0)).h(CAPTION_H).radius(IMAGE_RADIUS).px(CALLOUT_PAD_X).center_y().child(caption);
-            wrap = wrap.child(slot(band, Piece::Caption, look));
-        }
-        framed(wrap, BlockKind::Image, forge)
-    })
+    framed(wrap, BlockKind::Image, forge)
 }
 
 /// A callout, forged: the metal edge (with room inside it), Glass's dither band over the quote line,

@@ -27,5 +27,11 @@ Changes from the rev:
 - `MarkdownStyle::list_wrap` (`markdown/style.rs`, `markdown/render.rs`): a wider gap between the
   items of a list whose paragraphs wrap (feedback 2026-11-24 G6, record
   2026-11-24-label-tables-list-spacing); one-line lists keep `list`'s gap.
+- HTML `<img>` and badge rows (`markdown/html_img.rs`, `markdown/parser.rs`, `markdown/image.rs`,
+  `markdown/render.rs`, `Block::Image`'s `width`, `center`, `html`, `href`, `joined`,
+  `Markdown::image_density`, `ImageFrame`'s `width`, `html`, `href`, `in_line`): a README's
+  `<p align="center"><img width>` shows centred at its width; an image that is all a link holds is
+  lifted with the link's destination; images with only spaces between them share a wrapping line
+  (feedback 2026-11-24 I2, decision 2026-11-24-remote-images).
 
 To drop the vendor: once Rune has equivalents, point `rune-kit` back at the git rev.

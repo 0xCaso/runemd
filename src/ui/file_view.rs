@@ -67,6 +67,12 @@ pub fn svg_size(svg: &str) -> Option<[f32; 2]> {
     (vb.len() == 4 && vb[2] > 0.0 && vb[3] > 0.0).then(|| [vb[2], vb[3]])
 }
 
+/// The side an SVG is rasterized at, in points (at 2 pixels per point): its own largest side,
+/// [`SVG_DEFAULT`] without one, kept between 16 and [`SVG_MAX`].
+pub fn svg_side(svg: &str) -> f32 {
+    svg_size(svg).map_or(SVG_DEFAULT, |[w, h]| w.max(h)).clamp(16.0, SVG_MAX)
+}
+
 /// The largest side an SVG is rasterized at, in points (at 2 pixels per point).
 pub const SVG_MAX: f32 = 2048.0;
 /// An SVG with no size of its own.

@@ -47,6 +47,7 @@ pub(super) struct Renderer {
     pub(super) code_header: Option<super::CodeHeaderWire>,
     /// `Markdown::images` and `Markdown::on_image`.
     pub(super) images: Option<image::ImageWire>,
+    pub(super) image_density: Option<image::ImageDensity>,
     pub(super) on_image: Option<image::ImagePress>,
     /// Where the blocks being drawn sit: list depth and a quote's text colour.
     pub(super) flow: Cell<Flow>,
@@ -153,7 +154,7 @@ fn block_key(i: usize, keys: &[String], used: &mut Vec<String>) -> String {
 /// (margin-top, margin-bottom) per block, collapsed like CSS margins.
 pub(super) fn margins(b: &Block, s: &MarkdownStyle) -> (f32, f32) {
     match b {
-        Block::Para(_) => (0.0, 12.0),
+        Block::Para(_) | Block::HtmlText { .. } => (0.0, 12.0),
         Block::Heading(1, _) => (28.0, 12.0),
         Block::Heading(2, _) => (24.0, 10.0),
         Block::Heading(..) => (20.0, 8.0),
@@ -414,6 +415,10 @@ impl Renderer {
                     continue;
                 }
             }
+            // An image joined to the line of the one before it is drawn there.
+            if i > 0 && matches!(b, Block::Image { joined: true, .. }) && matches!(blocks[i - 1], Block::Image { .. }) {
+                continue;
+            }
             let (mt, mb) = collapsed(b, &self.s, i, in_item);
             let top = match b {
                 _ if i == 0 => 0.0,
@@ -433,7 +438,13 @@ impl Renderer {
             }
             let own = bidi::blocks_dir(std::slice::from_ref(b));
             let prose = !matches!(b, Block::Code(_) | Block::Diff(_) | Block::Mermaid(_) | Block::Image { .. } | Block::Rule);
-            let drawn = self.block(b, maps.get(i).unwrap_or(&empty));
+            let drawn = match b {
+                Block::Image { .. } => {
+                    let line: Vec<&Block> = std::iter::once(b).chain(blocks[i + 1..].iter().take_while(|n| matches!(n, Block::Image { joined: true, .. }))).collect();
+                    self.images_line(&line)
+                }
+                _ => self.block(b, maps.get(i).unwrap_or(&empty)),
+            };
             let drawn = if prose { bidi::directed(drawn, own.or(last)) } else { drawn };
             if own.is_some() {
                 last = own;
@@ -643,6 +654,10 @@ impl Renderer {
         };
         match b {
             Block::Para(inl) => self.para(inl, inl_map, s.body, self.flow.get().ink.unwrap_or(s.text)),
+            Block::HtmlText { text, center } => {
+                let p = self.para(text, None, s.body, self.flow.get().ink.unwrap_or(s.text));
+                if *center { p.align(Align::Center) } else { p }
+            }
             Block::Heading(l, inl) => self.para(inl, inl_map, s.headings[(*l as usize).clamp(1, 4) - 1], if *l >= 4 { s.muted } else { s.text }).role("heading").level(u32::from(*l)),
             Block::Code(code) => {
                 let n = self.next_source.get();
@@ -762,7 +777,7 @@ impl Renderer {
                 }
             }
             // A clear rule is spacing only (`hr { border: none; height: 0 }`).
-            Block::Image { src, alt, title } => self.image(src, alt, title),
+            Block::Image { .. } => self.images_line(&[b]),
             Block::Rule if s.rule.a <= 0.0 => el().w_full().h(0.0),
             Block::Rule => el().w_full().h(0.5).fill(s.rule),
         }
@@ -773,7 +788,7 @@ fn item_label(blocks: &[Block]) -> String {
     let mut out = String::new();
     for b in blocks {
         let text = match b {
-            Block::Para(inl) | Block::Heading(_, inl) => unpadded(&inl.text),
+            Block::Para(inl) | Block::Heading(_, inl) | Block::HtmlText { text: inl, .. } => unpadded(&inl.text),
             Block::Code(s) | Block::Diff(s) | Block::Mermaid(s) => s.clone(),
             Block::Image { alt, .. } => alt.clone(),
             _ => continue,

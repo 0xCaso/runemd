@@ -432,9 +432,8 @@ pub enum CloseAnswer {
     Cancel,
 }
 
-/// The size SVG pictures in a document rasterize at (Full forge): the text column at 2×.
+/// The size a raster picture is asked at (the cache ignores it for raster files).
 const DOC_IMAGE_PT: f32 = 720.0;
-const DOC_IMAGE_SCALE: f32 = 2.0;
 
 pub struct App {
     pub tabs: Vec<Tab>,
@@ -474,6 +473,10 @@ pub struct App {
     pub(crate) code_wraps: std::sync::Arc<std::collections::HashSet<u64>>,
     /// The document pictures Full forge shows (Forged, Glass), by path: held so they decode once.
     pub(crate) doc_images: std::cell::RefCell<std::collections::HashMap<PathBuf, rune::Image>>,
+    /// The document pictures on the internet (`https://…`), fetched in the background.
+    pub(crate) remote_images: crate::doc::remote_images::RemoteImages,
+    /// [`App::doc_images_ready`] when `poll` last looked.
+    doc_images_seen: std::cell::Cell<usize>,
     /// "Reduce motion" as the last view saw it (`poll` has no `Cx`): the fire at rest
     /// requests its wakeups only if it moves.
     pub(crate) reduced_seen: std::cell::Cell<bool>,
@@ -552,6 +555,8 @@ impl App {
             metal_block: crate::fx::doc_fx::metal_block(),
             code_wraps: Default::default(),
             doc_images: Default::default(),
+            remote_images: Default::default(),
+            doc_images_seen: Default::default(),
             motion_env: crate::fx::reduce_motion_env(std::env::var("RUNEMD_REDUCE_MOTION").ok().as_deref()),
             glass_env: glass_env(std::env::var("RUNEMD_GLASS").ok().as_deref()),
             scroll: None,
@@ -1556,12 +1561,14 @@ impl App {
         self.tab().is_some_and(|t| t.is_marked(id))
     }
 
-    /// The picture for an image `src` of the document at `doc` (Full forge): from the image cache,
-    /// held until the app quits. `None` without a cache (tests) or for a URL.
-    pub fn doc_image(&self, doc: &std::path::Path, src: &str) -> Option<rune::Image> {
-        let path = crate::fx::doc_fx::image_path(doc, src)?;
-        let cache = self.images.as_ref()?;
-        Some(self.doc_images.borrow_mut().entry(path.clone()).or_insert_with(|| cache.file(&path, DOC_IMAGE_PT, DOC_IMAGE_SCALE)).clone())
+    /// The picture for an image `src` of the document at `doc` and its pixels per point (see
+    /// [`App::file_image`]): from the image cache, held until the app quits; an `https://` one once
+    /// its fetch has arrived. `None` without a cache (tests).
+    pub fn doc_image(&self, doc: &std::path::Path, src: &str) -> Option<(rune::Image, f32)> {
+        if crate::doc::remote_images::is_remote(src) {
+            return self.remote_images.get(src.trim(), self.images.as_ref()?);
+        }
+        self.file_image(&crate::fx::doc_fx::image_path(doc, src)?)
     }
 
     /// A click on the arrow of JSON line `line` in the tab of document `doc`: the node folds or
@@ -1603,8 +1610,7 @@ impl App {
         let scale = if svg { 2.0 } else { 1.0 };
         let image = self.doc_images.borrow_mut().entry(path.to_owned()).or_insert_with(|| {
             let side = if svg {
-                let text = std::fs::read_to_string(path).unwrap_or_default();
-                ui::file_view::svg_size(&text).map_or(ui::file_view::SVG_DEFAULT, |[w, h]| w.max(h)).clamp(16.0, ui::file_view::SVG_MAX)
+                ui::file_view::svg_side(&std::fs::read_to_string(path).unwrap_or_default())
             } else {
                 DOC_IMAGE_PT
             };
@@ -1613,9 +1619,15 @@ impl App {
         Some((image, scale))
     }
 
-    /// How many document pictures have decoded (the rows build again when it changes).
+    /// How many document pictures have decoded or arrived (the rows build again when it changes).
+    /// Whether [`App::doc_images_ready`] changed since the last poll asked.
+    pub fn doc_images_moved(&self) -> bool {
+        let now = self.doc_images_ready();
+        self.doc_images_seen.replace(now) != now
+    }
+
     pub fn doc_images_ready(&self) -> usize {
-        self.doc_images.borrow().values().filter(|i| i.is_ready()).count()
+        self.doc_images.borrow().values().filter(|i| i.is_ready()).count() + self.remote_images.progress()
     }
 
     /// A "writing" ring is lit: only then does the compositor walk the instances.

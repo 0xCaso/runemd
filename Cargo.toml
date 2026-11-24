@@ -5,7 +5,7 @@ edition = "2024"
 publish = false
 
 [dependencies]
-rune = { git = "https://github.com/anomalyco/rune", rev = "384c2991e582418ba529835279c5876ac3915e02", features = ["tooling", "native-file-dialog"] } # patched to vendor/rune below (vendor/rune/VENDOR.md)
+rune = { git = "https://github.com/anomalyco/rune", rev = "384c2991e582418ba529835279c5876ac3915e02", features = ["tooling", "native-file-dialog", "svg-text"] } # patched to vendor/rune below (vendor/rune/VENDOR.md)
 rune-kit = { path = "vendor/rune-kit", features = ["markdown", "mermaid"] } # Rune rev 384c2991, vendored with two hooks (vendor/rune-kit/VENDOR.md)
 rune-fx = { path = "vendor/rune-fx" } # Rune rev 384c2991, vendored with one change (vendor/rune-fx/VENDOR.md)
 wgpu = { version = "30", default-features = false }

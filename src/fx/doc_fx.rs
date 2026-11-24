@@ -480,8 +480,9 @@ pub fn flat_tasks(source: &str) -> Option<Vec<(bool, &str)>> {
     (!items.is_empty()).then_some(items)
 }
 
-/// The images in a block's source (`![alt](src)` and `![alt](src "title")`): each `src` as written.
-pub fn image_sources(source: &str) -> Vec<&str> {
+/// The images in a block's source, each `src` as written: `![alt](src)`, `![alt](src "title")`
+/// and HTML `<img src="…">` (a README's centred logo).
+pub fn image_sources(source: &str) -> Vec<String> {
     let mut out = Vec::new();
     let mut rest = source;
     while let Some(at) = rest.find("![") {
@@ -492,9 +493,46 @@ pub fn image_sources(source: &str) -> Vec<&str> {
         let inner = after[..end].trim();
         let src = inner.split_whitespace().next().unwrap_or("").trim_start_matches('<').trim_end_matches('>');
         if !src.is_empty() {
-            out.push(src);
+            out.push(src.to_owned());
         }
         rest = &after[end..];
+    }
+    out.extend(html_image_sources(source));
+    out
+}
+
+/// Each `src` of an HTML `<img>` tag in `source`, quoted or bare.
+fn html_image_sources(source: &str) -> Vec<String> {
+    let lower = source.to_ascii_lowercase();
+    let mut out = Vec::new();
+    let mut at = 0;
+    while let Some(i) = lower[at..].find("<img") {
+        let start = at + i + 4;
+        let end = lower[start..].find('>').map_or(lower.len(), |e| start + e);
+        let tag = &lower[start..end];
+        let mut from = 0;
+        while let Some(j) = tag[from..].find("src") {
+            let k = from + j;
+            from = k + 3;
+            // `src`, not the end of `data-src`.
+            if k > 0 && !tag.as_bytes()[k - 1].is_ascii_whitespace() {
+                continue;
+            }
+            let after = tag[k + 3..].trim_start();
+            let Some(value) = after.strip_prefix('=') else { continue };
+            let value = value.trim_start();
+            let skip = tag.len() - value.len();
+            let raw = &source[start + skip..end];
+            let src = match raw.chars().next() {
+                Some(q @ ('"' | '\'')) => raw[1..].split(q).next().unwrap_or(""),
+                _ => raw.split(|c: char| c.is_whitespace() || c == '/').next().unwrap_or(""),
+            };
+            if !src.trim().is_empty() {
+                out.push(src.trim().replace("&amp;", "&"));
+            }
+            break;
+        }
+        at = end;
     }
     out
 }
@@ -727,9 +765,59 @@ mod tests {
     }
 
     #[test]
+    /// A README's HTML logo is an image block with its width, centred; an `<img>` in a line is lifted
+    /// like `![alt](src)`; other HTML stays unshown (rune-kit `markdown/html_img.rs`).
+    fn html_images_are_image_blocks() {
+        use rune_kit::markdown::{Block, parse};
+        let blocks = parse("<p align=\"center\"><img src=\"docs/logo.png\" alt=\"Logo\" width=\"439\"></p>\n\nText <img src=\"a.png\" alt=\"A\"> after.\n\n<div>no image</div>\n");
+        let images: Vec<_> = blocks.iter().filter_map(|b| match b {
+            Block::Image { src, alt, width, center, html, .. } => Some((src.as_str(), alt.as_str(), *width, *center, *html)),
+            _ => None,
+        }).collect();
+        assert_eq!(images, vec![("docs/logo.png", "Logo", Some(439.0), true, true), ("a.png", "A", None, false, true)]);
+        assert!(blocks.iter().any(|b| matches!(b, Block::HtmlText { text, center: false } if text.text == "no image")));
+    }
+
+    #[test]
+    /// The text of an HTML block shows as GitHub shows it: a README's centred tagline
+    /// `<p align="center">…</p>` is centred text; tags, comments and scripts stay unshown.
+    fn html_text_shows_and_centres() {
+        use rune_kit::markdown::{Block, parse};
+        let md = "<p align=\"center\">A native reader &amp; more.</p>\n\n<div>plain <b>bold</b>\n  text</div>\n\n<!-- hidden -->\n\n<script>hidden()</script>\n\n<p align=\"center\"><img src=\"a.png\"> caption</p>\n";
+        let got: Vec<String> = parse(md).iter().map(|b| match b {
+            Block::HtmlText { text, center } => format!("text {center} {}", text.text),
+            Block::Image { src, center, .. } => format!("image {center} {src}"),
+            other => format!("{other:?}"),
+        }).collect();
+        assert_eq!(got, vec!["text true A native reader & more.", "text false plain bold text", "image true a.png", "text true caption"]);
+    }
+
+    #[test]
+    fn a_row_of_linked_badges_shares_one_line() {
+        use rune_kit::markdown::{Block, parse};
+        let md = "[![A](a.svg)](https://a.dev) [![B](b.svg)](https://b.dev) ![C](c.png)\n\nText ![D](d.png)\n\n**![E](e.png)**\n\n<p align=\"center\"><a href=\"https://f.dev\"><img src=\"f.svg\"></a> <img src=\"g.svg\"></p>\n";
+        let blocks = parse(md);
+        let images: Vec<_> = blocks.iter().filter_map(|b| match b {
+            Block::Image { src, href, joined, .. } => Some((src.as_str(), href.as_deref(), *joined)),
+            _ => None,
+        }).collect();
+        assert_eq!(images, vec![
+            ("a.svg", Some("https://a.dev"), false),
+            ("b.svg", Some("https://b.dev"), true),
+            ("c.png", None, true),
+            ("d.png", None, false),
+            ("f.svg", Some("https://f.dev"), false),
+            ("g.svg", None, true),
+        ]);
+        assert!(blocks.iter().any(|b| matches!(b, Block::Para(p) if p.text == "E")), "an image in emphasis stays its alt text");
+    }
+
+    #[test]
     fn image_sources_are_found_and_resolved() {
         assert_eq!(image_sources("![Forge](images/a.png) and ![](b.png \"t\")"), vec!["images/a.png", "b.png"]);
-        assert_eq!(image_sources("no images [link](x)"), Vec::<&str>::new());
+        assert_eq!(image_sources("no images [link](x)"), Vec::<String>::new());
+        assert_eq!(image_sources(r#"<p align="center"><img data-src="no.png" src="docs/logo.png" width="439"></p>"#), vec!["docs/logo.png"]);
+        assert_eq!(image_sources("<IMG SRC=c.png>"), vec!["c.png"]);
         let doc = std::path::Path::new("/docs/note.md");
         assert_eq!(image_path(doc, "images/a.png"), Some("/docs/images/a.png".into()));
         assert_eq!(image_path(doc, "/abs/b.png"), Some("/abs/b.png".into()));
